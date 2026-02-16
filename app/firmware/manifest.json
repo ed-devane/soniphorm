@@ -1,0 +1,8 @@
+{
+    "version": "1.7.0",
+    "file": "GenRuntime.ino.bin",
+    "date": "2026-02-16",
+    "notes": "Smart Contact Mic support, hardware auto-detect, USB MIDI, utility modules",
+    "flashAddress": "0x10000",
+    "board": "ESP32-S3-WROOM-1-N16R8"
+}
