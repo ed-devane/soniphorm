@@ -1,0 +1,441 @@
+/**
+ * Sequencer — 16-step sequencer engine for Soniphorm.
+ * Plain JS class (no ES modules). Uses Web Audio API.
+ * Load via <script> tag; the class is globally accessible.
+ *
+ * Each step's `slots` array contains objects: { slot: N, pitch: 0 }
+ * so every slot on a step can have its own pitch (tape-style).
+ */
+class Sequencer {
+    constructor(audioContext) {
+        this.audioContext = audioContext;
+        this.playing = false;
+        this.bpm = 120;
+        this.currentStep = -1;
+        this.mutateEnabled = false;
+
+        // Pattern: 16 steps — each step can trigger multiple slots
+        this.pattern = [];
+        for (let i = 0; i < 16; i++) {
+            this.pattern.push({
+                slots: [],              // array of { slot: N, pitch: 0 }
+                mode: 'oneshot',        // 'oneshot' | 'loop'
+                direction: 'forward'    // 'forward' | 'reverse'
+            });
+        }
+
+        // Buffer cache: slotIndex → { forward: AudioBuffer, reverse: AudioBuffer }
+        this._bufferCache = {};
+
+        // Scheduling
+        this._schedulerTimer = null;
+        this._nextStepTime = 0;
+        this._nextStepIndex = 0;
+        this._lookahead = 0.1;
+        this._scheduleInterval = 25;
+        this._activeSources = [];
+
+        // Tap tempo
+        this._tapTimes = [];
+
+        // Callbacks
+        this.onStepChange = null;
+        this.onMutate = null;
+        this.onPatternLoop = null;
+        this.getSlotBuffer = null;
+        this.getLoadedSlots = null;
+    }
+
+    get stepDuration() {
+        return 60 / this.bpm / 4;
+    }
+
+    // === Transport ===
+
+    play() {
+        if (this.playing) return;
+        if (!this.audioContext) return;
+        this.playing = true;
+        this._nextStepIndex = 0;
+        this._nextStepTime = this.audioContext.currentTime + 0.05;
+        this._schedulerTimer = setInterval(() => this._scheduler(), this._scheduleInterval);
+    }
+
+    stop() {
+        this.playing = false;
+        if (this._schedulerTimer) {
+            clearInterval(this._schedulerTimer);
+            this._schedulerTimer = null;
+        }
+        for (const src of this._activeSources) {
+            try { src.stop(); } catch (e) {}
+        }
+        this._activeSources = [];
+        this.currentStep = -1;
+    }
+
+    setBpm(bpm) {
+        this.bpm = Math.max(20, Math.min(300, bpm));
+    }
+
+    tapTempo() {
+        const now = performance.now();
+        if (this._tapTimes.length >= 1 && now - this._tapTimes[this._tapTimes.length - 1] > 2000) {
+            this._tapTimes = [];
+        }
+        this._tapTimes.push(now);
+        if (this._tapTimes.length > 5) this._tapTimes.shift();
+        if (this._tapTimes.length >= 2) {
+            let sum = 0;
+            for (let i = 1; i < this._tapTimes.length; i++) {
+                sum += this._tapTimes[i] - this._tapTimes[i - 1];
+            }
+            this.setBpm(Math.round(60000 / (sum / (this._tapTimes.length - 1))));
+        }
+    }
+
+    // === Scheduling ===
+
+    _scheduler() {
+        while (this._nextStepTime < this.audioContext.currentTime + this._lookahead) {
+            this._scheduleStep(this._nextStepIndex, this._nextStepTime);
+            this._advanceStep();
+        }
+    }
+
+    _scheduleStep(stepIndex, time) {
+        const delay = Math.max(0, (time - this.audioContext.currentTime) * 1000);
+        setTimeout(() => {
+            this.currentStep = stepIndex;
+            if (this.onStepChange) this.onStepChange(stepIndex);
+        }, delay);
+
+        const step = this.pattern[stepIndex];
+        if (!step || step.slots.length === 0) return;
+
+        for (let s = 0; s < step.slots.length; s++) {
+            const entry = step.slots[s];
+            const buffer = this._getBuffer(entry.slot, step.direction === 'reverse');
+            if (!buffer) continue;
+
+            const source = this.audioContext.createBufferSource();
+            source.buffer = buffer;
+
+            if (entry.pitch !== 0) {
+                source.playbackRate.value = Math.pow(2, entry.pitch / 12);
+            }
+            if (step.mode === 'loop') {
+                source.loop = true;
+                source.loopStart = 0;
+                source.loopEnd = buffer.duration;
+            }
+
+            source.connect(this.audioContext.destination);
+            source.start(time);
+
+            if (step.mode === 'loop') {
+                source.stop(time + this.stepDuration);
+            }
+
+            this._activeSources.push(source);
+            source.onended = () => {
+                const idx = this._activeSources.indexOf(source);
+                if (idx >= 0) this._activeSources.splice(idx, 1);
+            };
+        }
+    }
+
+    _advanceStep() {
+        this._nextStepTime += this.stepDuration;
+        this._nextStepIndex++;
+        if (this._nextStepIndex >= 16) {
+            this._nextStepIndex = 0;
+            if (this.onPatternLoop) this.onPatternLoop();
+            if (this.mutateEnabled) this._applyMutations();
+        }
+    }
+
+    // === Buffer Management ===
+
+    _getBuffer(slotIndex, reverse) {
+        const key = reverse ? 'reverse' : 'forward';
+        if (this._bufferCache[slotIndex] && this._bufferCache[slotIndex][key]) {
+            return this._bufferCache[slotIndex][key];
+        }
+        if (this.getSlotBuffer) {
+            const buf = this.getSlotBuffer(slotIndex);
+            if (buf) {
+                if (!this._bufferCache[slotIndex]) this._bufferCache[slotIndex] = {};
+                this._bufferCache[slotIndex].forward = buf;
+                if (reverse) {
+                    this._bufferCache[slotIndex].reverse = this._reverseBuffer(buf);
+                    return this._bufferCache[slotIndex].reverse;
+                }
+                return buf;
+            }
+        }
+        return null;
+    }
+
+    _reverseBuffer(buffer) {
+        const numChannels = buffer.numberOfChannels;
+        const length = buffer.length;
+        const reversed = this.audioContext.createBuffer(numChannels, length, buffer.sampleRate);
+        for (let ch = 0; ch < numChannels; ch++) {
+            const src = buffer.getChannelData(ch);
+            const dst = reversed.getChannelData(ch);
+            for (let i = 0; i < length; i++) dst[i] = src[length - 1 - i];
+        }
+        return reversed;
+    }
+
+    invalidateBuffer(slotIndex) { delete this._bufferCache[slotIndex]; }
+    invalidateAllBuffers() { this._bufferCache = {}; }
+
+    // === Step Assignment ===
+
+    /** Toggle a slot on/off for a step. Adds with pitch 0 if not present. */
+    toggleSlotOnStep(stepIndex, slotIdx) {
+        const step = this.pattern[stepIndex];
+        const pos = step.slots.findIndex(e => e.slot === slotIdx);
+        if (pos >= 0) {
+            step.slots.splice(pos, 1);
+        } else {
+            step.slots.push({ slot: slotIdx, pitch: 0 });
+        }
+    }
+
+    /** Check if a slot is active on a step. */
+    hasSlotOnStep(stepIndex, slotIdx) {
+        return this.pattern[stepIndex].slots.some(e => e.slot === slotIdx);
+    }
+
+    /** Get the slot entry object for a given slot on a step (or null). */
+    getSlotEntry(stepIndex, slotIdx) {
+        return this.pattern[stepIndex].slots.find(e => e.slot === slotIdx) || null;
+    }
+
+    /** Set pitch for a specific slot on a step. */
+    setSlotPitch(stepIndex, slotIdx, semitones) {
+        const entry = this.getSlotEntry(stepIndex, slotIdx);
+        if (entry) {
+            entry.pitch = Math.max(-24, Math.min(24, semitones));
+        }
+    }
+
+    setStepSlots(stepIndex, slotArray) {
+        this.pattern[stepIndex].slots = slotArray.map(s => {
+            if (typeof s === 'object') return { slot: s.slot, pitch: s.pitch || 0 };
+            return { slot: s, pitch: 0 };
+        });
+    }
+
+    setStepMode(stepIndex, mode) { this.pattern[stepIndex].mode = mode; }
+    setStepDirection(stepIndex, direction) { this.pattern[stepIndex].direction = direction; }
+
+    clearPattern() {
+        for (let i = 0; i < 16; i++) {
+            this.pattern[i].slots = [];
+            this.pattern[i].mode = 'oneshot';
+            this.pattern[i].direction = 'forward';
+        }
+    }
+
+    // === Pattern Manipulation ===
+
+    randomise(density) {
+        density = density !== undefined ? density : 0.75;
+        const loaded = this.getLoadedSlots ? this.getLoadedSlots() : [];
+        if (loaded.length === 0) return;
+        for (let i = 0; i < 16; i++) {
+            if (Math.random() < density) {
+                const count = Math.random() < 0.8 ? 1 : 2;
+                const picked = [];
+                for (let c = 0; c < count; c++) {
+                    const s = loaded[Math.floor(Math.random() * loaded.length)];
+                    if (!picked.some(e => e.slot === s)) {
+                        const pitch = Math.random() < 0.6 ? 0 : Math.floor(Math.random() * 25) - 12;
+                        picked.push({ slot: s, pitch: pitch });
+                    }
+                }
+                this.pattern[i].slots = picked;
+                this.pattern[i].mode = Math.random() < 0.2 ? 'loop' : 'oneshot';
+                this.pattern[i].direction = Math.random() < 0.2 ? 'reverse' : 'forward';
+            } else {
+                this.pattern[i].slots = [];
+                this.pattern[i].mode = 'oneshot';
+                this.pattern[i].direction = 'forward';
+            }
+        }
+    }
+
+    stutter() {
+        const filledSteps = [];
+        for (let i = 0; i < 16; i++) {
+            if (this.pattern[i].slots.length > 0) filledSteps.push(i);
+        }
+        if (filledSteps.length === 0) return;
+        const numStutters = 1 + Math.floor(Math.random() * 3);
+        for (let s = 0; s < numStutters; s++) {
+            const srcStep = filledSteps[Math.floor(Math.random() * filledSteps.length)];
+            const srcData = this.pattern[srcStep];
+            const count = 2 + Math.floor(Math.random() * 3);
+            for (let j = 0; j < count; j++) {
+                const t = (srcStep + j) % 16;
+                this.pattern[t].slots = srcData.slots.map(e => ({ slot: e.slot, pitch: e.pitch }));
+                this.pattern[t].mode = srcData.mode;
+                this.pattern[t].direction = srcData.direction;
+            }
+        }
+    }
+
+    _applyMutations() {
+        const loaded = this.getLoadedSlots ? this.getLoadedSlots() : [];
+        if (loaded.length === 0) return;
+        for (let i = 0; i < 16; i++) {
+            if (Math.random() < 0.15) {
+                const m = Math.random();
+                if (m < 0.35) {
+                    if (this.pattern[i].slots.length === 0) {
+                        this.pattern[i].slots = [{ slot: loaded[Math.floor(Math.random() * loaded.length)], pitch: 0 }];
+                    } else if (Math.random() < 0.3) {
+                        this.pattern[i].slots = [];
+                    } else {
+                        this.pattern[i].slots = [{ slot: loaded[Math.floor(Math.random() * loaded.length)], pitch: 0 }];
+                    }
+                } else if (m < 0.5) {
+                    this.pattern[i].direction = this.pattern[i].direction === 'forward' ? 'reverse' : 'forward';
+                } else if (m < 0.65) {
+                    this.pattern[i].mode = this.pattern[i].mode === 'oneshot' ? 'loop' : 'oneshot';
+                } else if (m < 0.8) {
+                    // Mutate pitch of a random slot entry
+                    if (this.pattern[i].slots.length > 0) {
+                        const entry = this.pattern[i].slots[Math.floor(Math.random() * this.pattern[i].slots.length)];
+                        entry.pitch = Math.max(-24, Math.min(24, entry.pitch + Math.floor(Math.random() * 5) - 2));
+                    }
+                } else {
+                    if (this.pattern[i].slots.length > 0) {
+                        this.pattern[i].slots = [];
+                    } else {
+                        this.pattern[i].slots = [{ slot: loaded[Math.floor(Math.random() * loaded.length)], pitch: 0 }];
+                    }
+                }
+                if (this.onMutate) this.onMutate(i);
+            }
+        }
+    }
+
+    // === Bounce ===
+
+    async bounce(numLoops) {
+        numLoops = numLoops || 1;
+        const stepDur = this.stepDuration;
+        const totalDuration = stepDur * 16 * numLoops;
+        const sampleRate = this.audioContext.sampleRate;
+
+        let maxTail = 0;
+        for (let i = 0; i < 16; i++) {
+            const step = this.pattern[i];
+            if (step.slots.length > 0 && step.mode === 'oneshot') {
+                for (const entry of step.slots) {
+                    const buf = this._getBuffer(entry.slot, step.direction === 'reverse');
+                    if (buf && buf.duration > stepDur) {
+                        maxTail = Math.max(maxTail, buf.duration - stepDur);
+                    }
+                }
+            }
+        }
+
+        const totalWithTail = Math.ceil((totalDuration + maxTail) * sampleRate);
+        const offline = new OfflineAudioContext(2, totalWithTail, sampleRate);
+
+        for (let loop = 0; loop < numLoops; loop++) {
+            const loopOffset = loop * stepDur * 16;
+            if (loop > 0 && this.mutateEnabled) this._applyMutations();
+
+            for (let i = 0; i < 16; i++) {
+                const step = this.pattern[i];
+                if (step.slots.length === 0) continue;
+                const startTime = loopOffset + i * stepDur;
+
+                for (const entry of step.slots) {
+                    const buffer = this._getBuffer(entry.slot, step.direction === 'reverse');
+                    if (!buffer) continue;
+
+                    const offlineBuf = offline.createBuffer(buffer.numberOfChannels, buffer.length, buffer.sampleRate);
+                    for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+                        offlineBuf.getChannelData(ch).set(buffer.getChannelData(ch));
+                    }
+
+                    const source = offline.createBufferSource();
+                    source.buffer = offlineBuf;
+                    if (entry.pitch !== 0) source.playbackRate.value = Math.pow(2, entry.pitch / 12);
+
+                    if (step.mode === 'loop') {
+                        source.loop = true;
+                        source.loopStart = 0;
+                        source.loopEnd = offlineBuf.duration;
+                        source.connect(offline.destination);
+                        source.start(startTime);
+                        source.stop(startTime + stepDur);
+                    } else {
+                        source.connect(offline.destination);
+                        source.start(startTime);
+                    }
+                }
+            }
+        }
+
+        const rendered = await offline.startRendering();
+        const channels = [];
+        for (let ch = 0; ch < rendered.numberOfChannels; ch++) {
+            channels.push(new Float32Array(rendered.getChannelData(ch)));
+        }
+        return { channels, sampleRate: rendered.sampleRate };
+    }
+
+    // === Persistence ===
+
+    toJSON() {
+        return {
+            bpm: this.bpm,
+            mutateEnabled: this.mutateEnabled,
+            pattern: this.pattern.map(step => ({
+                slots: step.slots.map(e => ({ slot: e.slot, pitch: e.pitch })),
+                mode: step.mode,
+                direction: step.direction
+            }))
+        };
+    }
+
+    fromJSON(data) {
+        if (!data) return;
+        if (data.bpm !== undefined) this.bpm = data.bpm;
+        if (data.mutateEnabled !== undefined) this.mutateEnabled = data.mutateEnabled;
+        if (data.pattern && Array.isArray(data.pattern)) {
+            for (let i = 0; i < 16 && i < data.pattern.length; i++) {
+                const s = data.pattern[i];
+                if (s) {
+                    if (s.slots && Array.isArray(s.slots)) {
+                        // New object format: [{slot: N, pitch: 0}, ...]
+                        // Also handle old plain-index format: [0, 5, ...]
+                        this.pattern[i].slots = s.slots.map(e => {
+                            if (typeof e === 'object' && e !== null) {
+                                return { slot: e.slot, pitch: e.pitch || 0 };
+                            }
+                            // Old format: plain number — apply step-level pitch if present
+                            return { slot: e, pitch: s.pitch || 0 };
+                        });
+                    } else if (s.slotIndex !== undefined && s.slotIndex !== null) {
+                        // Oldest format: single slotIndex
+                        this.pattern[i].slots = [{ slot: s.slotIndex, pitch: s.pitch || 0 }];
+                    } else {
+                        this.pattern[i].slots = [];
+                    }
+                    this.pattern[i].mode = s.mode || 'oneshot';
+                    this.pattern[i].direction = s.direction || 'forward';
+                }
+            }
+        }
+    }
+}

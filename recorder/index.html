@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="description" content="Soniphorm Soundlab - Browser-based audio recorder, sample editor, sampler, and step sequencer.">
+    <meta name="theme-color" content="#0a0e1a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>Soundlab — Soniphorm</title>
+    <link rel="icon" href="../favicon.png">
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="../favicon.png">
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header id="header">
+        <div class="header-left">
+            <a href="../index.html" class="header-brand" title="Back to Soniphorm"><img src="../images/soniphormLogo.png" alt="Soniphorm"></a>
+            <span class="header-title">SOUNDLAB</span>
+        </div>
+        <div class="header-center" id="transport-info">
+            <span id="info-rate">--</span>
+            <span class="info-sep">|</span>
+            <span id="info-bits">16-bit</span>
+            <span class="info-sep">|</span>
+            <span id="info-duration">00:00.000</span>
+        </div>
+        <div class="header-right">
+            <div class="mode-toggle" id="mode-toggle">
+                <button id="mode-rec" class="mode-btn active" title="Recorder mode">REC</button>
+                <button id="mode-sample" class="mode-btn" title="Sampler mode">SAMPLE</button>
+                <button id="mode-seq" class="mode-btn" title="Sequencer mode">SEQ</button>
+            </div>
+            <button id="menu-btn" class="icon-btn" title="Menu">&#9776;</button>
+            <div class="context-menu" id="main-menu" hidden>
+                <button data-action="export-all">Export all slots</button>
+                <button data-action="delete-all" class="danger">Delete all</button>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <!-- Waveform Display -->
+        <div class="waveform-wrap">
+            <canvas id="waveform"></canvas>
+            <div class="waveform-empty" id="waveform-empty">
+                <span>Select a slot to begin</span>
+            </div>
+            <div class="zoom-bar">
+                <button id="zoom-in" class="zoom-btn" title="Zoom in">+</button>
+                <button id="zoom-out" class="zoom-btn" title="Zoom out">&minus;</button>
+                <button id="zoom-fit" class="zoom-btn" title="Fit to view">[ ]</button>
+            </div>
+            <div class="time-ruler" id="time-ruler"></div>
+        </div>
+
+        <!-- Edit Toolbar -->
+        <div class="toolbar" id="toolbar">
+            <div class="toolbar-scroll">
+                <!-- Transport -->
+                <button id="rec-btn" class="tb rec" title="Record">&#9679; REC</button>
+                <button id="play-btn" class="tb" title="Play">&#9654; PLAY</button>
+                <button id="stop-btn" class="tb" title="Stop">&#9632; STOP</button>
+                <button id="loop-btn" class="tb" title="Toggle loop">&#8635; LOOP</button>
+                <span class="tb-sep"></span>
+                <!-- Editing -->
+                <button id="trim-btn" class="tb" title="Trim to selection">TRIM</button>
+                <button id="cut-btn" class="tb" title="Cut selection">CUT</button>
+                <button id="copy-btn" class="tb" title="Copy selection">COPY</button>
+                <button id="paste-btn" class="tb" title="Paste at cursor">PASTE</button>
+                <button id="silence-btn" class="tb" title="Silence selection">SIL</button>
+                <span class="tb-sep"></span>
+                <!-- Processing -->
+                <button id="fadein-btn" class="tb" title="Fade in">F.IN</button>
+                <button id="fadeout-btn" class="tb" title="Fade out">F.OUT</button>
+                <button id="reverse-btn" class="tb" title="Reverse">REV</button>
+                <button id="norm-btn" class="tb" title="Normalise">NORM</button>
+                <span class="tb-sep"></span>
+                <!-- Creative FX -->
+                <button class="tb fx-btn" data-fx="reverb" title="Reverb">VERB</button>
+                <button class="tb fx-btn" data-fx="delay" title="Delay / Echo">DLY</button>
+                <button class="tb fx-btn" data-fx="overdrive" title="Overdrive">DRIVE</button>
+                <button class="tb fx-btn" data-fx="bitcrush" title="Bit Crush">CRUSH</button>
+                <button class="tb fx-btn" data-fx="filter" title="Filter">FILT</button>
+                <button class="tb fx-btn" data-fx="ringmod" title="Ring Modulation">RING</button>
+                <button class="tb fx-btn" data-fx="wavefolding" title="Wavefolding">FOLD</button>
+                <button class="tb fx-btn" data-fx="stutter" title="Stutter / Glitch">GLITCH</button>
+                <span class="tb-sep"></span>
+                <!-- Time/Pitch/Spectral -->
+                <button class="tb fx-btn" data-fx="timestretch" title="Time Stretch">STRETCH</button>
+                <button class="tb fx-btn" data-fx="pitchshift" title="Pitch Shift">PITCH</button>
+                <button class="tb fx-btn" data-fx="paulstretch" title="Paulstretch">PAUL</button>
+                <button class="tb fx-btn" data-fx="granularfreeze" title="Granular Freeze">GRAIN</button>
+                <button class="tb fx-btn" data-fx="spectralfreeze" title="Spectral Freeze">SPEC</button>
+                <span class="tb-sep"></span>
+                <!-- Cross-slot -->
+                <button id="cross-btn" class="tb" title="Cross-slot processing">CROSS</button>
+                <span class="tb-sep"></span>
+                <!-- File -->
+                <button id="save-btn" class="tb" title="Save to device">SAVE</button>
+                <button id="load-btn" class="tb" title="Load file">LOAD</button>
+                <button id="bounce-btn" class="tb" title="Bounce to slot">BOUNCE</button>
+                <button id="export-all-btn" class="tb" title="Export all slots">EXPORT ALL</button>
+                <span class="tb-sep"></span>
+                <!-- Undo -->
+                <button id="undo-btn" class="tb" title="Undo">&#8617; UNDO</button>
+                <button id="redo-btn" class="tb" title="Redo">&#8618; REDO</button>
+                <span id="undo-count" class="undo-count"></span>
+            </div>
+        </div>
+
+        <!-- Macro Controls -->
+        <div class="macro-bar" id="macro-bar">
+            <div class="macro-slot" data-macro="0">
+                <span class="macro-label" id="macro-label-0">M1</span>
+                <input type="range" class="macro-slider" id="macro-0" min="0" max="1000" value="500">
+                <span class="macro-value" id="macro-value-0">0.50</span>
+            </div>
+            <div class="macro-slot" data-macro="1">
+                <span class="macro-label" id="macro-label-1">M2</span>
+                <input type="range" class="macro-slider" id="macro-1" min="0" max="1000" value="500">
+                <span class="macro-value" id="macro-value-1">0.50</span>
+            </div>
+            <div class="macro-slot" data-macro="2">
+                <span class="macro-label" id="macro-label-2">M3</span>
+                <input type="range" class="macro-slider" id="macro-2" min="0" max="1000" value="500">
+                <span class="macro-value" id="macro-value-2">0.50</span>
+            </div>
+            <div class="macro-slot" data-macro="3">
+                <span class="macro-label" id="macro-label-3">M4</span>
+                <input type="range" class="macro-slider" id="macro-3" min="0" max="1000" value="500">
+                <span class="macro-value" id="macro-value-3">0.50</span>
+            </div>
+        </div>
+
+        <!-- Macro Mapping Context Menu -->
+        <div class="context-menu" id="macro-map-menu" hidden>
+            <button data-macro="0">Map to M1</button>
+            <button data-macro="1">Map to M2</button>
+            <button data-macro="2">Map to M3</button>
+            <button data-macro="3">Map to M4</button>
+            <button data-macro="clear">Clear mapping</button>
+        </div>
+
+        <!-- Sequencer Transport -->
+        <div class="seq-transport" id="seq-transport">
+            <button id="seq-play-btn" class="tb" title="Play / Stop sequence">&#9654; PLAY</button>
+            <div class="seq-sep"></div>
+            <div class="seq-bpm">
+                <button class="seq-bpm-btn" id="bpm-down" title="BPM -1">&minus;</button>
+                <span class="seq-bpm-value" id="bpm-display" title="Click to edit BPM">120</span>
+                <button class="seq-bpm-btn" id="bpm-up" title="BPM +1">+</button>
+            </div>
+            <button id="tap-tempo-btn" class="tb" title="Tap tempo">TAP</button>
+            <div class="seq-sep"></div>
+            <button id="seq-random-btn" class="tb" title="Randomise pattern">RAND</button>
+            <button id="seq-stutter-btn" class="tb" title="Stutter / glitch pattern">STUT</button>
+            <button id="seq-mutate-btn" class="tb" title="Toggle mutate (evolving pattern)">MUTATE</button>
+            <div class="seq-sep"></div>
+            <button id="seq-bounce-btn" class="tb" title="Bounce sequence to slot">BOUNCE</button>
+            <button id="seq-clear-btn" class="tb" title="Clear pattern">CLEAR</button>
+        </div>
+
+        <!-- Sampler Transport -->
+        <div class="sample-transport" id="sample-transport">
+            <!-- Row 1: pad info + mode + stop -->
+            <div class="sample-row-main">
+                <span class="sample-pad-info" id="sample-pad-info">Tap a pad</span>
+                <div class="seq-sep"></div>
+                <button id="pad-mode-oneshot" class="tb pad-mode-btn active">ONE</button>
+                <button id="pad-mode-loop" class="tb pad-mode-btn">LOOP</button>
+                <button id="pad-mode-gate" class="tb pad-mode-btn">GATE</button>
+                <button id="pad-mode-morph" class="tb pad-mode-btn">MORPH</button>
+                <div class="seq-sep"></div>
+                <button id="sample-stop-all" class="tb">STOP</button>
+            </div>
+            <!-- Tab bar -->
+            <div class="sample-tabs">
+                <button class="sample-tab active" data-tab="env">ENV</button>
+                <button class="sample-tab" data-tab="filter">FILT</button>
+                <button class="sample-tab" data-tab="lfo">LFO</button>
+                <button class="sample-tab" data-tab="morph">MORPH</button>
+            </div>
+            <!-- ENV panel: volume + ADSR -->
+            <div class="sample-panel" id="panel-env">
+                <div class="param-row">
+                    <span class="param-label">VOL</span>
+                    <input type="range" class="param-slider" id="pad-volume" min="0" max="100" value="100">
+                    <span class="param-value" id="pad-volume-val">100%</span>
+                </div>
+                <div class="param-row">
+                    <span class="param-label">ATK</span>
+                    <input type="range" class="param-slider" id="pad-attack" min="1" max="2000" value="10">
+                    <span class="param-value" id="pad-attack-val">10ms</span>
+                </div>
+                <div class="param-row">
+                    <span class="param-label">DEC</span>
+                    <input type="range" class="param-slider" id="pad-decay" min="1" max="2000" value="100">
+                    <span class="param-value" id="pad-decay-val">100ms</span>
+                </div>
+                <div class="param-row">
+                    <span class="param-label">SUS</span>
+                    <input type="range" class="param-slider" id="pad-sustain" min="0" max="100" value="100">
+                    <span class="param-value" id="pad-sustain-val">100%</span>
+                </div>
+                <div class="param-row">
+                    <span class="param-label">REL</span>
+                    <input type="range" class="param-slider" id="pad-release" min="5" max="5000" value="50">
+                    <span class="param-value" id="pad-release-val">50ms</span>
+                </div>
+            </div>
+            <!-- FILT panel: toggle + type + freq + Q -->
+            <div class="sample-panel" id="panel-filter" hidden>
+                <div class="param-row">
+                    <span class="param-label">ON</span>
+                    <button class="param-toggle tb" id="pad-filter-toggle">OFF</button>
+                </div>
+                <div class="param-row">
+                    <span class="param-label">TYPE</span>
+                    <select class="param-select" id="pad-filter-type">
+                        <option value="lowpass">Lowpass</option>
+                        <option value="highpass">Highpass</option>
+                        <option value="bandpass">Bandpass</option>
+                    </select>
+                </div>
+                <div class="param-row">
+                    <span class="param-label">FREQ</span>
+                    <input type="range" class="param-slider" id="pad-filter-freq" min="20" max="20000" value="2000">
+                    <span class="param-value" id="pad-filter-freq-val">2000</span>
+                </div>
+                <div class="param-row">
+                    <span class="param-label">Q</span>
+                    <input type="range" class="param-slider" id="pad-filter-q" min="1" max="200" value="10">
+                    <span class="param-value" id="pad-filter-q-val">1.0</span>
+                </div>
+            </div>
+            <!-- LFO panel: toggle + target + rate + depth + shape -->
+            <div class="sample-panel" id="panel-lfo" hidden>
+                <div class="param-row">
+                    <span class="param-label">ON</span>
+                    <button class="param-toggle tb" id="pad-lfo-toggle">OFF</button>
+                </div>
+                <div class="param-row">
+                    <span class="param-label">TGT</span>
+                    <select class="param-select" id="pad-lfo-target">
+                        <option value="filter">Filter</option>
+                        <option value="volume">Volume</option>
+                        <option value="pitch">Pitch</option>
+                    </select>
+                </div>
+                <div class="param-row">
+                    <span class="param-label">RATE</span>
+                    <input type="range" class="param-slider" id="pad-lfo-rate" min="1" max="200" value="20">
+                    <span class="param-value" id="pad-lfo-rate-val">2.0</span>
+                </div>
+                <div class="param-row">
+                    <span class="param-label">DPTH</span>
+                    <input type="range" class="param-slider" id="pad-lfo-depth" min="0" max="100" value="50">
+                    <span class="param-value" id="pad-lfo-depth-val">50%</span>
+                </div>
+                <div class="param-row">
+                    <span class="param-label">WAVE</span>
+                    <select class="param-select" id="pad-lfo-shape">
+                        <option value="sine">Sine</option>
+                        <option value="triangle">Triangle</option>
+                        <option value="square">Square</option>
+                        <option value="sawtooth">Sawtooth</option>
+                    </select>
+                </div>
+            </div>
+            <!-- MORPH panel -->
+            <div class="sample-panel" id="panel-morph" hidden>
+                <div class="param-row">
+                    <span class="param-label">TGT</span>
+                    <select class="param-select" id="morph-target" title="Morph partner slot"></select>
+                </div>
+                <div class="param-row">
+                    <span class="param-label">TYPE</span>
+                    <select class="param-select" id="morph-type" title="Morph algorithm">
+                        <option value="ring">Ring Mod</option>
+                        <option value="am">AM</option>
+                        <option value="spectral">Spectral Morph</option>
+                        <option value="phase">Phase Swap</option>
+                        <option value="gate">Spectral Gate</option>
+                    </select>
+                </div>
+                <div class="param-row">
+                    <span class="param-label">AMT</span>
+                    <input type="range" class="param-slider" id="morph-amount" min="0" max="100" value="50">
+                    <span class="param-value" id="morph-amount-val">50%</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Step Mode Context Menu -->
+        <div class="step-mode-menu" id="step-mode-menu" hidden>
+            <div class="step-slot-picker" id="step-slot-picker"></div>
+            <div class="step-menu-divider"></div>
+            <button data-mode="oneshot" class="active">One-shot</button>
+            <button data-mode="loop">Loop</button>
+            <button data-dir="forward" class="active">Forward</button>
+            <button data-dir="reverse">Reverse</button>
+        </div>
+
+        <!-- Slot Grid -->
+        <div class="slot-grid" id="slot-grid"></div>
+    </main>
+
+    <!-- Rename Dialog -->
+    <div class="dialog-overlay" id="rename-dialog" hidden>
+        <div class="dialog">
+            <h3>Name this recording</h3>
+            <input type="text" id="rename-input" class="dialog-input" placeholder="e.g. bridge-hum" maxlength="32" autocomplete="off">
+            <div class="dialog-actions">
+                <button id="rename-cancel" class="dialog-btn">Skip</button>
+                <button id="rename-ok" class="dialog-btn primary">Save</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Context Menu -->
+    <div class="context-menu" id="context-menu" hidden>
+        <button data-action="rename">Rename</button>
+        <button data-action="duplicate">Duplicate</button>
+        <button data-action="save">Save to device</button>
+        <button data-action="clear">Clear slot</button>
+    </div>
+
+    <!-- Effects Dialog -->
+    <div class="dialog-overlay" id="fx-dialog" hidden>
+        <div class="dialog fx-dialog">
+            <h3 id="fx-title">Effect</h3>
+            <div id="fx-params"></div>
+            <div class="fx-actions">
+                <button id="fx-preview" class="dialog-btn">Preview</button>
+                <button id="fx-apply" class="dialog-btn primary">Apply</button>
+                <button id="fx-cancel" class="dialog-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cross-slot Dialog -->
+    <div class="dialog-overlay" id="cross-dialog" hidden>
+        <div class="dialog fx-dialog">
+            <h3>Cross-slot Processing</h3>
+            <div class="fx-param">
+                <div class="fx-param-header">
+                    <span class="fx-param-label">Source slot</span>
+                </div>
+                <select id="cross-source"></select>
+            </div>
+            <div class="fx-param">
+                <div class="fx-param-header">
+                    <span class="fx-param-label">Operation</span>
+                </div>
+                <select id="cross-op">
+                    <option value="convolve">Convolve (IR from source)</option>
+                    <option value="ringmod">Ring modulate</option>
+                    <option value="vocoder">Vocoder</option>
+                </select>
+            </div>
+            <div id="cross-params"></div>
+            <div class="fx-actions">
+                <button id="cross-preview" class="dialog-btn">Preview</button>
+                <button id="cross-apply" class="dialog-btn primary">Apply</button>
+                <button id="cross-cancel" class="dialog-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden file input -->
+    <input type="file" id="file-input" accept="audio/*" hidden>
+
+    <script src="audio-engine.js"></script>
+    <script src="waveform.js"></script>
+    <script src="slot-manager.js"></script>
+    <script src="dsp.js"></script>
+    <script src="effects.js"></script>
+    <script src="sampler.js"></script>
+    <script src="sequencer.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>

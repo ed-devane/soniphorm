@@ -1,0 +1,17 @@
+{
+  "name": "Soniphorm Soundlab",
+  "short_name": "Soundlab",
+  "description": "Browser-based audio recorder, sample editor, sampler, and step sequencer.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0a0e1a",
+  "theme_color": "#0a0e1a",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "../favicon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ]
+}
