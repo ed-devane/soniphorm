@@ -29,6 +29,7 @@
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
 html, body {
+    height: 100dvh;
     height: 100%;
     overflow: hidden;
     background: var(--bg);
@@ -129,7 +130,9 @@ main {
     display: flex;
     flex-direction: column;
     height: calc(100vh - 40px);
+    height: calc(100dvh - 40px);
     overflow: hidden;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 /* === Waveform === */
