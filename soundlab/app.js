@@ -904,8 +904,31 @@ class App {
 
     // === Effects ===
 
+    /** Load the active audio channels — pad buffer from IDB in sample mode, else rec view. */
+    async _getActiveChannels() {
+        if (this._sampleMode) {
+            const slot = this.slots.slots[this._sampleSelectedPad];
+            if (!slot || !slot.hasAudio) return null;
+            const data = await this.slots.getSlotAudio(this._sampleSelectedPad);
+            return data ? data.channels : null;
+        }
+        return this.channels;
+    }
+
+    /** Get sample rate for active audio. */
+    _getActiveSampleRate() {
+        if (this._sampleMode) {
+            const slot = this.slots.slots[this._sampleSelectedPad];
+            return (slot && slot.sampleRate) || (this.audio.audioContext && this.audio.audioContext.sampleRate) || 44100;
+        }
+        return this.bufferSampleRate;
+    }
+
     openFxDialog(fxName) {
-        if (!this.channels) return;
+        if (this._sampleMode) {
+            const slot = this.slots.slots[this._sampleSelectedPad];
+            if (!slot || !slot.hasAudio) return;
+        } else if (!this.channels) return;
         const fx = Effects.registry[fxName];
         if (!fx) return;
 
@@ -1068,21 +1091,24 @@ class App {
         return params;
     }
 
-    _getFxRegion() {
+    _getFxRegion(ch) {
+        const channels = ch || this.channels;
         const sel = this.waveform.getSelection();
         const start = sel ? sel.start : 0;
-        const end = sel ? sel.end : this.channels[0].length;
+        const end = sel ? sel.end : (channels ? channels[0].length : 0);
         return { start, end };
     }
 
     async previewFx() {
-        if (!this.channels || !this._currentFx) return;
+        const ch = await this._getActiveChannels();
+        const sr = this._getActiveSampleRate();
+        if (!ch || !this._currentFx) return;
         const fx = Effects.registry[this._currentFx];
         const params = this._gatherFxParams();
-        const { start, end } = this._getFxRegion();
+        const { start, end } = this._getFxRegion(ch);
 
         // Process a short preview section (max 3 seconds)
-        const maxSamples = this.bufferSampleRate * 3;
+        const maxSamples = sr * 3;
         const previewEnd = Math.min(end, start + maxSamples);
 
         const previewBtn = document.getElementById('fx-preview');
@@ -1090,10 +1116,10 @@ class App {
         previewBtn.disabled = true;
 
         try {
-            const result = await fx.process(this.channels, this.bufferSampleRate, start, previewEnd, params);
+            const result = await fx.process(ch, sr, start, previewEnd, params);
             // Play the processed preview
             this.audio.stop();
-            this.audio.play(result, this.bufferSampleRate, start, previewEnd, () => {
+            this.audio.play(result, sr, start, previewEnd, () => {
                 document.getElementById('play-btn').classList.remove('playing');
             });
         } catch (e) {
@@ -1105,14 +1131,17 @@ class App {
     }
 
     async applyFx() {
-        if (!this.channels || !this._currentFx) return;
+        const ch = await this._getActiveChannels();
+        const sr = this._getActiveSampleRate();
+        if (!ch || !this._currentFx) return;
         const fxName = this._currentFx;
         const fx = Effects.registry[fxName];
         const params = this._gatherFxParams();
 
         // Reverb and delay: apply as live (non-destructive) per-slot effects
         if (fxName === 'reverb' || fxName === 'delay') {
-            const slot = this.slots.slots[this.slots.selectedIndex];
+            const slotIdx = this._sampleMode ? this._sampleSelectedPad : this.slots.selectedIndex;
+            const slot = this.slots.slots[slotIdx];
             if (!slot._liveEffects) slot._liveEffects = {};
             slot._liveEffects[fxName] = Object.assign({}, params);
             this._applySlotLiveEffects();
@@ -1120,7 +1149,7 @@ class App {
             return;
         }
 
-        const { start, end } = this._getFxRegion();
+        const { start, end } = this._getFxRegion(ch);
 
         const applyBtn = document.getElementById('fx-apply');
         applyBtn.textContent = 'Processing...';
@@ -1129,15 +1158,26 @@ class App {
         document.getElementById('fx-cancel').disabled = true;
 
         try {
-            this.pushUndo();
-            const result = await fx.process(this.channels, this.bufferSampleRate, start, end, params);
-            this.channels = result;
-            this.saveCurrentSlot();
-            this.refreshWaveform();
-            this.closeFxDialog();
+            if (this._sampleMode) {
+                // Apply destructively to the selected pad's slot
+                const slotIdx = this._sampleSelectedPad;
+                const result = await fx.process(ch, sr, start, end, params);
+                await this.slots.saveSlotAudio(slotIdx, result, sr);
+                // Rebuild sampler buffer cache
+                await this._seqPreloadBuffers();
+                this.renderSampleGrid();
+                this.closeFxDialog();
+            } else {
+                this.pushUndo();
+                const result = await fx.process(ch, sr, start, end, params);
+                this.channels = result;
+                this.saveCurrentSlot();
+                this.refreshWaveform();
+                this.closeFxDialog();
+            }
         } catch (e) {
             console.error('FX apply error:', e);
-            this.undo(); // Revert on error
+            if (!this._sampleMode) this.undo();
             alert('Effect processing failed');
         } finally {
             applyBtn.textContent = 'Apply';
