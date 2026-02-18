@@ -44,6 +44,13 @@ class WaveformRenderer {
         this._dragStartX = 0;
         this._dragStartSample = 0;
 
+        // Pinch-to-zoom state
+        this._pinching = false;
+        this._pinchStartDist = 0;
+        this._pinchStartZoom = 1;
+        this._pinchMidSample = 0;
+        this._pinchMidFraction = 0.5;
+
         // Callbacks
         this.onSelectionChange = null;
         this.onCursorSet = null;
@@ -453,20 +460,48 @@ class WaveformRenderer {
             if (this._dragging) this._pointerUp(e.clientX);
         });
 
-        // --- Touch events ---
+        // --- Touch events (single-touch selection + two-finger pinch zoom) ---
         c.addEventListener('touchstart', (e) => {
             e.preventDefault();
-            this._pointerDown(e.touches[0].clientX);
+            if (e.touches.length === 2) {
+                // Start pinch — cancel any drag in progress
+                this._dragging = false;
+                this._pinching = true;
+                this._pinchStartDist = this._touchDist(e.touches);
+                this._pinchStartZoom = this._zoom;
+                const mid = this._touchMid(e.touches);
+                this._pinchMidFraction = (mid - c.getBoundingClientRect().left) / c.getBoundingClientRect().width;
+                this._pinchMidSample = this.sampleAtX(mid);
+            } else if (e.touches.length === 1 && !this._pinching) {
+                this._pointerDown(e.touches[0].clientX);
+            }
         }, { passive: false });
 
         c.addEventListener('touchmove', (e) => {
             e.preventDefault();
-            if (this._dragging) this._pointerMove(e.touches[0].clientX);
+            if (e.touches.length === 2 && this._pinching) {
+                const dist = this._touchDist(e.touches);
+                const scale = dist / this._pinchStartDist;
+                this._zoom = Math.max(1, Math.min(MAX_ZOOM, this._pinchStartZoom * scale));
+                // Keep the pinch midpoint anchored
+                const newVisible = this.getVisibleSamples();
+                this._scrollOffset = this._pinchMidSample - this._pinchMidFraction * newVisible;
+                this._clampScroll();
+                this.render();
+            } else if (e.touches.length === 1 && this._dragging && !this._pinching) {
+                this._pointerMove(e.touches[0].clientX);
+            }
         }, { passive: false });
 
         c.addEventListener('touchend', (e) => {
             e.preventDefault();
-            this._pointerUp(e.changedTouches[0].clientX);
+            if (this._pinching) {
+                if (e.touches.length < 2) {
+                    this._pinching = false;
+                }
+            } else {
+                this._pointerUp(e.changedTouches[0].clientX);
+            }
         }, { passive: false });
 
         // --- Wheel zoom ---
@@ -492,6 +527,18 @@ class WaveformRenderer {
             this._clampScroll();
             this.render();
         }, { passive: false });
+    }
+
+    /** Distance between two touch points. */
+    _touchDist(touches) {
+        const dx = touches[1].clientX - touches[0].clientX;
+        const dy = touches[1].clientY - touches[0].clientY;
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    /** Midpoint clientX between two touch points. */
+    _touchMid(touches) {
+        return (touches[0].clientX + touches[1].clientX) / 2;
     }
 
     _pointerDown(clientX) {
