@@ -640,7 +640,8 @@ class App {
     playAudio() {
         if (!this.channels) return;
         const sel = this.waveform.getSelection();
-        const start = sel ? sel.start : 0;
+        const cursor = this.waveform.getCursor();
+        const start = sel ? sel.start : cursor;
         const end = sel ? sel.end : this.channels[0].length;
 
         this.audio.play(this.channels, this.bufferSampleRate, start, end, () => {
