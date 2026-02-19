@@ -196,25 +196,27 @@
                     <input type="range" class="param-slider" id="pad-volume" min="0" max="100" value="100">
                     <span class="param-value" id="pad-volume-val">100%</span>
                 </div>
-                <div class="param-row">
-                    <span class="param-label">ATK</span>
-                    <input type="range" class="param-slider" id="pad-attack" min="1" max="2000" value="10">
-                    <span class="param-value" id="pad-attack-val">10ms</span>
-                </div>
-                <div class="param-row">
-                    <span class="param-label">DEC</span>
-                    <input type="range" class="param-slider" id="pad-decay" min="1" max="2000" value="100">
-                    <span class="param-value" id="pad-decay-val">100ms</span>
-                </div>
-                <div class="param-row">
-                    <span class="param-label">SUS</span>
-                    <input type="range" class="param-slider" id="pad-sustain" min="0" max="100" value="100">
-                    <span class="param-value" id="pad-sustain-val">100%</span>
-                </div>
-                <div class="param-row">
-                    <span class="param-label">REL</span>
-                    <input type="range" class="param-slider" id="pad-release" min="5" max="5000" value="50">
-                    <span class="param-value" id="pad-release-val">50ms</span>
+                <div class="adsr-faders">
+                    <div class="adsr-fader">
+                        <span class="adsr-label">ATK</span>
+                        <input type="range" class="adsr-slider" id="pad-attack" min="1" max="2000" value="10" orient="vertical">
+                        <span class="adsr-value" id="pad-attack-val">10ms</span>
+                    </div>
+                    <div class="adsr-fader">
+                        <span class="adsr-label">DEC</span>
+                        <input type="range" class="adsr-slider" id="pad-decay" min="1" max="2000" value="100" orient="vertical">
+                        <span class="adsr-value" id="pad-decay-val">100ms</span>
+                    </div>
+                    <div class="adsr-fader">
+                        <span class="adsr-label">SUS</span>
+                        <input type="range" class="adsr-slider" id="pad-sustain" min="0" max="100" value="100" orient="vertical">
+                        <span class="adsr-value" id="pad-sustain-val">100%</span>
+                    </div>
+                    <div class="adsr-fader">
+                        <span class="adsr-label">REL</span>
+                        <input type="range" class="adsr-slider" id="pad-release" min="5" max="5000" value="50" orient="vertical">
+                        <span class="adsr-value" id="pad-release-val">50ms</span>
+                    </div>
                 </div>
             </div>
             <!-- FILT panel: toggle + type + freq + Q -->
