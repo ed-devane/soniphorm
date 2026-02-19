@@ -302,6 +302,7 @@ class App {
         this.recordingSlotIndex = index;
         this._recChunks = [];
         this._recTotalLen = 0;
+        this._requestWakeLock();
         document.getElementById('rec-btn').classList.add('recording');
         document.getElementById('waveform-empty').hidden = true;
         this.renderSlotGrid();
@@ -350,6 +351,7 @@ class App {
         const result = this.audio.stopRecording();
         const index = this.recordingSlotIndex;
         this.recordingSlotIndex = -1;
+        this._releaseWakeLock();
         this.cancelAnimationLoop();
         document.getElementById('rec-btn').classList.remove('recording');
 
@@ -2697,6 +2699,22 @@ class App {
             if (json) this.sampler.fromJSON(JSON.parse(json));
         } catch (e) {
             console.warn('Failed to load sampler config:', e);
+        }
+    }
+
+    async _requestWakeLock() {
+        if (!('wakeLock' in navigator)) return;
+        try {
+            this._wakeLock = await navigator.wakeLock.request('screen');
+        } catch (e) {
+            // Wake lock denied or not available
+        }
+    }
+
+    _releaseWakeLock() {
+        if (this._wakeLock) {
+            this._wakeLock.release();
+            this._wakeLock = null;
         }
     }
 
