@@ -58,6 +58,10 @@ class App {
                 if (this.audio.isPlaying && this.audio.isLooping) {
                     this._restartLoop();
                 }
+                // Update sampler loop region live
+                if (this._sampleMode) {
+                    this._updateSamplerRegionFromSelection();
+                }
             };
             this.waveform.onCursorSet = (sample) => {
                 this.waveform.setCursor(sample);
@@ -2499,6 +2503,20 @@ class App {
             el.classList.remove('pad-playing');
         } else if (this.sampler.isPlaying(slotIndex)) {
             el.classList.add('pad-playing');
+        }
+    }
+
+    _updateSamplerRegionFromSelection() {
+        // Update all playing looping voices with the current waveform selection
+        for (let i = 0; i < 16; i++) {
+            if (!this.sampler.isPlaying(i)) continue;
+            const sel = this.waveform ? this.waveform.getSelection() : null;
+            const buf = this._slotBuffers[i];
+            if (sel && buf) {
+                this.sampler.updateRegion(i, sel.start / buf.sampleRate, sel.end / buf.sampleRate);
+            } else if (buf) {
+                this.sampler.updateRegion(i, 0, -1);
+            }
         }
     }
 

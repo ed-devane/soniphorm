@@ -127,6 +127,19 @@ class Sampler {
 
     // === Voice Management ===
 
+    updateRegion(slotIndex, regionStart, regionEnd) {
+        const voice = this._voices[slotIndex];
+        if (!voice || !voice.source.loop) return;
+        const buf = voice.source.buffer;
+        if (!buf) return;
+        const pad = this.pads[slotIndex];
+        pad.regionStart = regionStart;
+        pad.regionEnd = regionEnd;
+        const regEnd = (regionEnd > 0) ? Math.min(regionEnd, buf.duration) : buf.duration;
+        voice.source.loopStart = regionStart;
+        voice.source.loopEnd = regEnd;
+    }
+
     _startVoice(slotIndex, buffer, loop) {
         const pad = this.pads[slotIndex];
         const ctx = this.audioContext;
@@ -411,17 +424,18 @@ class Sampler {
 
     _morphSpectral(a, b, len, sr, amount) {
         const frameSize = 2048;
-        const hop = frameSize / 4;
-        const padA = new Float32Array(len);
-        const padB = new Float32Array(len);
-        padA.set(a.subarray(0, Math.min(a.length, len)));
-        padB.set(b.subarray(0, Math.min(b.length, len)));
+        const hop = frameSize / 2;
+        const maxLen = Math.min(len, sr * 2);
+        const padA = new Float32Array(maxLen);
+        const padB = new Float32Array(maxLen);
+        padA.set(a.subarray(0, Math.min(a.length, maxLen)));
+        padB.set(b.subarray(0, Math.min(b.length, maxLen)));
         const win = DSP.hannWindow(frameSize);
+        const bReal = new Float32Array(frameSize);
+        const bImag = new Float32Array(frameSize);
 
         return DSP.ola(padA, frameSize, hop, hop, (real, imag, frameIdx) => {
             const bOff = frameIdx * hop;
-            const bReal = new Float32Array(frameSize);
-            const bImag = new Float32Array(frameSize);
 
             for (let i = 0; i < frameSize; i++) {
                 const idx = bOff + i;
@@ -444,17 +458,18 @@ class Sampler {
 
     _morphPhase(a, b, len, sr, amount) {
         const frameSize = 2048;
-        const hop = frameSize / 4;
-        const padA = new Float32Array(len);
-        const padB = new Float32Array(len);
-        padA.set(a.subarray(0, Math.min(a.length, len)));
-        padB.set(b.subarray(0, Math.min(b.length, len)));
+        const hop = frameSize / 2;
+        const maxLen = Math.min(len, sr * 2);
+        const padA = new Float32Array(maxLen);
+        const padB = new Float32Array(maxLen);
+        padA.set(a.subarray(0, Math.min(a.length, maxLen)));
+        padB.set(b.subarray(0, Math.min(b.length, maxLen)));
         const win = DSP.hannWindow(frameSize);
+        const bReal = new Float32Array(frameSize);
+        const bImag = new Float32Array(frameSize);
 
         return DSP.ola(padA, frameSize, hop, hop, (real, imag, frameIdx) => {
             const bOff = frameIdx * hop;
-            const bReal = new Float32Array(frameSize);
-            const bImag = new Float32Array(frameSize);
 
             for (let i = 0; i < frameSize; i++) {
                 const idx = bOff + i;
@@ -477,17 +492,18 @@ class Sampler {
 
     _morphSpectralGate(a, b, len, sr, amount) {
         const frameSize = 2048;
-        const hop = frameSize / 4;
-        const padA = new Float32Array(len);
-        const padB = new Float32Array(len);
-        padA.set(a.subarray(0, Math.min(a.length, len)));
-        padB.set(b.subarray(0, Math.min(b.length, len)));
+        const hop = frameSize / 2;
+        const maxLen = Math.min(len, sr * 2);
+        const padA = new Float32Array(maxLen);
+        const padB = new Float32Array(maxLen);
+        padA.set(a.subarray(0, Math.min(a.length, maxLen)));
+        padB.set(b.subarray(0, Math.min(b.length, maxLen)));
         const win = DSP.hannWindow(frameSize);
+        const bReal = new Float32Array(frameSize);
+        const bImag = new Float32Array(frameSize);
 
         return DSP.ola(padA, frameSize, hop, hop, (real, imag, frameIdx) => {
             const bOff = frameIdx * hop;
-            const bReal = new Float32Array(frameSize);
-            const bImag = new Float32Array(frameSize);
 
             for (let i = 0; i < frameSize; i++) {
                 const idx = bOff + i;
