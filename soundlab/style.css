@@ -274,6 +274,7 @@ main {
     border-bottom: 1px solid var(--border);
     align-items: center;
 }
+.macro-bar[hidden] { display: none; }
 .macro-slot {
     flex: 1;
     display: flex;
