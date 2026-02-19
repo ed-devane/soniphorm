@@ -571,9 +571,9 @@ class AudioEngine {
             }
         }
 
-        if (peak === 0 || peak === 1) return cloned;
+        if (peak === 0 || peak >= 0.95) return cloned;
 
-        const scale = 1.0 / peak;
+        const scale = 0.95 / peak;
         for (const ch of cloned) {
             for (let i = start; i < end; i++) {
                 ch[i] *= scale;
