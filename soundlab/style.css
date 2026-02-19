@@ -211,6 +211,8 @@ main {
     scrollbar-width: none;
 }
 .toolbar-scroll::-webkit-scrollbar { display: none; }
+.toolbar.sample-mode .rec-only,
+.toolbar.seq-mode .rec-only { display: none; }
 
 .tb {
     flex-shrink: 0;

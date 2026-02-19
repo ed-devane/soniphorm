@@ -61,7 +61,7 @@
         <div class="toolbar" id="toolbar">
             <div class="toolbar-scroll">
                 <!-- Transport -->
-                <button id="rec-btn" class="tb rec" title="Record">&#9679; REC</button>
+                <span class="rec-only"><button id="rec-btn" class="tb rec" title="Record">&#9679; REC</button></span>
                 <button id="play-btn" class="tb" title="Play">&#9654; PLAY</button>
                 <button id="stop-btn" class="tb" title="Stop">&#9632; STOP</button>
                 <button id="loop-btn" class="tb" title="Toggle loop">&#8635; LOOP</button>
@@ -69,6 +69,7 @@
                 <!-- File -->
                 <button id="save-btn" class="tb" title="Save to device">SAVE</button>
                 <button id="load-btn" class="tb" title="Load file">LOAD</button>
+                <span class="rec-only">
                 <span class="tb-sep"></span>
                 <!-- Editing -->
                 <button id="trim-btn" class="tb" title="Trim to selection">TRIM</button>
@@ -102,14 +103,17 @@
                 <span class="tb-sep"></span>
                 <!-- Cross-slot -->
                 <button id="cross-btn" class="tb" title="Cross-slot processing">CROSS</button>
+                </span>
                 <span class="tb-sep"></span>
                 <button id="bounce-btn" class="tb" title="Bounce to slot">BOUNCE</button>
                 <button id="export-all-btn" class="tb" title="Export all slots">EXPORT ALL</button>
+                <span class="rec-only">
                 <span class="tb-sep"></span>
                 <!-- Undo -->
                 <button id="undo-btn" class="tb" title="Undo">&#8617; UNDO</button>
                 <button id="redo-btn" class="tb" title="Redo">&#8618; REDO</button>
                 <span id="undo-count" class="undo-count"></span>
+                </span>
             </div>
         </div>
 

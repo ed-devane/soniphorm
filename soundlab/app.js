@@ -2466,11 +2466,13 @@ class App {
         document.getElementById('mode-sample').classList.toggle('active', mode === 'sample');
         document.getElementById('mode-seq').classList.toggle('active', mode === 'seq');
 
-        // Show/hide transport bars
+        // Show/hide transport bars and toolbar
         document.getElementById('seq-transport').classList.toggle('active', mode === 'seq');
         document.getElementById('sample-transport').classList.toggle('active', mode === 'sample');
         document.getElementById('slot-grid').classList.toggle('seq-mode', mode === 'seq');
         document.getElementById('slot-grid').classList.toggle('sample-mode', mode === 'sample');
+        document.getElementById('toolbar').classList.toggle('sample-mode', mode === 'sample');
+        document.getElementById('toolbar').classList.toggle('seq-mode', mode === 'seq');
 
         // Header title
         const titles = { rec: 'SOUNDLAB', sample: 'SAMPLER', seq: 'SEQUENCER' };
