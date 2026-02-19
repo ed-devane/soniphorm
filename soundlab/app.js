@@ -140,17 +140,19 @@ class App {
                 if (this._sampleMode) this.samplePadRelease(i);
             });
 
-            // Long press for context menu on mobile
+            // Touch events: sample mode trigger/release + long-press context menu
             let pressTimer = null;
             el.addEventListener('touchstart', (e) => {
                 usedTouch = true;
                 if (this._sampleMode) {
                     e.preventDefault();
                     this.samplePadTap(i);
+                } else {
+                    pressTimer = setTimeout(() => {
+                        e.preventDefault();
+                        this.onSlotContext(i, e.touches[0]);
+                    }, 500);
                 }
-                pressTimer = setTimeout(() => {
-                    this.onSlotContext(i, e.touches[0]);
-                }, 500);
             });
             el.addEventListener('touchend', (e) => {
                 clearTimeout(pressTimer);
@@ -158,6 +160,11 @@ class App {
                     e.preventDefault();
                     this.samplePadRelease(i);
                 }
+                setTimeout(() => { usedTouch = false; }, 400);
+            });
+            el.addEventListener('touchcancel', () => {
+                clearTimeout(pressTimer);
+                if (this._sampleMode) this.samplePadRelease(i);
                 setTimeout(() => { usedTouch = false; }, 400);
             });
             el.addEventListener('touchmove', () => clearTimeout(pressTimer));
