@@ -124,18 +124,29 @@ class App {
 
             el.addEventListener('click', (e) => this.onSlotTap(i, e));
             el.addEventListener('contextmenu', (e) => this.onSlotContext(i, e));
+
+            // Sample mode: trigger on press, release on lift
+            el.addEventListener('mousedown', (e) => {
+                if (this._sampleMode && e.button === 0) this.samplePadTap(i);
+            });
             el.addEventListener('mouseup', () => { if (this._sampleMode) this.samplePadRelease(i); });
-            el.addEventListener('touchend', () => { if (this._sampleMode) this.samplePadRelease(i); });
+            el.addEventListener('mouseleave', () => { if (this._sampleMode) this.samplePadRelease(i); });
 
             // Long press for context menu on mobile
             let pressTimer = null;
             el.addEventListener('touchstart', (e) => {
+                if (this._sampleMode) {
+                    this.samplePadTap(i);
+                }
                 pressTimer = setTimeout(() => {
                     e.preventDefault();
                     this.onSlotContext(i, e.touches[0]);
                 }, 500);
             });
-            el.addEventListener('touchend', () => clearTimeout(pressTimer));
+            el.addEventListener('touchend', () => {
+                clearTimeout(pressTimer);
+                if (this._sampleMode) this.samplePadRelease(i);
+            });
             el.addEventListener('touchmove', () => clearTimeout(pressTimer));
 
             grid.appendChild(el);
@@ -192,9 +203,8 @@ class App {
             this.seqStepTap(index);
             return;
         }
-        // In sampler mode, tap triggers pad
+        // In sampler mode, trigger is handled by mousedown/touchstart
         if (this._sampleMode) {
-            this.samplePadTap(index);
             return;
         }
         await this.ensureAudioInit();
