@@ -867,12 +867,7 @@ main {
     border-color: var(--green) !important;
 }
 
-/* Pitch row full width */
-.env-pitch-row {
-    flex: 1 1 100%;
-}
-
-/* Vertical Faders (VOL + ADSR) */
+/* Vertical Faders (PITCH + VOL + ADSR) */
 .adsr-faders {
     display: flex;
     gap: 4px;

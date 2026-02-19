@@ -185,14 +185,14 @@
                 <button class="sample-tab" data-tab="lfo">LFO</button>
                 <button class="sample-tab" data-tab="morph">MORPH</button>
             </div>
-            <!-- ENV panel: pitch on top, then VOL + ADSR faders -->
+            <!-- ENV panel: PITCH + VOL + ADSR vertical faders -->
             <div class="sample-panel" id="panel-env">
-                <div class="param-row env-pitch-row">
-                    <span class="param-label">PITCH</span>
-                    <input type="range" class="param-slider" id="pad-pitch" min="-24" max="24" value="0">
-                    <span class="param-value" id="pad-pitch-val">0st</span>
-                </div>
                 <div class="adsr-faders">
+                    <div class="adsr-fader">
+                        <span class="adsr-label">PIT</span>
+                        <input type="range" class="adsr-slider" id="pad-pitch" min="-24" max="24" value="0" orient="vertical">
+                        <span class="adsr-value" id="pad-pitch-val">0st</span>
+                    </div>
                     <div class="adsr-fader">
                         <span class="adsr-label">VOL</span>
                         <input type="range" class="adsr-slider" id="pad-volume" min="0" max="100" value="100" orient="vertical">
