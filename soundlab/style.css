@@ -71,6 +71,21 @@ html, body {
     font-size: 12px;
     letter-spacing: 2px;
 }
+.install-btn {
+    background: var(--green);
+    color: var(--bg);
+    border: none;
+    border-radius: 3px;
+    padding: 2px 8px;
+    font-family: inherit;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    cursor: pointer;
+    opacity: 0.9;
+}
+.install-btn:hover { opacity: 1; }
+.install-btn[hidden] { display: none; }
 .header-center {
     display: flex; gap: 6px; align-items: center;
     color: var(--text2);

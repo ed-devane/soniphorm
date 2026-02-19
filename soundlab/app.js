@@ -90,9 +90,32 @@ class App {
             navigator.serviceWorker.register('sw.js').catch(() => {});
         }
 
+        // PWA install prompt
+        this._deferredInstallPrompt = null;
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            this._deferredInstallPrompt = e;
+            document.getElementById('install-btn').hidden = false;
+        });
+        document.getElementById('install-btn').addEventListener('click', () => this._promptInstall());
+        window.addEventListener('appinstalled', () => {
+            document.getElementById('install-btn').hidden = true;
+            this._deferredInstallPrompt = null;
+        });
+
         // Init audio context on first interaction
         document.addEventListener('click', () => this.ensureAudioInit(), { once: true });
         document.addEventListener('touchstart', () => this.ensureAudioInit(), { once: true });
+    }
+
+    async _promptInstall() {
+        if (!this._deferredInstallPrompt) return;
+        this._deferredInstallPrompt.prompt();
+        const result = await this._deferredInstallPrompt.userChoice;
+        if (result.outcome === 'accepted') {
+            document.getElementById('install-btn').hidden = true;
+        }
+        this._deferredInstallPrompt = null;
     }
 
     async ensureAudioInit() {
@@ -123,47 +146,23 @@ class App {
             `;
 
             el.addEventListener('click', (e) => {
-                if (this._holdPlayUsed) { this._holdPlayUsed = false; return; }
                 this.onSlotTap(i, e);
             });
             el.addEventListener('contextmenu', (e) => this.onSlotContext(i, e));
 
             // Sample mode: trigger on press, release on lift
-            // REC mode: hold 500ms to preview
             let usedTouch = false;
-            let holdTimer = null;
-            let holdActive = false;
-
-            const startHold = () => {
-                holdActive = false;
-                if (this._sampleMode || this._seqMode) return;
-                holdTimer = setTimeout(() => {
-                    holdActive = true;
-                    this._holdPlayUsed = true;
-                    this._holdPlaySlot(i);
-                }, 500);
-            };
-            const endHold = () => {
-                clearTimeout(holdTimer);
-                if (holdActive) {
-                    this.stopAudio();
-                    holdActive = false;
-                }
-            };
 
             el.addEventListener('mousedown', (e) => {
                 if (usedTouch) return;
                 if (this._sampleMode && e.button === 0) this.samplePadTap(i);
-                if (e.button === 0) startHold();
             });
             el.addEventListener('mouseup', () => {
                 if (usedTouch) return;
-                endHold();
                 if (this._sampleMode) this.samplePadRelease(i);
             });
             el.addEventListener('mouseleave', () => {
                 if (usedTouch) return;
-                endHold();
                 if (this._sampleMode) this.samplePadRelease(i);
             });
 
@@ -173,12 +172,9 @@ class App {
                 if (this._sampleMode) {
                     e.preventDefault();
                     this.samplePadTap(i);
-                } else {
-                    startHold();
                 }
             });
             el.addEventListener('touchend', (e) => {
-                endHold();
                 if (this._sampleMode) {
                     e.preventDefault();
                     this.samplePadRelease(i);
@@ -186,11 +182,9 @@ class App {
                 setTimeout(() => { usedTouch = false; }, 400);
             });
             el.addEventListener('touchcancel', () => {
-                endHold();
                 if (this._sampleMode) this.samplePadRelease(i);
                 setTimeout(() => { usedTouch = false; }, 400);
             });
-            el.addEventListener('touchmove', () => { clearTimeout(holdTimer); });
 
             grid.appendChild(el);
         }
@@ -277,6 +271,16 @@ class App {
         // If this slot is already selected and empty, start recording
         if (index === this.slots.selectedIndex && !slot.hasAudio) {
             await this.startRecording(index);
+            return;
+        }
+
+        // If already selected and has audio, toggle play/stop
+        if (index === this.slots.selectedIndex && slot.hasAudio && this.channels) {
+            if (this.audio.isPlaying) {
+                this.stopAudio();
+            } else {
+                this.playAudio();
+            }
             return;
         }
 
@@ -2502,6 +2506,20 @@ class App {
     samplePadTap(index, e) {
         if (!this.slots.slots[index].hasAudio) return;
         this._sampleSelectedPad = index;
+
+        // Pass waveform selection as playback region
+        const pad = this.sampler.pads[index];
+        const sel = this.waveform ? this.waveform.getSelection() : null;
+        const buf = this._slotBuffers[index];
+        if (sel && buf) {
+            const sr = buf.sampleRate;
+            pad.regionStart = sel.start / sr;
+            pad.regionEnd = sel.end / sr;
+        } else {
+            pad.regionStart = 0;
+            pad.regionEnd = -1;
+        }
+
         this._updateSampleTransport();
         this.renderSampleGrid();
         this.sampler.trigger(index);
@@ -2725,34 +2743,6 @@ class App {
         }
     }
 
-    async _holdPlaySlot(index) {
-        await this.ensureAudioInit();
-        const slot = this.slots.slots[index];
-        if (!slot.hasAudio) return;
-        // Select the slot if different
-        if (index !== this.slots.selectedIndex) {
-            this.audio.stop();
-            this.cancelAnimationLoop();
-            this.slots.selectSlot(index);
-            const data = await this.slots.getSlotAudio(index);
-            if (data) {
-                this.channels = data.channels;
-                this.bufferSampleRate = data.sampleRate;
-                this.waveform.setAudio(this.channels, this.bufferSampleRate);
-                document.getElementById('waveform-empty').hidden = true;
-            }
-            this.renderSlotGrid();
-            this.updateTransportInfo();
-        }
-        // Play from beginning
-        if (this.channels) {
-            this.audio.play(this.channels, this.bufferSampleRate, 0, this.channels[0].length, () => {
-                this.cancelAnimationLoop();
-                document.getElementById('play-btn').classList.remove('playing');
-            });
-            document.getElementById('play-btn').classList.add('playing');
-        }
-    }
 
     async _requestWakeLock() {
         if (!('wakeLock' in navigator)) return;

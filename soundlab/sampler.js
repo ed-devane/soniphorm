@@ -65,7 +65,9 @@ class Sampler {
             lfoTarget: 'filter',
             lfoRate: 2.0,
             lfoDepth: 0.5,
-            lfoShape: 'sine'
+            lfoShape: 'sine',
+            regionStart: 0,
+            regionEnd: -1
         };
     }
 
@@ -138,6 +140,16 @@ class Sampler {
             source.playbackRate.setValueAtTime(Math.pow(2, pad.pitch / 12), now);
         }
 
+        // Region bounds
+        const regStart = pad.regionStart || 0;
+        const regEnd = (pad.regionEnd > 0) ? Math.min(pad.regionEnd, buffer.duration) : buffer.duration;
+        const regDuration = regEnd - regStart;
+
+        if (loop) {
+            source.loopStart = regStart;
+            source.loopEnd = regEnd;
+        }
+
         // Build chain: source -> [filter] -> envelopeGain -> volumeGain -> destination
         let lastNode = source;
         let filter = null;
@@ -175,40 +187,80 @@ class Sampler {
         lastNode.connect(ctx.destination);
 
         // 6. Optional LFO
+        let posLfoInterval = null;
         if (pad.lfoEnabled && pad.lfoDepth > 0) {
-            lfo = ctx.createOscillator();
-            lfo.type = pad.lfoShape;
-            lfo.frequency.setValueAtTime(pad.lfoRate, now);
+            if (pad.lfoTarget === 'position' && loop) {
+                // Position LFO: timer-based modulation of loopStart/loopEnd
+                const windowSize = regDuration;
+                const maxShift = Math.max(0, (buffer.duration - windowSize) * pad.lfoDepth);
+                const lfoRate = pad.lfoRate;
+                const lfoShape = pad.lfoShape;
+                const startTimeRef = now;
 
-            lfoGain = ctx.createGain();
+                if (maxShift > 0) {
+                    posLfoInterval = setInterval(() => {
+                        const elapsed = ctx.currentTime - startTimeRef;
+                        const phase = elapsed * lfoRate * 2 * Math.PI;
+                        let lfoValue; // -1 to 1
+                        switch (lfoShape) {
+                            case 'sine':     lfoValue = Math.sin(phase); break;
+                            case 'square':   lfoValue = Math.sin(phase) >= 0 ? 1 : -1; break;
+                            case 'sawtooth': lfoValue = 2 * ((elapsed * lfoRate) % 1) - 1; break;
+                            case 'triangle': {
+                                const t = (elapsed * lfoRate) % 1;
+                                lfoValue = t < 0.5 ? (4 * t - 1) : (3 - 4 * t);
+                                break;
+                            }
+                            default: lfoValue = Math.sin(phase);
+                        }
+                        const offset = maxShift * (lfoValue * 0.5 + 0.5);
+                        source.loopStart = offset;
+                        source.loopEnd = offset + windowSize;
+                    }, 30);
+                }
+            } else if (pad.lfoTarget !== 'position') {
+                lfo = ctx.createOscillator();
+                lfo.type = pad.lfoShape;
+                lfo.frequency.setValueAtTime(pad.lfoRate, now);
 
-            switch (pad.lfoTarget) {
-                case 'filter':
-                    if (filter) {
-                        // LFO depth in Hz: scale by frequency * depth
-                        lfoGain.gain.setValueAtTime(pad.filterFreq * pad.lfoDepth, now);
+                lfoGain = ctx.createGain();
+
+                switch (pad.lfoTarget) {
+                    case 'filter':
+                        if (filter) {
+                            // LFO depth in Hz: scale by frequency * depth
+                            lfoGain.gain.setValueAtTime(pad.filterFreq * pad.lfoDepth, now);
+                            lfo.connect(lfoGain);
+                            lfoGain.connect(filter.frequency);
+                        }
+                        break;
+                    case 'volume':
+                        // Tremolo: modulate volumeGain
+                        lfoGain.gain.setValueAtTime(pad.volume * pad.lfoDepth, now);
                         lfo.connect(lfoGain);
-                        lfoGain.connect(filter.frequency);
-                    }
-                    break;
-                case 'volume':
-                    // Tremolo: modulate volumeGain
-                    lfoGain.gain.setValueAtTime(pad.volume * pad.lfoDepth, now);
-                    lfo.connect(lfoGain);
-                    lfoGain.connect(volumeGain.gain);
-                    break;
-                case 'pitch':
-                    // Vibrato: modulate source detune (cents)
-                    lfoGain.gain.setValueAtTime(pad.lfoDepth * 100, now); // up to 100 cents
-                    lfo.connect(lfoGain);
-                    lfoGain.connect(source.detune);
-                    break;
+                        lfoGain.connect(volumeGain.gain);
+                        break;
+                    case 'pitch':
+                        // Vibrato: modulate source detune (cents)
+                        lfoGain.gain.setValueAtTime(pad.lfoDepth * 100, now); // up to 100 cents
+                        lfo.connect(lfoGain);
+                        lfoGain.connect(source.detune);
+                        break;
+                }
+                lfo.start(now);
             }
-            lfo.start(now);
         }
 
         // Start source
-        source.start(now);
+        if (regStart > 0 || regEnd < buffer.duration) {
+            if (loop) {
+                source.start(now, regStart);
+            } else {
+                source.start(now, regStart, regDuration);
+            }
+        } else {
+            source.start(now);
+        }
 
         source.onended = () => {
             if (this._voices[slotIndex] && this._voices[slotIndex].source === source) {
@@ -217,7 +269,7 @@ class Sampler {
             }
         };
 
-        this._voices[slotIndex] = { source, envelopeGain, volumeGain, filter, lfo, lfoGain, startTime: now };
+        this._voices[slotIndex] = { source, envelopeGain, volumeGain, filter, lfo, lfoGain, posLfoInterval, startTime: now };
     }
 
     _stopVoice(slotIndex) {
@@ -226,6 +278,9 @@ class Sampler {
             try { voice.source.stop(); } catch (e) {}
             if (voice.lfo) {
                 try { voice.lfo.stop(); } catch (e) {}
+            }
+            if (voice.posLfoInterval) {
+                clearInterval(voice.posLfoInterval);
             }
             delete this._voices[slotIndex];
         }
@@ -246,6 +301,9 @@ class Sampler {
         voice.source.stop(now + dur + 0.01);
         if (voice.lfo) {
             voice.lfo.stop(now + dur + 0.01);
+        }
+        if (voice.posLfoInterval) {
+            clearInterval(voice.posLfoInterval);
         }
         delete this._voices[slotIndex];
     }
@@ -479,7 +537,9 @@ class Sampler {
                 lfoTarget: p.lfoTarget,
                 lfoRate: p.lfoRate,
                 lfoDepth: p.lfoDepth,
-                lfoShape: p.lfoShape
+                lfoShape: p.lfoShape,
+                regionStart: p.regionStart,
+                regionEnd: p.regionEnd
             }))
         };
     }
@@ -509,6 +569,8 @@ class Sampler {
                 this.pads[i].lfoRate = p.lfoRate !== undefined ? p.lfoRate : def.lfoRate;
                 this.pads[i].lfoDepth = p.lfoDepth !== undefined ? p.lfoDepth : def.lfoDepth;
                 this.pads[i].lfoShape = p.lfoShape || def.lfoShape;
+                this.pads[i].regionStart = p.regionStart !== undefined ? p.regionStart : def.regionStart;
+                this.pads[i].regionEnd = p.regionEnd !== undefined ? p.regionEnd : def.regionEnd;
             }
         }
     }
