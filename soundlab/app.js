@@ -2473,6 +2473,7 @@ class App {
         document.getElementById('slot-grid').classList.toggle('sample-mode', mode === 'sample');
         document.getElementById('toolbar').classList.toggle('sample-mode', mode === 'sample');
         document.getElementById('toolbar').classList.toggle('seq-mode', mode === 'seq');
+        document.getElementById('macro-bar').hidden = (mode !== 'rec');
 
         // Header title
         const titles = { rec: 'SOUNDLAB', sample: 'SAMPLER', seq: 'SEQUENCER' };
