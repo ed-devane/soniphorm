@@ -2615,13 +2615,22 @@ class App {
     // === Pad Parameter Updates ===
 
     _updatePadEnv() {
-        const pad = this.sampler.pads[this._sampleSelectedPad];
+        const idx = this._sampleSelectedPad;
+        const pad = this.sampler.pads[idx];
         pad.pitch = parseInt(document.getElementById('pad-pitch').value);
         pad.volume = parseInt(document.getElementById('pad-volume').value) / 100;
         pad.attack = parseInt(document.getElementById('pad-attack').value) / 1000;
         pad.decay = parseInt(document.getElementById('pad-decay').value) / 1000;
         pad.sustain = parseInt(document.getElementById('pad-sustain').value) / 100;
         pad.release = parseInt(document.getElementById('pad-release').value) / 1000;
+
+        // Live-update pitch and volume on playing voice
+        const voice = this.sampler._voices[idx];
+        if (voice) {
+            const now = this.sampler.audioContext.currentTime;
+            voice.source.playbackRate.setValueAtTime(Math.pow(2, pad.pitch / 12), now);
+            voice.volumeGain.gain.setValueAtTime(pad.volume, now);
+        }
 
         document.getElementById('pad-pitch-val').textContent = (pad.pitch >= 0 ? '+' : '') + pad.pitch + 'st';
         document.getElementById('pad-volume-val').textContent = Math.round(pad.volume * 100) + '%';
