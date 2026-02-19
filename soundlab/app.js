@@ -2736,19 +2736,46 @@ class App {
     }
 
     _togglePadFilter() {
-        const pad = this.sampler.pads[this._sampleSelectedPad];
+        const idx = this._sampleSelectedPad;
+        const pad = this.sampler.pads[idx];
         pad.filterEnabled = !pad.filterEnabled;
         const btn = document.getElementById('pad-filter-toggle');
         btn.textContent = pad.filterEnabled ? 'ON' : 'OFF';
         btn.classList.toggle('active', pad.filterEnabled);
+
+        // Live-update: toggling filter requires retrigger since we can't
+        // insert/remove a node from a playing chain. Update existing filter if present.
+        const voice = this.sampler._voices[idx];
+        if (voice && voice.filter) {
+            const now = this.sampler.audioContext.currentTime;
+            if (pad.filterEnabled) {
+                voice.filter.frequency.setValueAtTime(pad.filterFreq, now);
+                voice.filter.Q.setValueAtTime(pad.filterQ, now);
+                voice.filter.type = pad.filterType;
+            } else {
+                // Bypass: set to allpass-like (high freq, low Q)
+                voice.filter.frequency.setValueAtTime(22000, now);
+                voice.filter.Q.setValueAtTime(0.001, now);
+            }
+        }
         this._saveSamplerConfig();
     }
 
     _updatePadFilter() {
-        const pad = this.sampler.pads[this._sampleSelectedPad];
+        const idx = this._sampleSelectedPad;
+        const pad = this.sampler.pads[idx];
         pad.filterType = document.getElementById('pad-filter-type').value;
         pad.filterFreq = parseInt(document.getElementById('pad-filter-freq').value);
         pad.filterQ = parseInt(document.getElementById('pad-filter-q').value) / 10;
+
+        // Live-update filter on playing voice
+        const voice = this.sampler._voices[idx];
+        if (voice && voice.filter && pad.filterEnabled) {
+            const now = this.sampler.audioContext.currentTime;
+            voice.filter.type = pad.filterType;
+            voice.filter.frequency.setValueAtTime(pad.filterFreq, now);
+            voice.filter.Q.setValueAtTime(pad.filterQ, now);
+        }
 
         document.getElementById('pad-filter-freq-val').textContent = pad.filterFreq;
         document.getElementById('pad-filter-q-val').textContent = pad.filterQ.toFixed(1);

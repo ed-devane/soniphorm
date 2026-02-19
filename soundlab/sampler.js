@@ -163,21 +163,25 @@ class Sampler {
             source.loopEnd = regEnd;
         }
 
-        // Build chain: source -> [filter] -> envelopeGain -> volumeGain -> destination
+        // Build chain: source -> filter -> envelopeGain -> volumeGain -> destination
         let lastNode = source;
-        let filter = null;
         let lfo = null;
         let lfoGain = null;
 
-        // 2. Optional BiquadFilter
+        // 2. BiquadFilter (always in chain for live toggling)
+        const filter = ctx.createBiquadFilter();
         if (pad.filterEnabled) {
-            filter = ctx.createBiquadFilter();
             filter.type = pad.filterType;
             filter.frequency.setValueAtTime(pad.filterFreq, now);
             filter.Q.setValueAtTime(pad.filterQ, now);
-            lastNode.connect(filter);
-            lastNode = filter;
+        } else {
+            // Bypassed: high frequency passthrough
+            filter.type = 'lowpass';
+            filter.frequency.setValueAtTime(22000, now);
+            filter.Q.setValueAtTime(0.001, now);
         }
+        lastNode.connect(filter);
+        lastNode = filter;
 
         // 3. Envelope gain (ADSR)
         const envelopeGain = ctx.createGain();
