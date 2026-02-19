@@ -1305,6 +1305,30 @@ class App {
     }
 
     async bounceToSlot() {
+        // In sample mode with morph, bounce the morphed buffer
+        if (this._sampleMode) {
+            const padIdx = this._sampleSelectedPad;
+            const pad = this.sampler.pads[padIdx];
+            if (pad.mode === 'morph') {
+                const morphBuf = this.sampler._getMorphBuffer(padIdx);
+                if (!morphBuf) { alert('No morph buffer to bounce'); return; }
+                const emptySlot = this.slots.findEmptySlot();
+                if (emptySlot < 0) { alert('No empty slots available'); return; }
+                const channels = [];
+                for (let ch = 0; ch < morphBuf.numberOfChannels; ch++) {
+                    channels.push(new Float32Array(morphBuf.getChannelData(ch)));
+                }
+                await this.slots.saveSlotAudio(emptySlot, channels, morphBuf.sampleRate);
+                const srcName = this.slots.slots[padIdx]?.name || 'morph';
+                await this.slots.renameSlot(emptySlot, srcName + '-mrp');
+                this.renderSlotGrid();
+                if (this._sampleMode) this.renderSampleGrid();
+                // Refresh slot buffer cache for the new slot
+                await this._seqPreloadBuffers();
+                return;
+            }
+        }
+
         if (!this.channels) return;
         const sel = this.waveform.getSelection();
         const start = sel ? sel.start : 0;
