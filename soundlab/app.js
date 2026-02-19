@@ -1949,6 +1949,9 @@ class App {
                 this.renderSeqGrid();
             }
         };
+        this.sequencer.getPadSettings = (slotIndex) => {
+            return this.sampler ? this.sampler.pads[slotIndex] : null;
+        };
 
         this._slotBuffers = {}; // slotIndex → AudioBuffer (shared by sequencer + sampler)
         this._seqModeMenuStep = -1;

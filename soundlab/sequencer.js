@@ -44,6 +44,7 @@ class Sequencer {
         this.onPatternLoop = null;
         this.getSlotBuffer = null;
         this.getLoadedSlots = null;
+        this.getPadSettings = null;  // (slotIndex) => pad object or null
     }
 
     get stepDuration() {
@@ -118,31 +119,108 @@ class Sequencer {
             const buffer = this._getBuffer(entry.slot, step.direction === 'reverse');
             if (!buffer) continue;
 
-            const source = this.audioContext.createBufferSource();
-            source.buffer = buffer;
-
-            if (entry.pitch !== 0) {
-                source.playbackRate.value = Math.pow(2, entry.pitch / 12);
-            }
-            if (step.mode === 'loop') {
-                source.loop = true;
-                source.loopStart = 0;
-                source.loopEnd = buffer.duration;
-            }
-
-            source.connect(this.audioContext.destination);
-            source.start(time);
-
-            if (step.mode === 'loop') {
-                source.stop(time + this.stepDuration);
-            }
-
-            this._activeSources.push(source);
-            source.onended = () => {
-                const idx = this._activeSources.indexOf(source);
-                if (idx >= 0) this._activeSources.splice(idx, 1);
-            };
+            const pad = this.getPadSettings ? this.getPadSettings(entry.slot) : null;
+            this._playBuffer(this.audioContext, buffer, entry, step, time, pad);
         }
+    }
+
+    _playBuffer(ctx, buffer, entry, step, time, pad) {
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+
+        // Pitch: combine step pitch + pad pitch
+        const totalPitch = entry.pitch + (pad ? pad.pitch : 0);
+        if (totalPitch !== 0) {
+            source.playbackRate.setValueAtTime(Math.pow(2, totalPitch / 12), time);
+        }
+        if (step.mode === 'loop') {
+            source.loop = true;
+            source.loopStart = 0;
+            source.loopEnd = buffer.duration;
+        }
+
+        // Build chain: source -> [filter] -> envelopeGain -> volumeGain -> destination
+        let lastNode = source;
+        let filter = null;
+
+        // Optional filter from pad settings
+        if (pad && pad.filterEnabled) {
+            filter = ctx.createBiquadFilter();
+            filter.type = pad.filterType;
+            filter.frequency.setValueAtTime(pad.filterFreq, time);
+            filter.Q.setValueAtTime(pad.filterQ, time);
+            lastNode.connect(filter);
+            lastNode = filter;
+        }
+
+        // Envelope (ADSR)
+        const envelopeGain = ctx.createGain();
+        if (pad) {
+            envelopeGain.gain.setValueAtTime(0, time);
+            envelopeGain.gain.linearRampToValueAtTime(1.0, time + pad.attack);
+            envelopeGain.gain.linearRampToValueAtTime(pad.sustain, time + pad.attack + pad.decay);
+        } else {
+            envelopeGain.gain.setValueAtTime(1, time);
+        }
+        lastNode.connect(envelopeGain);
+        lastNode = envelopeGain;
+
+        // Volume
+        const volumeGain = ctx.createGain();
+        volumeGain.gain.setValueAtTime(pad ? pad.volume : 1.0, time);
+        lastNode.connect(volumeGain);
+        lastNode = volumeGain;
+
+        lastNode.connect(ctx.destination);
+
+        // Optional LFO
+        let lfo = null;
+        if (pad && pad.lfoEnabled && pad.lfoDepth > 0 && pad.lfoTarget !== 'position') {
+            lfo = ctx.createOscillator();
+            lfo.type = pad.lfoShape;
+            lfo.frequency.setValueAtTime(pad.lfoRate, time);
+            const lfoGain = ctx.createGain();
+            switch (pad.lfoTarget) {
+                case 'filter':
+                    if (filter) {
+                        lfoGain.gain.setValueAtTime(pad.filterFreq * pad.lfoDepth, time);
+                        lfo.connect(lfoGain);
+                        lfoGain.connect(filter.frequency);
+                    }
+                    break;
+                case 'volume':
+                    lfoGain.gain.setValueAtTime(pad.volume * pad.lfoDepth, time);
+                    lfo.connect(lfoGain);
+                    lfoGain.connect(volumeGain.gain);
+                    break;
+                case 'pitch':
+                    lfoGain.gain.setValueAtTime(pad.lfoDepth * 100, time);
+                    lfo.connect(lfoGain);
+                    lfoGain.connect(source.detune);
+                    break;
+            }
+            lfo.start(time);
+        }
+
+        source.start(time);
+
+        if (step.mode === 'loop') {
+            const stopTime = time + this.stepDuration;
+            source.stop(stopTime);
+            if (lfo) lfo.stop(stopTime);
+        }
+
+        this._activeSources.push(source);
+        if (lfo) this._activeSources.push(lfo);
+        source.onended = () => {
+            const idx = this._activeSources.indexOf(source);
+            if (idx >= 0) this._activeSources.splice(idx, 1);
+            if (lfo) {
+                try { lfo.stop(); } catch (e) {}
+                const li = this._activeSources.indexOf(lfo);
+                if (li >= 0) this._activeSources.splice(li, 1);
+            }
+        };
     }
 
     _advanceStep() {
@@ -367,21 +445,8 @@ class Sequencer {
                         offlineBuf.getChannelData(ch).set(buffer.getChannelData(ch));
                     }
 
-                    const source = offline.createBufferSource();
-                    source.buffer = offlineBuf;
-                    if (entry.pitch !== 0) source.playbackRate.value = Math.pow(2, entry.pitch / 12);
-
-                    if (step.mode === 'loop') {
-                        source.loop = true;
-                        source.loopStart = 0;
-                        source.loopEnd = offlineBuf.duration;
-                        source.connect(offline.destination);
-                        source.start(startTime);
-                        source.stop(startTime + stepDur);
-                    } else {
-                        source.connect(offline.destination);
-                        source.start(startTime);
-                    }
+                    const pad = this.getPadSettings ? this.getPadSettings(entry.slot) : null;
+                    this._playBuffer(offline, offlineBuf, entry, step, startTime, pad);
                 }
             }
         }
