@@ -601,22 +601,27 @@ class App {
         // Mobile macro expand/collapse
         if (window.matchMedia('(max-width: 600px)').matches) {
             const allSlots = document.querySelectorAll('.macro-slot');
+            const expandSlot = (activeSlot) => {
+                allSlots.forEach(s => {
+                    if (s === activeSlot) {
+                        s.classList.add('expanded');
+                        s.classList.remove('collapsed');
+                    } else {
+                        s.classList.add('collapsed');
+                        s.classList.remove('expanded');
+                    }
+                });
+            };
+            const resetSlots = () => {
+                allSlots.forEach(s => s.classList.remove('expanded', 'collapsed'));
+            };
             allSlots.forEach(slot => {
                 const slider = slot.querySelector('.macro-slider');
-                slider.addEventListener('focus', () => {
-                    allSlots.forEach(s => {
-                        if (s === slot) {
-                            s.classList.add('expanded');
-                            s.classList.remove('collapsed');
-                        } else {
-                            s.classList.add('collapsed');
-                            s.classList.remove('expanded');
-                        }
-                    });
-                });
-                slider.addEventListener('blur', () => {
-                    allSlots.forEach(s => s.classList.remove('expanded', 'collapsed'));
-                });
+                // Use touchstart + pointerdown for reliable mobile triggering
+                slider.addEventListener('touchstart', () => expandSlot(slot));
+                slider.addEventListener('pointerdown', () => expandSlot(slot));
+                slider.addEventListener('touchend', () => setTimeout(resetSlots, 300));
+                slider.addEventListener('pointerup', () => setTimeout(resetSlots, 300));
             });
         }
         // Macro mapping menu
