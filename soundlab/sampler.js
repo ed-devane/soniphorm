@@ -51,6 +51,7 @@ class Sampler {
             morphTarget: null,
             morphType: 'ring',
             morphAmount: 0.5,
+            pitch: 0,
             volume: 1.0,
             attack: 0.01,
             decay: 0.1,
@@ -133,6 +134,9 @@ class Sampler {
         const source = ctx.createBufferSource();
         source.buffer = buffer;
         source.loop = loop;
+        if (pad.pitch !== 0) {
+            source.playbackRate.setValueAtTime(Math.pow(2, pad.pitch / 12), now);
+        }
 
         // Build chain: source -> [filter] -> envelopeGain -> volumeGain -> destination
         let lastNode = source;
@@ -461,6 +465,7 @@ class Sampler {
                 morphTarget: p.morphTarget,
                 morphType: p.morphType,
                 morphAmount: p.morphAmount,
+                pitch: p.pitch,
                 volume: p.volume,
                 attack: p.attack,
                 decay: p.decay,
@@ -489,6 +494,7 @@ class Sampler {
                 this.pads[i].morphTarget = p.morphTarget !== undefined ? p.morphTarget : def.morphTarget;
                 this.pads[i].morphType = p.morphType || def.morphType;
                 this.pads[i].morphAmount = p.morphAmount !== undefined ? p.morphAmount : def.morphAmount;
+                this.pads[i].pitch = p.pitch !== undefined ? p.pitch : def.pitch;
                 this.pads[i].volume = p.volume !== undefined ? p.volume : def.volume;
                 this.pads[i].attack = p.attack !== undefined ? p.attack : def.attack;
                 this.pads[i].decay = p.decay !== undefined ? p.decay : def.decay;

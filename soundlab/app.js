@@ -621,6 +621,7 @@ class App {
         });
 
         // ENV panel sliders
+        $('pad-pitch').addEventListener('input', () => this._updatePadEnv());
         $('pad-volume').addEventListener('input', () => this._updatePadEnv());
         $('pad-attack').addEventListener('input', () => this._updatePadEnv());
         $('pad-decay').addEventListener('input', () => this._updatePadEnv());
@@ -2559,6 +2560,8 @@ class App {
         });
 
         // ENV panel
+        document.getElementById('pad-pitch').value = pad.pitch;
+        document.getElementById('pad-pitch-val').textContent = (pad.pitch >= 0 ? '+' : '') + pad.pitch + 'st';
         document.getElementById('pad-volume').value = Math.round(pad.volume * 100);
         document.getElementById('pad-volume-val').textContent = Math.round(pad.volume * 100) + '%';
         document.getElementById('pad-attack').value = Math.round(pad.attack * 1000);
@@ -2613,12 +2616,14 @@ class App {
 
     _updatePadEnv() {
         const pad = this.sampler.pads[this._sampleSelectedPad];
+        pad.pitch = parseInt(document.getElementById('pad-pitch').value);
         pad.volume = parseInt(document.getElementById('pad-volume').value) / 100;
         pad.attack = parseInt(document.getElementById('pad-attack').value) / 1000;
         pad.decay = parseInt(document.getElementById('pad-decay').value) / 1000;
         pad.sustain = parseInt(document.getElementById('pad-sustain').value) / 100;
         pad.release = parseInt(document.getElementById('pad-release').value) / 1000;
 
+        document.getElementById('pad-pitch-val').textContent = (pad.pitch >= 0 ? '+' : '') + pad.pitch + 'st';
         document.getElementById('pad-volume-val').textContent = Math.round(pad.volume * 100) + '%';
         document.getElementById('pad-attack-val').textContent = Math.round(pad.attack * 1000) + 'ms';
         document.getElementById('pad-decay-val').textContent = Math.round(pad.decay * 1000) + 'ms';
