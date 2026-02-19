@@ -2554,9 +2554,22 @@ class App {
     }
 
     // Pad tap handling (from onSlotTap)
-    samplePadTap(index, e) {
+    async samplePadTap(index, e) {
         if (!this.slots.slots[index].hasAudio) return;
-        this._sampleSelectedPad = index;
+
+        // Load this slot's audio into the waveform if switching pads
+        if (index !== this._sampleSelectedPad) {
+            this._sampleSelectedPad = index;
+            const data = await this.slots.getSlotAudio(index);
+            if (data) {
+                this.channels = data.channels;
+                this.bufferSampleRate = data.sampleRate;
+                this.waveform.setAudio(this.channels, this.bufferSampleRate);
+                document.getElementById('waveform-empty').hidden = true;
+            }
+            this.slots.selectSlot(index);
+            this.updateTransportInfo();
+        }
 
         // Pass waveform selection as playback region
         const pad = this.sampler.pads[index];
