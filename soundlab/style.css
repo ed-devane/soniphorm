@@ -1057,9 +1057,14 @@ main {
     .slot { min-height: 48px; padding: 3px; }
     .slot-number { font-size: 8px; }
     .slot-name { font-size: 9px; }
-    .macro-bar { gap: 4px; padding: 4px 6px; }
+    .macro-bar { gap: 4px; padding: 4px 6px; flex-wrap: nowrap; }
     .macro-label { font-size: 9px; width: 18px; }
     .macro-value { font-size: 9px; width: 26px; }
+    .macro-slot { transition: flex 0.2s ease; overflow: hidden; }
+    .macro-slot.collapsed { flex: 0 0 18px; }
+    .macro-slot.collapsed .macro-slider,
+    .macro-slot.collapsed .macro-value { display: none; }
+    .macro-slot.expanded { flex: 1 0 0; }
     .mode-btn { font-size: 8px; padding: 2px 5px; letter-spacing: 0; }
     .seq-transport { flex-wrap: wrap; gap: 4px; padding: 4px; }
     .seq-transport .tb { height: 24px; padding: 0 6px; font-size: 9px; }

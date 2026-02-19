@@ -535,6 +535,23 @@ class App {
         for (let m = 0; m < 4; m++) {
             $(`macro-${m}`).addEventListener('input', () => this.onMacroChange(m));
         }
+        // Mobile macro expand/collapse
+        if (window.matchMedia('(max-width: 600px)').matches) {
+            document.querySelectorAll('.macro-slot').forEach(slot => {
+                slot.addEventListener('click', (e) => {
+                    const wasExpanded = slot.classList.contains('expanded');
+                    document.querySelectorAll('.macro-slot').forEach(s => {
+                        s.classList.remove('expanded', 'collapsed');
+                    });
+                    if (!wasExpanded) {
+                        slot.classList.add('expanded');
+                        document.querySelectorAll('.macro-slot').forEach(s => {
+                            if (s !== slot) s.classList.add('collapsed');
+                        });
+                    }
+                });
+            });
+        }
         // Macro mapping menu
         document.getElementById('macro-map-menu').addEventListener('click', (e) => {
             const macroIdx = e.target.dataset.macro;
