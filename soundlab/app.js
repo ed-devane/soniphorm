@@ -639,6 +639,7 @@ class App {
             document.getElementById('main-menu').hidden = true;
             if (action === 'export-all') this.exportAllSlots();
             if (action === 'delete-all') this.deleteAll();
+            if (action === 'install') this._promptInstall();
         });
 
         // Mode toggle: REC / SAMPLE / SEQ
