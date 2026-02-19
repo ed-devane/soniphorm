@@ -341,9 +341,8 @@ main {
     gap: 4px;
     padding: 6px;
     background: var(--bg2);
-    min-height: 0;
-    overflow-y: auto;
-    overflow-x: hidden;
+    min-height: 240px;
+    overflow: hidden;
 }
 
 .slot {
