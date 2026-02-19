@@ -126,26 +126,39 @@ class App {
             el.addEventListener('contextmenu', (e) => this.onSlotContext(i, e));
 
             // Sample mode: trigger on press, release on lift
+            let usedTouch = false;
             el.addEventListener('mousedown', (e) => {
+                if (usedTouch) return;
                 if (this._sampleMode && e.button === 0) this.samplePadTap(i);
             });
-            el.addEventListener('mouseup', () => { if (this._sampleMode) this.samplePadRelease(i); });
-            el.addEventListener('mouseleave', () => { if (this._sampleMode) this.samplePadRelease(i); });
+            el.addEventListener('mouseup', () => {
+                if (usedTouch) return;
+                if (this._sampleMode) this.samplePadRelease(i);
+            });
+            el.addEventListener('mouseleave', () => {
+                if (usedTouch) return;
+                if (this._sampleMode) this.samplePadRelease(i);
+            });
 
             // Long press for context menu on mobile
             let pressTimer = null;
             el.addEventListener('touchstart', (e) => {
+                usedTouch = true;
                 if (this._sampleMode) {
+                    e.preventDefault();
                     this.samplePadTap(i);
                 }
                 pressTimer = setTimeout(() => {
-                    e.preventDefault();
                     this.onSlotContext(i, e.touches[0]);
                 }, 500);
             });
-            el.addEventListener('touchend', () => {
+            el.addEventListener('touchend', (e) => {
                 clearTimeout(pressTimer);
-                if (this._sampleMode) this.samplePadRelease(i);
+                if (this._sampleMode) {
+                    e.preventDefault();
+                    this.samplePadRelease(i);
+                }
+                setTimeout(() => { usedTouch = false; }, 400);
             });
             el.addEventListener('touchmove', () => clearTimeout(pressTimer));
 
