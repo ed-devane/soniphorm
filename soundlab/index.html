@@ -61,7 +61,7 @@
         <div class="toolbar" id="toolbar">
             <div class="toolbar-scroll">
                 <!-- Transport -->
-                <span class="rec-only"><button id="rec-btn" class="tb rec" title="Record">&#9679; REC</button></span>
+                <button id="rec-btn" class="tb rec rec-only" title="Record">&#9679; REC</button>
                 <button id="play-btn" class="tb" title="Play">&#9654; PLAY</button>
                 <button id="stop-btn" class="tb" title="Stop">&#9632; STOP</button>
                 <button id="loop-btn" class="tb" title="Toggle loop">&#8635; LOOP</button>
@@ -69,51 +69,47 @@
                 <!-- File -->
                 <button id="save-btn" class="tb" title="Save to device">SAVE</button>
                 <button id="load-btn" class="tb" title="Load file">LOAD</button>
-                <span class="rec-only">
-                <span class="tb-sep"></span>
+                <span class="tb-sep rec-only"></span>
                 <!-- Editing -->
-                <button id="trim-btn" class="tb" title="Trim to selection">TRIM</button>
-                <button id="cut-btn" class="tb" title="Cut selection">CUT</button>
-                <button id="copy-btn" class="tb" title="Copy selection">COPY</button>
-                <button id="paste-btn" class="tb" title="Paste at cursor">PASTE</button>
-                <button id="silence-btn" class="tb" title="Silence selection">SIL</button>
-                <span class="tb-sep"></span>
+                <button id="trim-btn" class="tb rec-only" title="Trim to selection">TRIM</button>
+                <button id="cut-btn" class="tb rec-only" title="Cut selection">CUT</button>
+                <button id="copy-btn" class="tb rec-only" title="Copy selection">COPY</button>
+                <button id="paste-btn" class="tb rec-only" title="Paste at cursor">PASTE</button>
+                <button id="silence-btn" class="tb rec-only" title="Silence selection">SIL</button>
+                <span class="tb-sep rec-only"></span>
                 <!-- Processing -->
-                <button id="fadein-btn" class="tb" title="Fade in">F.IN</button>
-                <button id="fadeout-btn" class="tb" title="Fade out">F.OUT</button>
-                <button id="reverse-btn" class="tb" title="Reverse">REV</button>
-                <button id="norm-btn" class="tb" title="Normalise">NORM</button>
-                <span class="tb-sep"></span>
+                <button id="fadein-btn" class="tb rec-only" title="Fade in">F.IN</button>
+                <button id="fadeout-btn" class="tb rec-only" title="Fade out">F.OUT</button>
+                <button id="reverse-btn" class="tb rec-only" title="Reverse">REV</button>
+                <button id="norm-btn" class="tb rec-only" title="Normalise">NORM</button>
+                <span class="tb-sep rec-only"></span>
                 <!-- Creative FX -->
-                <button class="tb fx-btn" data-fx="reverb" title="Reverb">VERB</button>
-                <button class="tb fx-btn" data-fx="delay" title="Delay / Echo">DLY</button>
-                <button class="tb fx-btn" data-fx="overdrive" title="Overdrive">DRIVE</button>
-                <button class="tb fx-btn" data-fx="bitcrush" title="Bit Crush">CRUSH</button>
-                <button class="tb fx-btn" data-fx="filter" title="Filter">FILT</button>
-                <button class="tb fx-btn" data-fx="ringmod" title="Ring Modulation">RING</button>
-                <button class="tb fx-btn" data-fx="wavefolding" title="Wavefolding">FOLD</button>
-                <button class="tb fx-btn" data-fx="stutter" title="Stutter / Glitch">GLITCH</button>
-                <span class="tb-sep"></span>
+                <button class="tb fx-btn rec-only" data-fx="reverb" title="Reverb">VERB</button>
+                <button class="tb fx-btn rec-only" data-fx="delay" title="Delay / Echo">DLY</button>
+                <button class="tb fx-btn rec-only" data-fx="overdrive" title="Overdrive">DRIVE</button>
+                <button class="tb fx-btn rec-only" data-fx="bitcrush" title="Bit Crush">CRUSH</button>
+                <button class="tb fx-btn rec-only" data-fx="filter" title="Filter">FILT</button>
+                <button class="tb fx-btn rec-only" data-fx="ringmod" title="Ring Modulation">RING</button>
+                <button class="tb fx-btn rec-only" data-fx="wavefolding" title="Wavefolding">FOLD</button>
+                <button class="tb fx-btn rec-only" data-fx="stutter" title="Stutter / Glitch">GLITCH</button>
+                <span class="tb-sep rec-only"></span>
                 <!-- Time/Pitch/Spectral -->
-                <button class="tb fx-btn" data-fx="timestretch" title="Time Stretch">STRETCH</button>
-                <button class="tb fx-btn" data-fx="pitchshift" title="Pitch Shift">PITCH</button>
-                <button class="tb fx-btn" data-fx="paulstretch" title="Paulstretch">PAUL</button>
-                <button class="tb fx-btn" data-fx="granularfreeze" title="Granular Freeze">GRAIN</button>
-                <button class="tb fx-btn" data-fx="spectralfreeze" title="Spectral Freeze">SPEC</button>
-                <span class="tb-sep"></span>
+                <button class="tb fx-btn rec-only" data-fx="timestretch" title="Time Stretch">STRETCH</button>
+                <button class="tb fx-btn rec-only" data-fx="pitchshift" title="Pitch Shift">PITCH</button>
+                <button class="tb fx-btn rec-only" data-fx="paulstretch" title="Paulstretch">PAUL</button>
+                <button class="tb fx-btn rec-only" data-fx="granularfreeze" title="Granular Freeze">GRAIN</button>
+                <button class="tb fx-btn rec-only" data-fx="spectralfreeze" title="Spectral Freeze">SPEC</button>
+                <span class="tb-sep rec-only"></span>
                 <!-- Cross-slot -->
-                <button id="cross-btn" class="tb" title="Cross-slot processing">CROSS</button>
-                </span>
+                <button id="cross-btn" class="tb rec-only" title="Cross-slot processing">CROSS</button>
                 <span class="tb-sep"></span>
                 <button id="bounce-btn" class="tb" title="Bounce to slot">BOUNCE</button>
                 <button id="export-all-btn" class="tb" title="Export all slots">EXPORT ALL</button>
-                <span class="rec-only">
-                <span class="tb-sep"></span>
+                <span class="tb-sep rec-only"></span>
                 <!-- Undo -->
-                <button id="undo-btn" class="tb" title="Undo">&#8617; UNDO</button>
-                <button id="redo-btn" class="tb" title="Redo">&#8618; REDO</button>
-                <span id="undo-count" class="undo-count"></span>
-                </span>
+                <button id="undo-btn" class="tb rec-only" title="Undo">&#8617; UNDO</button>
+                <button id="redo-btn" class="tb rec-only" title="Redo">&#8618; REDO</button>
+                <span id="undo-count" class="undo-count rec-only"></span>
             </div>
         </div>
 
