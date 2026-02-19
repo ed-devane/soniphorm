@@ -122,40 +122,63 @@ class App {
                 <div class="slot-mini"><canvas></canvas></div>
             `;
 
-            el.addEventListener('click', (e) => this.onSlotTap(i, e));
+            el.addEventListener('click', (e) => {
+                if (this._holdPlayUsed) { this._holdPlayUsed = false; return; }
+                this.onSlotTap(i, e);
+            });
             el.addEventListener('contextmenu', (e) => this.onSlotContext(i, e));
 
             // Sample mode: trigger on press, release on lift
+            // REC mode: hold 500ms to preview
             let usedTouch = false;
+            let holdTimer = null;
+            let holdActive = false;
+
+            const startHold = () => {
+                holdActive = false;
+                if (this._sampleMode || this._seqMode) return;
+                holdTimer = setTimeout(() => {
+                    holdActive = true;
+                    this._holdPlayUsed = true;
+                    this._holdPlaySlot(i);
+                }, 500);
+            };
+            const endHold = () => {
+                clearTimeout(holdTimer);
+                if (holdActive) {
+                    this.stopAudio();
+                    holdActive = false;
+                }
+            };
+
             el.addEventListener('mousedown', (e) => {
                 if (usedTouch) return;
                 if (this._sampleMode && e.button === 0) this.samplePadTap(i);
+                if (e.button === 0) startHold();
             });
             el.addEventListener('mouseup', () => {
                 if (usedTouch) return;
+                endHold();
                 if (this._sampleMode) this.samplePadRelease(i);
             });
             el.addEventListener('mouseleave', () => {
                 if (usedTouch) return;
+                endHold();
                 if (this._sampleMode) this.samplePadRelease(i);
             });
 
-            // Touch events: sample mode trigger/release + long-press context menu
-            let pressTimer = null;
+            // Touch events
             el.addEventListener('touchstart', (e) => {
                 usedTouch = true;
                 if (this._sampleMode) {
                     e.preventDefault();
                     this.samplePadTap(i);
                 } else {
-                    pressTimer = setTimeout(() => {
-                        e.preventDefault();
-                        this.onSlotContext(i, e.touches[0]);
-                    }, 500);
+                    startHold();
                 }
             });
             el.addEventListener('touchend', (e) => {
-                clearTimeout(pressTimer);
+                endHold();
                 if (this._sampleMode) {
                     e.preventDefault();
                     this.samplePadRelease(i);
@@ -163,11 +186,11 @@ class App {
                 setTimeout(() => { usedTouch = false; }, 400);
             });
             el.addEventListener('touchcancel', () => {
-                clearTimeout(pressTimer);
+                endHold();
                 if (this._sampleMode) this.samplePadRelease(i);
                 setTimeout(() => { usedTouch = false; }, 400);
             });
-            el.addEventListener('touchmove', () => clearTimeout(pressTimer));
+            el.addEventListener('touchmove', () => { clearTimeout(holdTimer); });
 
             grid.appendChild(el);
         }
@@ -2699,6 +2722,35 @@ class App {
             if (json) this.sampler.fromJSON(JSON.parse(json));
         } catch (e) {
             console.warn('Failed to load sampler config:', e);
+        }
+    }
+
+    async _holdPlaySlot(index) {
+        await this.ensureAudioInit();
+        const slot = this.slots.slots[index];
+        if (!slot.hasAudio) return;
+        // Select the slot if different
+        if (index !== this.slots.selectedIndex) {
+            this.audio.stop();
+            this.cancelAnimationLoop();
+            this.slots.selectSlot(index);
+            const data = await this.slots.getSlotAudio(index);
+            if (data) {
+                this.channels = data.channels;
+                this.bufferSampleRate = data.sampleRate;
+                this.waveform.setAudio(this.channels, this.bufferSampleRate);
+                document.getElementById('waveform-empty').hidden = true;
+            }
+            this.renderSlotGrid();
+            this.updateTransportInfo();
+        }
+        // Play from beginning
+        if (this.channels) {
+            this.audio.play(this.channels, this.bufferSampleRate, 0, this.channels[0].length, () => {
+                this.cancelAnimationLoop();
+                document.getElementById('play-btn').classList.remove('playing');
+            });
+            document.getElementById('play-btn').classList.add('playing');
         }
     }
 
