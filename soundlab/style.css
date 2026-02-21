@@ -1585,12 +1585,11 @@ main {
         width: 100%;
     }
     .env-group .env-editor { flex-basis: 100%; }
-    .env-group-pitch { display: none; }
-    .env-group-pitch.env-show { display: flex; }
-    .env-group-amp.env-hide { display: none; }
+    .env-dual .env-group-pitch { display: none; }
+    .env-dual .env-group-pitch.env-show { display: flex; }
+    .env-dual .env-group-amp.env-hide { display: none; }
     .env-mobile-toggle {
-        display: block;
-        align-self: flex-start;
+        display: inline-block;
         background: var(--surface);
         border: 1px solid var(--border);
         border-radius: var(--radius);
@@ -1600,7 +1599,7 @@ main {
         font-weight: 700;
         padding: 3px 10px;
         cursor: pointer;
-        margin-bottom: 2px;
+        margin-bottom: 4px;
     }
     .env-mobile-toggle.showing-pitch {
         color: var(--yellow);

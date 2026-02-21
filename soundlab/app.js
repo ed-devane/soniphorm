@@ -3111,9 +3111,18 @@ class App {
         this._updateSampleTransport();
         this.renderSampleGrid();
         this.sampler.trigger(index);
+
+        // Record to sequencer if looper recording is armed
+        if (this._seqRecording && this.sequencer.playing) {
+            this._recordPadToStep(index, undefined, 'pad-' + index);
+        }
     }
 
     samplePadRelease(index) {
+        // Record note-off for duration tracking
+        if (this._seqRecording && this.sequencer.playing) {
+            this._recordNoteOff('pad-' + index);
+        }
         this.sampler.release(index);
     }
 
