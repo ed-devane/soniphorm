@@ -288,6 +288,15 @@ main {
     flex-shrink: 0;
 }
 .gate-db[hidden] { display: none; }
+
+/* Input device selector */
+#input-device-select {
+    font-size: 10px;
+    max-width: 140px;
+    height: 24px;
+}
+#input-device-select[hidden] { display: none; }
+
 .tb.rec.gate-closed {
     animation: pulse-gate-closed 0.6s ease-in-out infinite;
 }
@@ -1555,6 +1564,7 @@ main {
     .macro-slot.collapsed .macro-slider,
     .macro-slot.collapsed .macro-value { display: none; }
     .macro-slot.expanded { flex: 1 0 0; }
+    #input-device-select { max-width: 110px; font-size: 9px; }
     .mode-btn { font-size: 8px; padding: 2px 5px; letter-spacing: 0; }
     .mode-toggle-opt { font-size: 9px; padding: 2px 6px; }
     .seq-transport { flex-wrap: wrap; gap: 4px; padding: 4px; }

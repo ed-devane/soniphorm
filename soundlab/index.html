@@ -67,6 +67,10 @@
                 <input type="range" id="gate-threshold" class="gate-slider rec-only"
                        min="-60" max="0" value="-40" step="1" title="Gate threshold (dB)" hidden>
                 <span id="gate-db" class="gate-db rec-only" hidden>-40dB</span>
+                <button id="input-btn" class="tb rec-only" title="Select audio input">INPUT</button>
+                <select id="input-device-select" class="param-select rec-only" hidden>
+                    <option value="">Default Mic</option>
+                </select>
                 <button id="play-btn" class="tb rec-only" title="Play">&#9654; PLAY</button>
                 <button id="stop-btn" class="tb rec-only" title="Stop">&#9632; STOP</button>
                 <button id="loop-btn" class="tb rec-only" title="Toggle loop">&#8635; LOOP</button>

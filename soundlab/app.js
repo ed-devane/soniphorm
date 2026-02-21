@@ -48,6 +48,9 @@ class App {
         // Noise gate
         this._gateEnabled = false;
 
+        // Input device selection
+        this._selectedInputDeviceId = null;
+
         // Chromatic keyboard state
         this._chromaticMode = false;
         this._chromaticBaseOctave = 3;
@@ -372,7 +375,7 @@ class App {
 
     async startRecording(index) {
         try {
-            await this.audio.startRecording();
+            await this.audio.startRecording(this._selectedInputDeviceId);
         } catch (e) {
             alert('Could not access microphone. Check permissions.');
             return;
@@ -611,6 +614,48 @@ class App {
             const linear = Math.pow(10, dB / 20);
             this.audio.setGateThreshold(linear);
         });
+
+        // Input device selection
+        $('input-btn').addEventListener('click', async () => {
+            const select = $('input-device-select');
+            if (!select.hidden) {
+                select.hidden = true;
+                return;
+            }
+            const devices = await this.audio.enumerateInputDevices();
+            select.innerHTML = '<option value="">Default Mic</option>';
+            for (const d of devices) {
+                const opt = document.createElement('option');
+                opt.value = d.deviceId;
+                opt.textContent = d.label;
+                select.appendChild(opt);
+            }
+            if (this._selectedInputDeviceId) {
+                select.value = this._selectedInputDeviceId;
+            }
+            select.hidden = false;
+        });
+
+        $('input-device-select').addEventListener('change', (e) => {
+            this._selectedInputDeviceId = e.target.value || null;
+        });
+
+        if (navigator.mediaDevices) {
+            navigator.mediaDevices.addEventListener('devicechange', async () => {
+                const select = $('input-device-select');
+                if (select.hidden) return;
+                const devices = await this.audio.enumerateInputDevices();
+                const prev = select.value;
+                select.innerHTML = '<option value="">Default Mic</option>';
+                for (const d of devices) {
+                    const opt = document.createElement('option');
+                    opt.value = d.deviceId;
+                    opt.textContent = d.label;
+                    select.appendChild(opt);
+                }
+                select.value = prev;
+            });
+        }
 
         // Edit operations
         $('trim-btn').addEventListener('click', () => this.applyEdit('trim'));
@@ -2959,6 +3004,11 @@ class App {
     async switchMode(mode) {
         await this.ensureAudioInit();
 
+        // Stop rec-mode playback when leaving rec mode
+        if (!this._seqMode && !this._sampleMode) {
+            this.stopAudio();
+        }
+
         // Exit current mode
         if (this._seqMode) {
             // Keep sequencer playing if switching to sample mode
@@ -3059,6 +3109,14 @@ class App {
         // Update sample transport after panel is visible (canvas needs dimensions)
         if (mode === 'sample') {
             this._updateSampleTransport();
+        }
+
+        // Recalculate waveform canvas after flex layout changes (fixes centrepoint shift
+        // when returning to rec mode after chromatic keyboard changed canvas dimensions)
+        if (mode === 'rec' && this.waveform) {
+            requestAnimationFrame(() => {
+                this.waveform.resize();
+            });
         }
     }
 

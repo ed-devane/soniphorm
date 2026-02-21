@@ -25,6 +25,9 @@ class AudioEngine {
         this._gateThreshold = 0.01; // linear amplitude
         this._gateOpen = true;
 
+        // Input device selection
+        this._selectedDeviceId = null;
+
         // Persistent master bus (created in init)
         this._masterBus = null;
 
@@ -70,6 +73,22 @@ class AudioEngine {
         }
     }
 
+    // === Input Device Enumeration ===
+
+    async enumerateInputDevices() {
+        // Need permission first to get labels — request a temporary stream
+        if (!this._mediaStream) {
+            try {
+                const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                tempStream.getTracks().forEach(t => t.stop());
+            } catch (e) { return []; }
+        }
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        return devices
+            .filter(d => d.kind === 'audioinput')
+            .map(d => ({ deviceId: d.deviceId, label: d.label || 'Input ' + d.deviceId.slice(0, 4) }));
+    }
+
     // === Noise Gate ===
 
     setGateEnabled(enabled) {
@@ -94,22 +113,32 @@ class AudioEngine {
 
     // === Recording ===
 
-    async startRecording() {
+    async startRecording(deviceId) {
         if (!this.audioContext) await this.init();
 
         this._recordedChunks = [];
         this._inputLevel = 0;
 
+        // If device changed, close existing stream so we open a new one
+        const deviceChanged = (deviceId || null) !== (this._selectedDeviceId || null);
+        if (deviceChanged && this._mediaStream) {
+            this._mediaStream.getTracks().forEach(t => t.stop());
+            this._mediaStream = null;
+        }
+        this._selectedDeviceId = deviceId || null;
+
         // Reuse existing mic stream if still active, otherwise request a new one
         if (!this._mediaStream || this._mediaStream.getTracks().every(t => t.readyState === 'ended')) {
-            this._mediaStream = await navigator.mediaDevices.getUserMedia({
+            const constraints = {
                 audio: {
                     echoCancellation: false,
                     noiseSuppression: false,
                     autoGainControl: false,
-                    sampleRate: 48000
+                    sampleRate: 48000,
+                    ...(deviceId ? { deviceId: { exact: deviceId } } : {})
                 }
-            });
+            };
+            this._mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
         }
 
         this._mediaStreamSource = this.audioContext.createMediaStreamSource(this._mediaStream);
