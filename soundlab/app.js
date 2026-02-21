@@ -615,47 +615,10 @@ class App {
             this.audio.setGateThreshold(linear);
         });
 
-        // Input device selection
-        $('input-btn').addEventListener('click', async () => {
-            const select = $('input-device-select');
-            if (!select.hidden) {
-                select.hidden = true;
-                return;
-            }
-            const devices = await this.audio.enumerateInputDevices();
-            select.innerHTML = '<option value="">Default Mic</option>';
-            for (const d of devices) {
-                const opt = document.createElement('option');
-                opt.value = d.deviceId;
-                opt.textContent = d.label;
-                select.appendChild(opt);
-            }
-            if (this._selectedInputDeviceId) {
-                select.value = this._selectedInputDeviceId;
-            }
-            select.hidden = false;
-        });
-
+        // Input device selection (in main menu)
         $('input-device-select').addEventListener('change', (e) => {
             this._selectedInputDeviceId = e.target.value || null;
         });
-
-        if (navigator.mediaDevices) {
-            navigator.mediaDevices.addEventListener('devicechange', async () => {
-                const select = $('input-device-select');
-                if (select.hidden) return;
-                const devices = await this.audio.enumerateInputDevices();
-                const prev = select.value;
-                select.innerHTML = '<option value="">Default Mic</option>';
-                for (const d of devices) {
-                    const opt = document.createElement('option');
-                    opt.value = d.deviceId;
-                    opt.textContent = d.label;
-                    select.appendChild(opt);
-                }
-                select.value = prev;
-            });
-        }
 
         // Edit operations
         $('trim-btn').addEventListener('click', () => this.applyEdit('trim'));
@@ -741,8 +704,29 @@ class App {
 
         // Main menu
         $('menu-btn').addEventListener('click', () => this._toggleMainMenu());
-        document.getElementById('main-menu').addEventListener('click', (e) => {
+        document.getElementById('main-menu').addEventListener('click', async (e) => {
             const action = e.target.dataset.action;
+            if (!action) return; // clicked the select dropdown, don't close
+            if (action === 'input') {
+                const select = $('input-device-select');
+                if (!select.hidden) {
+                    select.hidden = true;
+                    return;
+                }
+                const devices = await this.audio.enumerateInputDevices();
+                select.innerHTML = '<option value="">Default Mic</option>';
+                for (const d of devices) {
+                    const opt = document.createElement('option');
+                    opt.value = d.deviceId;
+                    opt.textContent = d.label;
+                    select.appendChild(opt);
+                }
+                if (this._selectedInputDeviceId) {
+                    select.value = this._selectedInputDeviceId;
+                }
+                select.hidden = false;
+                return;
+            }
             document.getElementById('main-menu').hidden = true;
             if (action === 'export-all') this.exportAllSlots();
             if (action === 'delete-all') this.deleteAll();

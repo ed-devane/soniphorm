@@ -35,6 +35,10 @@
             </div>
             <button id="menu-btn" class="icon-btn" title="Menu">&#9776;</button>
             <div class="context-menu" id="main-menu" hidden>
+                <button data-action="input">Audio input</button>
+                <select id="input-device-select" class="menu-select" hidden>
+                    <option value="">Default Mic</option>
+                </select>
                 <button data-action="export-all">Export all slots</button>
                 <button data-action="delete-all" class="danger">Delete all</button>
                 <button data-action="install" id="install-btn" hidden>Install app</button>
@@ -67,10 +71,6 @@
                 <input type="range" id="gate-threshold" class="gate-slider rec-only"
                        min="-60" max="0" value="-40" step="1" title="Gate threshold (dB)" hidden>
                 <span id="gate-db" class="gate-db rec-only" hidden>-40dB</span>
-                <button id="input-btn" class="tb rec-only" title="Select audio input">INPUT</button>
-                <select id="input-device-select" class="param-select rec-only" hidden>
-                    <option value="">Default Mic</option>
-                </select>
                 <button id="play-btn" class="tb rec-only" title="Play">&#9654; PLAY</button>
                 <button id="stop-btn" class="tb rec-only" title="Stop">&#9632; STOP</button>
                 <button id="loop-btn" class="tb rec-only" title="Toggle loop">&#8635; LOOP</button>

@@ -289,12 +289,22 @@ main {
 }
 .gate-db[hidden] { display: none; }
 
-/* Input device selector */
+/* Input device selector (in main menu) */
 #input-device-select {
-    font-size: 10px;
-    max-width: 140px;
-    height: 24px;
+    display: block;
+    width: calc(100% - 8px);
+    margin: 4px;
+    padding: 6px 8px;
+    background: var(--bg);
+    border: 1px solid var(--border-lt);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 11px;
+    outline: none;
+    cursor: pointer;
 }
+#input-device-select:focus { border-color: var(--accent); }
 #input-device-select[hidden] { display: none; }
 
 .tb.rec.gate-closed {
@@ -1564,7 +1574,6 @@ main {
     .macro-slot.collapsed .macro-slider,
     .macro-slot.collapsed .macro-value { display: none; }
     .macro-slot.expanded { flex: 1 0 0; }
-    #input-device-select { max-width: 110px; font-size: 9px; }
     .mode-btn { font-size: 8px; padding: 2px 5px; letter-spacing: 0; }
     .mode-toggle-opt { font-size: 9px; padding: 2px 6px; }
     .seq-transport { flex-wrap: wrap; gap: 4px; padding: 4px; }
