@@ -31,12 +31,29 @@ class App {
         this._seqMode = false;
         this._seqAnimFrame = null;
         this._seqPreStutterPattern = null; // saved pattern for stutter undo
+        this._seqPreMutatePattern = null; // saved pattern for mutate revert
+        this._seqBankIndex = 0;
+        this._seqBanks = null; // array of 16 pattern JSONs, lazily initialized
+        this._seqRecording = false;
 
         // Sampler
         this.sampler = null;
         this._sampleMode = false;
         this._sampleSelectedPad = 0; // currently selected pad for config
         this._keysDown = new Set(); // track held keys for gate mode
+
+        // Noise gate
+        this._gateEnabled = false;
+
+        // Chromatic keyboard state
+        this._chromaticMode = false;
+        this._chromaticBaseOctave = 4;
+        this._chromaticOctaveSpan = 1;
+
+        // Envelope editor state
+        this._envView = 'amp'; // 'amp' or 'pitch'
+        this._envNodes = [];   // computed node positions [{x, y}]
+        this._envDragging = -1; // index of node being dragged, -1 = none
     }
 
     async init() {
@@ -127,6 +144,12 @@ class App {
             await this.audio.init();
             if (this.audio.audioContext) {
                 this.slots.setAudioContext(this.audio.audioContext);
+                // Wire sampler/sequencer to effects bus
+                const bus = this.audio.getEffectsBus();
+                if (bus) {
+                    if (this.sampler) this.sampler.outputNode = bus;
+                    if (this.sequencer) this.sequencer.outputNode = bus;
+                }
             }
         } catch (e) { console.warn('Audio init:', e); }
     }
@@ -370,6 +393,11 @@ class App {
                 this.waveform.render();
             }
 
+            // Gate visual feedback: dim REC button when gate is closed
+            if (this._gateEnabled) {
+                document.getElementById('rec-btn').classList.toggle('gate-closed', !this.audio.isGateOpen());
+            }
+
             this.animFrameId = requestAnimationFrame(animate);
         };
         animate();
@@ -385,6 +413,7 @@ class App {
         this._releaseWakeLock();
         this.cancelAnimationLoop();
         document.getElementById('rec-btn').classList.remove('recording');
+        document.getElementById('rec-btn').classList.remove('gate-closed');
 
         if (!result || result.channels[0].length === 0) {
             this.renderSlotGrid();
@@ -550,6 +579,15 @@ class App {
         $('stop-btn').addEventListener('click', () => this.stopAudio());
         $('loop-btn').addEventListener('click', () => this.toggleLoop());
 
+        // Noise gate
+        $('gate-btn').addEventListener('click', () => this.toggleGate());
+        $('gate-threshold').addEventListener('input', () => {
+            const dB = parseInt($('gate-threshold').value);
+            $('gate-db').textContent = dB + 'dB';
+            const linear = Math.pow(10, dB / 20);
+            this.audio.setGateThreshold(linear);
+        });
+
         // Edit operations
         $('trim-btn').addEventListener('click', () => this.applyEdit('trim'));
         $('cut-btn').addEventListener('click', () => this.applyEdit('cut'));
@@ -653,19 +691,19 @@ class App {
         $('pad-mode-gate').addEventListener('click', () => this.setPadMode('gate'));
         $('pad-mode-morph').addEventListener('click', () => this.setPadMode('morph'));
         $('sample-stop-all').addEventListener('click', () => this.sampler && this.sampler.stopAll());
+        $('pad-mode-keys').addEventListener('click', () => this._toggleChromaticMode());
 
         // Sample tabs
         document.querySelectorAll('.sample-tab').forEach(tab => {
             tab.addEventListener('click', () => this._switchSampleTab(tab.dataset.tab));
         });
 
-        // ENV panel sliders
+        // ENV panel: mini sliders for pitch/volume
         $('pad-pitch').addEventListener('input', () => this._updatePadEnv());
         $('pad-volume').addEventListener('input', () => this._updatePadEnv());
-        $('pad-attack').addEventListener('input', () => this._updatePadEnv());
-        $('pad-decay').addEventListener('input', () => this._updatePadEnv());
-        $('pad-sustain').addEventListener('input', () => this._updatePadEnv());
-        $('pad-release').addEventListener('input', () => this._updatePadEnv());
+
+        // ENV panel: canvas envelope editor
+        this._initEnvEditor();
 
         // FILT panel
         $('pad-filter-toggle').addEventListener('click', () => this._togglePadFilter());
@@ -688,6 +726,7 @@ class App {
             this._updateMorphConfig();
         });
         $('seq-play-btn').addEventListener('click', () => this.seqPlayStop());
+        $('seq-rec-btn').addEventListener('click', () => this.seqToggleRecord());
         $('bpm-down').addEventListener('click', () => this.seqAdjustBpm(-1));
         $('bpm-up').addEventListener('click', () => this.seqAdjustBpm(1));
         $('bpm-display').addEventListener('click', () => this.seqEditBpm());
@@ -712,14 +751,33 @@ class App {
 
         // Zoom
         $('zoom-in').addEventListener('click', () => {
+            if (this._seqMode) {
+                this.seqSwitchBank(this._seqBankIndex + 1);
+                return;
+            }
+            if (this._sampleMode && this._chromaticMode) {
+                this._chromaticOctaveSpan = Math.min(4, this._chromaticOctaveSpan + 1);
+                this._renderPianoKeyboard();
+                return;
+            }
             this.waveform.setZoom(this.waveform.getZoom() * 1.5);
             this.waveform.render();
         });
         $('zoom-out').addEventListener('click', () => {
+            if (this._seqMode) {
+                this.seqSwitchBank(this._seqBankIndex - 1);
+                return;
+            }
+            if (this._sampleMode && this._chromaticMode) {
+                this._chromaticOctaveSpan = Math.max(1, this._chromaticOctaveSpan - 1);
+                this._renderPianoKeyboard();
+                return;
+            }
             this.waveform.setZoom(this.waveform.getZoom() / 1.5);
             this.waveform.render();
         });
         $('zoom-fit').addEventListener('click', () => {
+            if (this._seqMode) return; // In SEQ mode, shows bank label
             this.waveform.setZoom(1);
             this.waveform.setScrollOffset(0);
             this.waveform.render();
@@ -764,6 +822,21 @@ class App {
         // If turning on loop while playing, restart to enable loop
         if (looping && this.audio.isPlaying) {
             this._restartLoop();
+        }
+    }
+
+    toggleGate() {
+        this._gateEnabled = !this._gateEnabled;
+        this.audio.setGateEnabled(this._gateEnabled);
+        document.getElementById('gate-btn').classList.toggle('gate-on', this._gateEnabled);
+        document.getElementById('gate-threshold').hidden = !this._gateEnabled;
+        document.getElementById('gate-db').hidden = !this._gateEnabled;
+
+        // Send initial threshold when enabling
+        if (this._gateEnabled) {
+            const dB = parseInt(document.getElementById('gate-threshold').value);
+            const linear = Math.pow(10, dB / 20);
+            this.audio.setGateThreshold(linear);
         }
     }
 
@@ -1843,6 +1916,7 @@ class App {
             this.sequencer.setBpm(120);
             this.sequencer.mutateEnabled = false;
             this._seqPreStutterPattern = null;
+            this._seqPreMutatePattern = null;
             this._slotBuffers = {};
             this._saveSeqPattern();
         }
@@ -2043,8 +2117,129 @@ class App {
     }
 
     seqStepTap(stepIndex) {
-        // Open step mode menu on tap (with slot picker)
-        this.openStepModeMenu(stepIndex, { clientX: null, clientY: null, _useCentered: true });
+        this._seqModeMenuStep = stepIndex;
+        this._renderSeqSampleList();
+        this.renderSeqGrid();
+        // Highlight selected step
+        const slotEls = document.querySelectorAll('#slot-grid .slot');
+        slotEls.forEach((el, i) => {
+            el.classList.toggle('pad-selected', i === stepIndex);
+        });
+    }
+
+    _renderSeqSampleList() {
+        const container = document.getElementById('seq-sample-list');
+        const stepIndex = this._seqModeMenuStep;
+        const step = this.sequencer.pattern[stepIndex];
+        container.innerHTML = '';
+
+        // Header with step number and mode/direction controls
+        const header = document.createElement('div');
+        header.className = 'seq-sample-list-header';
+        const modeBtn = document.createElement('button');
+        modeBtn.className = 'seq-mode-btn' + (step.mode === 'loop' ? ' on' : '');
+        modeBtn.textContent = step.mode === 'loop' ? 'LOOP' : 'ONE';
+        modeBtn.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);color:var(--text2);font-family:var(--mono);font-size:10px;font-weight:700;padding:2px 8px;cursor:pointer;';
+        if (step.mode === 'loop') modeBtn.style.color = 'var(--yellow)';
+        modeBtn.addEventListener('click', () => {
+            const newMode = step.mode === 'loop' ? 'oneshot' : 'loop';
+            this.sequencer.setStepMode(stepIndex, newMode);
+            this._renderSeqSampleList();
+            this.renderSeqGrid();
+            this._saveSeqPattern();
+        });
+
+        const dirBtn = document.createElement('button');
+        dirBtn.className = 'seq-dir-btn' + (step.direction === 'reverse' ? ' on' : '');
+        dirBtn.textContent = step.direction === 'reverse' ? 'REV' : 'FWD';
+        dirBtn.style.cssText = 'background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);color:var(--text2);font-family:var(--mono);font-size:10px;font-weight:700;padding:2px 8px;cursor:pointer;';
+        if (step.direction === 'reverse') dirBtn.style.color = 'var(--red)';
+        dirBtn.addEventListener('click', () => {
+            const newDir = step.direction === 'reverse' ? 'forward' : 'reverse';
+            this.sequencer.setStepDirection(stepIndex, newDir);
+            for (const entry of step.slots) this.sequencer.invalidateBuffer(entry.slot);
+            this._renderSeqSampleList();
+            this.renderSeqGrid();
+            this._saveSeqPattern();
+        });
+
+        header.textContent = '';
+        header.appendChild(document.createTextNode('STEP ' + String(stepIndex + 1).padStart(2, '0')));
+        header.appendChild(modeBtn);
+        header.appendChild(dirBtn);
+        container.appendChild(header);
+
+        // Sample rows
+        for (let i = 0; i < 16; i++) {
+            const slot = this.slots.slots[i];
+            if (!slot.hasAudio) continue;
+
+            const entry = this.sequencer.getSlotEntry(stepIndex, i);
+            const isOn = !!entry;
+            const pitch = entry ? entry.pitch : 0;
+
+            const row = document.createElement('div');
+            row.className = 'seq-sample-row';
+
+            // Slot number
+            const numSpan = document.createElement('span');
+            numSpan.className = 'slot-num';
+            numSpan.textContent = String(i + 1).padStart(2, '0');
+            row.appendChild(numSpan);
+
+            // Name
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'slot-name';
+            nameSpan.textContent = slot.name || 'untitled';
+            row.appendChild(nameSpan);
+
+            // ON/OFF toggle
+            const toggleBtn = document.createElement('button');
+            toggleBtn.className = 'seq-toggle-btn' + (isOn ? ' on' : '');
+            toggleBtn.textContent = isOn ? 'ON' : 'OFF';
+            toggleBtn.addEventListener('click', () => {
+                this.sequencer.toggleSlotOnStep(stepIndex, i);
+                this._renderSeqSampleList();
+                this.renderSeqGrid();
+                this._saveSeqPattern();
+            });
+            row.appendChild(toggleBtn);
+
+            // Pitch controls
+            const pitchCtrl = document.createElement('div');
+            pitchCtrl.className = 'seq-pitch-ctrl';
+            const pitchDown = document.createElement('button');
+            pitchDown.className = 'seq-pitch-btn';
+            pitchDown.innerHTML = '&minus;';
+            pitchDown.addEventListener('click', () => {
+                const e = this.sequencer.getSlotEntry(stepIndex, i);
+                if (!e) return;
+                this.sequencer.setSlotPitch(stepIndex, i, e.pitch - 1);
+                this._renderSeqSampleList();
+                this.renderSeqGrid();
+                this._saveSeqPattern();
+            });
+            const pitchVal = document.createElement('span');
+            pitchVal.className = 'seq-pitch-val';
+            pitchVal.textContent = pitch > 0 ? '+' + pitch : String(pitch);
+            const pitchUp = document.createElement('button');
+            pitchUp.className = 'seq-pitch-btn';
+            pitchUp.textContent = '+';
+            pitchUp.addEventListener('click', () => {
+                const e = this.sequencer.getSlotEntry(stepIndex, i);
+                if (!e) return;
+                this.sequencer.setSlotPitch(stepIndex, i, e.pitch + 1);
+                this._renderSeqSampleList();
+                this.renderSeqGrid();
+                this._saveSeqPattern();
+            });
+            pitchCtrl.appendChild(pitchDown);
+            pitchCtrl.appendChild(pitchVal);
+            pitchCtrl.appendChild(pitchUp);
+            row.appendChild(pitchCtrl);
+
+            container.appendChild(row);
+        }
     }
 
     openStepModeMenu(stepIndex, e) {
@@ -2188,6 +2383,11 @@ class App {
             this.sequencer.stop();
             this._seqStopAnimation();
             document.getElementById('seq-play-btn').innerHTML = '&#9654; PLAY';
+            // Auto-disable recording
+            if (this._seqRecording) {
+                this._seqRecording = false;
+                document.getElementById('seq-rec-btn').classList.remove('rec-on');
+            }
         } else {
             // Stop main waveform playback if active
             this.stopAudio();
@@ -2263,7 +2463,10 @@ class App {
 
     seqRandomise() {
         this._seqPreStutterPattern = null;
+        this._seqPreMutatePattern = null;
+        this.sequencer.mutateEnabled = false;
         document.getElementById('seq-stutter-btn').classList.remove('stutter-on');
+        document.getElementById('seq-mutate-btn').classList.remove('mutate-on');
         this.sequencer.randomise(0.75);
         this.renderSeqGrid();
         this._saveSeqPattern();
@@ -2288,13 +2491,27 @@ class App {
 
     seqToggleMutate() {
         this.sequencer.mutateEnabled = !this.sequencer.mutateEnabled;
+        if (this.sequencer.mutateEnabled) {
+            // Save pattern before mutate starts
+            this._seqPreMutatePattern = this.sequencer.toJSON();
+        } else {
+            // Restore original pattern
+            if (this._seqPreMutatePattern) {
+                this.sequencer.fromJSON(this._seqPreMutatePattern);
+                this._seqPreMutatePattern = null;
+                this.renderSeqGrid();
+            }
+        }
         document.getElementById('seq-mutate-btn').classList.toggle('mutate-on', this.sequencer.mutateEnabled);
         this._saveSeqPattern();
     }
 
     seqClear() {
         this._seqPreStutterPattern = null;
+        this._seqPreMutatePattern = null;
+        this.sequencer.mutateEnabled = false;
         document.getElementById('seq-stutter-btn').classList.remove('stutter-on');
+        document.getElementById('seq-mutate-btn').classList.remove('mutate-on');
         this.sequencer.clearPattern();
         this.renderSeqGrid();
         this._saveSeqPattern();
@@ -2350,11 +2567,46 @@ class App {
         }
     }
 
-    // Persistence
+    // === Live Recording into Sequencer ===
+
+    async seqToggleRecord() {
+        this._seqRecording = !this._seqRecording;
+        document.getElementById('seq-rec-btn').classList.toggle('rec-on', this._seqRecording);
+        if (this._seqRecording) {
+            // If seq not playing, start playback
+            if (!this.sequencer.playing) {
+                await this.seqPlayStop();
+            }
+        }
+    }
+
+    _recordPadToStep(slotIndex) {
+        if (!this._seqRecording || !this.sequencer.playing) return;
+        const step = this.sequencer.currentStep;
+        if (step < 0) return;
+        // If slot not already on that step, toggle it on
+        if (!this.sequencer.hasSlotOnStep(step, slotIndex)) {
+            this.sequencer.toggleSlotOnStep(step, slotIndex);
+            this.renderSeqGrid();
+            if (this._seqModeMenuStep === step) this._renderSeqSampleList();
+            this._saveSeqPattern();
+        }
+    }
+
+    // Persistence (with 16 banks)
     _saveSeqPattern() {
         try {
-            const data = this.sequencer.toJSON();
-            localStorage.setItem('soniphorm-seq-pattern', JSON.stringify(data));
+            // Ensure banks array exists
+            if (!this._seqBanks) {
+                this._seqBanks = new Array(16).fill(null);
+            }
+            // Save current pattern into current bank
+            this._seqBanks[this._seqBankIndex] = this.sequencer.toJSON();
+            const data = {
+                currentBank: this._seqBankIndex,
+                banks: this._seqBanks
+            };
+            localStorage.setItem('soniphorm-seq-banks', JSON.stringify(data));
         } catch (e) {
             console.warn('Failed to save seq pattern:', e);
         }
@@ -2362,12 +2614,79 @@ class App {
 
     _loadSeqPattern() {
         try {
+            // Try new bank format first
+            const banksJson = localStorage.getItem('soniphorm-seq-banks');
+            if (banksJson) {
+                const data = JSON.parse(banksJson);
+                this._seqBankIndex = data.currentBank || 0;
+                this._seqBanks = data.banks || new Array(16).fill(null);
+                // Ensure 16 banks
+                while (this._seqBanks.length < 16) this._seqBanks.push(null);
+                const bankData = this._seqBanks[this._seqBankIndex];
+                if (bankData) {
+                    this.sequencer.fromJSON(bankData);
+                }
+                return;
+            }
+            // Fall back to old single-pattern format (migration)
             const json = localStorage.getItem('soniphorm-seq-pattern');
             if (json) {
                 this.sequencer.fromJSON(JSON.parse(json));
+                // Migrate: save into bank 0
+                this._seqBanks = new Array(16).fill(null);
+                this._seqBanks[0] = this.sequencer.toJSON();
+                this._seqBankIndex = 0;
+                this._saveSeqPattern();
+                // Remove old key
+                localStorage.removeItem('soniphorm-seq-pattern');
+            } else {
+                this._seqBanks = new Array(16).fill(null);
             }
         } catch (e) {
             console.warn('Failed to load seq pattern:', e);
+            this._seqBanks = new Array(16).fill(null);
+        }
+    }
+
+    seqSwitchBank(newIndex) {
+        // Clamp to 0-15
+        newIndex = Math.max(0, Math.min(15, newIndex));
+        if (newIndex === this._seqBankIndex) return;
+
+        // Save current pattern to current bank
+        if (!this._seqBanks) this._seqBanks = new Array(16).fill(null);
+        this._seqBanks[this._seqBankIndex] = this.sequencer.toJSON();
+
+        // Load new bank
+        this._seqBankIndex = newIndex;
+        const bankData = this._seqBanks[newIndex];
+        if (bankData) {
+            this.sequencer.fromJSON(bankData);
+        } else {
+            this.sequencer.clearPattern();
+        }
+
+        // Clear stutter/mutate state
+        this._seqPreStutterPattern = null;
+        this._seqPreMutatePattern = null;
+        this.sequencer.mutateEnabled = false;
+        document.getElementById('seq-stutter-btn').classList.remove('stutter-on');
+        document.getElementById('seq-mutate-btn').classList.remove('mutate-on');
+
+        // Update display
+        this.renderSeqGrid();
+        this._updateBpmDisplay();
+        this._updateBankDisplay();
+        this._saveSeqPattern();
+        if (this._seqModeMenuStep >= 0) this._renderSeqSampleList();
+    }
+
+    _updateBankDisplay() {
+        const label = document.getElementById('zoom-fit');
+        if (this._seqMode) {
+            label.textContent = 'PAT ' + String(this._seqBankIndex + 1).padStart(2, '0');
+        } else {
+            label.textContent = '[ ]';
         }
     }
 
@@ -2395,7 +2714,8 @@ class App {
     }
 
     _onKeyDown(e) {
-        if (!this._sampleMode) return;
+        // Allow in sample mode, or in seq mode during recording
+        if (!this._sampleMode && !(this._seqMode && this._seqRecording)) return;
         // Ignore if typing in an input
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
         if (e.repeat) return; // ignore key repeat
@@ -2405,11 +2725,15 @@ class App {
             e.preventDefault();
             this._keysDown.add(e.code);
             this.sampler.trigger(padIdx);
+            // Record to current step if in SEQ recording mode
+            if (this._seqMode && this._seqRecording) {
+                this._recordPadToStep(padIdx);
+            }
         }
     }
 
     _onKeyUp(e) {
-        if (!this._sampleMode) return;
+        if (!this._sampleMode && !(this._seqMode && this._seqRecording)) return;
         const padIdx = this.sampler.keyMap[e.code];
         if (padIdx !== undefined && this._keysDown.has(e.code)) {
             e.preventDefault();
@@ -2431,10 +2755,24 @@ class App {
             }
             this._saveSeqPattern();
             this._seqMode = false;
+            // Restore waveform canvas
+            document.getElementById('waveform').style.display = '';
+            document.getElementById('seq-sample-list').hidden = true;
+            document.getElementById('zoom-fit').textContent = '[ ]';
+            if (this.channels) {
+                document.getElementById('waveform-empty').hidden = true;
+            } else {
+                document.getElementById('waveform-empty').hidden = false;
+            }
         }
         if (this._sampleMode) {
             this.sampler.stopAll();
             this._keysDown.clear();
+            // Exit chromatic mode if active
+            if (this._chromaticMode) {
+                this._chromaticMode = false;
+                document.getElementById('pad-mode-keys').classList.remove('keys-on');
+            }
             this._sampleMode = false;
         }
 
@@ -2443,23 +2781,37 @@ class App {
             this._seqMode = true;
             if (this.audio.audioContext) {
                 this.sequencer.audioContext = this.audio.audioContext;
+                this.sequencer.outputNode = this.audio.getEffectsBus();
+                // Also init sampler for live recording
+                this.sampler.audioContext = this.audio.audioContext;
+                this.sampler.outputNode = this.audio.getEffectsBus();
             }
             await this._seqPreloadBuffers();
             this.renderSeqGrid();
             this._updateBpmDisplay();
             document.getElementById('seq-mutate-btn').classList.toggle('mutate-on', this.sequencer.mutateEnabled);
+            // Show sample list in waveform area
+            document.getElementById('waveform').style.display = 'none';
+            document.getElementById('waveform-empty').hidden = true;
+            document.getElementById('seq-sample-list').hidden = false;
+            this._seqModeMenuStep = 0;
+            this._renderSeqSampleList();
+            this._updateBankDisplay();
         } else if (mode === 'sample') {
             this._sampleMode = true;
             if (this.audio.audioContext) {
                 this.sampler.audioContext = this.audio.audioContext;
+                this.sampler.outputNode = this.audio.getEffectsBus();
             }
             await this._seqPreloadBuffers(); // reuse same buffer cache
             this.renderSampleGrid();
-            this._updateSampleTransport();
         } else {
             // rec mode — restore normal grid
             this.renderSlotGrid();
         }
+
+        // Apply slot live effects so the bus has the correct chain active
+        this._applySlotLiveEffects();
 
         // Update toggle buttons
         document.getElementById('mode-rec').classList.toggle('active', mode === 'rec');
@@ -2478,6 +2830,11 @@ class App {
         // Header title
         const titles = { rec: 'SOUNDLAB', sample: 'SAMPLER', seq: 'SEQUENCER' };
         document.querySelector('.header-title').textContent = titles[mode];
+
+        // Update sample transport after panel is visible (canvas needs dimensions)
+        if (mode === 'sample') {
+            this._updateSampleTransport();
+        }
     }
 
     // === Sample Grid ===
@@ -2669,19 +3026,14 @@ class App {
             btn.classList.toggle('active', btn.id === 'pad-mode-' + pad.mode);
         });
 
-        // ENV panel
+        // ENV panel: pitch + volume sliders
         document.getElementById('pad-pitch').value = pad.pitch;
         document.getElementById('pad-pitch-val').textContent = (pad.pitch >= 0 ? '+' : '') + pad.pitch + 'st';
         document.getElementById('pad-volume').value = Math.round(pad.volume * 100);
         document.getElementById('pad-volume-val').textContent = Math.round(pad.volume * 100) + '%';
-        document.getElementById('pad-attack').value = Math.round(pad.attack * 1000);
-        document.getElementById('pad-attack-val').textContent = Math.round(pad.attack * 1000) + 'ms';
-        document.getElementById('pad-decay').value = Math.round(pad.decay * 1000);
-        document.getElementById('pad-decay-val').textContent = Math.round(pad.decay * 1000) + 'ms';
-        document.getElementById('pad-sustain').value = Math.round(pad.sustain * 100);
-        document.getElementById('pad-sustain-val').textContent = Math.round(pad.sustain * 100) + '%';
-        document.getElementById('pad-release').value = Math.round(pad.release * 1000);
-        document.getElementById('pad-release-val').textContent = Math.round(pad.release * 1000) + 'ms';
+
+        // ENV panel: canvas envelope
+        this._drawEnvelope();
 
         // FILT panel
         const filtToggle = document.getElementById('pad-filter-toggle');
@@ -2720,6 +3072,7 @@ class App {
         document.getElementById('panel-filter').hidden = (tabName !== 'filter');
         document.getElementById('panel-lfo').hidden = (tabName !== 'lfo');
         document.getElementById('panel-morph').hidden = (tabName !== 'morph');
+        if (tabName === 'env') this._drawEnvelope();
     }
 
     // === Pad Parameter Updates ===
@@ -2729,10 +3082,6 @@ class App {
         const pad = this.sampler.pads[idx];
         pad.pitch = parseInt(document.getElementById('pad-pitch').value);
         pad.volume = parseInt(document.getElementById('pad-volume').value) / 100;
-        pad.attack = parseInt(document.getElementById('pad-attack').value) / 1000;
-        pad.decay = parseInt(document.getElementById('pad-decay').value) / 1000;
-        pad.sustain = parseInt(document.getElementById('pad-sustain').value) / 100;
-        pad.release = parseInt(document.getElementById('pad-release').value) / 1000;
 
         // Live-update pitch and volume on playing voice
         const voice = this.sampler._voices[idx];
@@ -2744,11 +3093,313 @@ class App {
 
         document.getElementById('pad-pitch-val').textContent = (pad.pitch >= 0 ? '+' : '') + pad.pitch + 'st';
         document.getElementById('pad-volume-val').textContent = Math.round(pad.volume * 100) + '%';
-        document.getElementById('pad-attack-val').textContent = Math.round(pad.attack * 1000) + 'ms';
-        document.getElementById('pad-decay-val').textContent = Math.round(pad.decay * 1000) + 'ms';
-        document.getElementById('pad-sustain-val').textContent = Math.round(pad.sustain * 100) + '%';
-        document.getElementById('pad-release-val').textContent = Math.round(pad.release * 1000) + 'ms';
         this._saveSamplerConfig();
+    }
+
+    // === Envelope Curve Editor ===
+
+    _initEnvEditor() {
+        const canvas = document.getElementById('env-canvas');
+
+        // Toggle buttons
+        document.querySelectorAll('.env-toggle-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                this._envView = btn.dataset.env;
+                document.querySelectorAll('.env-toggle-btn').forEach(b =>
+                    b.classList.toggle('active', b.dataset.env === this._envView));
+                this._drawEnvelope();
+            });
+        });
+
+        // Pitch envelope enable button
+        document.getElementById('env-pitch-enable').addEventListener('click', () => {
+            const pad = this.sampler.pads[this._sampleSelectedPad];
+            pad.pitchEnvEnabled = true;
+            this._drawEnvelope();
+            this._saveSamplerConfig();
+        });
+
+        // Pointer events for node dragging
+        canvas.addEventListener('pointerdown', (e) => this._envPointerDown(e));
+        canvas.addEventListener('pointermove', (e) => this._envPointerMove(e));
+        canvas.addEventListener('pointerup', (e) => this._envPointerUp(e));
+        canvas.addEventListener('pointercancel', (e) => this._envPointerUp(e));
+
+        // Resize handler
+        window.addEventListener('resize', () => this._drawEnvelope());
+    }
+
+    _getEnvValues() {
+        const pad = this.sampler.pads[this._sampleSelectedPad];
+        if (this._envView === 'pitch') {
+            return {
+                attack: pad.pitchEnvAttack,
+                decay: pad.pitchEnvDecay,
+                sustain: pad.pitchEnvSustain,
+                release: pad.pitchEnvRelease,
+                enabled: pad.pitchEnvEnabled
+            };
+        }
+        return {
+            attack: pad.attack,
+            decay: pad.decay,
+            sustain: pad.sustain,
+            release: pad.release,
+            enabled: true
+        };
+    }
+
+    _setEnvValues(attack, decay, sustain, release) {
+        const pad = this.sampler.pads[this._sampleSelectedPad];
+        if (this._envView === 'pitch') {
+            pad.pitchEnvAttack = attack;
+            pad.pitchEnvDecay = decay;
+            pad.pitchEnvSustain = sustain;
+            pad.pitchEnvRelease = release;
+        } else {
+            pad.attack = attack;
+            pad.decay = decay;
+            pad.sustain = sustain;
+            pad.release = release;
+        }
+    }
+
+    _drawEnvelope() {
+        const canvas = document.getElementById('env-canvas');
+        if (!canvas) return;
+        const rect = canvas.getBoundingClientRect();
+        if (rect.width < 1 || rect.height < 1) return; // hidden or zero-size
+        const ctx = canvas.getContext('2d');
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = rect.width * dpr;
+        canvas.height = rect.height * dpr;
+        ctx.scale(dpr, dpr);
+        const W = rect.width;
+        const H = rect.height;
+        ctx.clearRect(0, 0, W, H);
+
+        const pad = this.sampler ? this.sampler.pads[this._sampleSelectedPad] : null;
+        if (!pad) return;
+
+        const env = this._getEnvValues();
+
+        // Show/hide pitch enable button
+        const enableBtn = document.getElementById('env-pitch-enable');
+        if (this._envView === 'pitch' && !env.enabled) {
+            enableBtn.hidden = false;
+            // Draw dimmed placeholder
+            ctx.strokeStyle = 'rgba(148,163,184,0.2)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(0, H);
+            ctx.lineTo(W * 0.2, 4);
+            ctx.lineTo(W * 0.5, H * 0.6);
+            ctx.lineTo(W * 0.7, H * 0.6);
+            ctx.lineTo(W, H);
+            ctx.stroke();
+            this._envNodes = [];
+            this._updateEnvValues(env);
+            return;
+        }
+        enableBtn.hidden = true;
+
+        // Layout: proportional time segments with min widths
+        const padding = 8;
+        const drawW = W - padding * 2;
+        const drawH = H - padding * 2;
+        const sustainHoldFrac = 0.15;
+        const totalTime = env.attack + env.decay + env.release + 0.001;
+        const sustainHoldW = drawW * sustainHoldFrac;
+        const timeW = drawW - sustainHoldW;
+
+        // Proportional widths with minimum of 12px per segment
+        const minSeg = 12;
+        let atkW = Math.max(minSeg, (env.attack / totalTime) * timeW);
+        let decW = Math.max(minSeg, (env.decay / totalTime) * timeW);
+        let relW = Math.max(minSeg, (env.release / totalTime) * timeW);
+        // Normalize to fit
+        const segTotal = atkW + decW + relW;
+        if (segTotal > timeW) {
+            const scale = timeW / segTotal;
+            atkW *= scale;
+            decW *= scale;
+            relW *= scale;
+        }
+        const susW = drawW - atkW - decW - relW;
+
+        // Key positions
+        const x0 = padding;                       // start (bottom-left)
+        const x1 = padding + atkW;                 // attack peak
+        const x2 = padding + atkW + decW;          // end of decay (sustain start)
+        const x3 = padding + atkW + decW + susW;   // end of sustain hold
+        const x4 = padding + drawW;                // end of release (bottom-right)
+        const yTop = padding;
+        const yBot = padding + drawH;
+        const ySus = yTop + (1 - env.sustain) * drawH;
+
+        // Compute node positions
+        this._envNodes = [
+            { x: x1, y: yTop },   // Attack node
+            { x: x2, y: ySus },   // Decay/Sustain node
+            { x: x3, y: ySus }    // Release node (start of release, for dragging)
+        ];
+
+        // Draw filled area
+        ctx.beginPath();
+        ctx.moveTo(x0, yBot);
+        ctx.lineTo(x1, yTop);
+        ctx.lineTo(x2, ySus);
+        ctx.lineTo(x3, ySus);
+        ctx.lineTo(x4, yBot);
+        ctx.closePath();
+        const accentColor = this._envView === 'pitch' ? '234,179,8' : '14,165,233';
+        ctx.fillStyle = `rgba(${accentColor},0.08)`;
+        ctx.fill();
+
+        // Draw gridlines
+        ctx.strokeStyle = 'rgba(148,163,184,0.08)';
+        ctx.lineWidth = 1;
+        // 50% line
+        const y50 = yTop + 0.5 * drawH;
+        ctx.beginPath();
+        ctx.moveTo(padding, y50);
+        ctx.lineTo(padding + drawW, y50);
+        ctx.stroke();
+        // sustain line
+        if (env.sustain > 0.01 && env.sustain < 0.99) {
+            ctx.strokeStyle = 'rgba(148,163,184,0.12)';
+            ctx.setLineDash([3, 3]);
+            ctx.beginPath();
+            ctx.moveTo(padding, ySus);
+            ctx.lineTo(padding + drawW, ySus);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
+
+        // Draw curve
+        const strokeColor = this._envView === 'pitch' ? '#eab308' : '#0ea5e9';
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = 2;
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(x0, yBot);
+        ctx.lineTo(x1, yTop);
+        ctx.lineTo(x2, ySus);
+        ctx.lineTo(x3, ySus);
+        ctx.lineTo(x4, yBot);
+        ctx.stroke();
+
+        // Draw nodes
+        const nodeColor = this._envView === 'pitch' ? '#eab308' : '#0ea5e9';
+        for (let i = 0; i < this._envNodes.length; i++) {
+            const n = this._envNodes[i];
+            ctx.beginPath();
+            ctx.arc(n.x, n.y, 6, 0, Math.PI * 2);
+            ctx.fillStyle = nodeColor;
+            ctx.fill();
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+
+        // Update value text
+        this._updateEnvValues(env);
+    }
+
+    _updateEnvValues(env) {
+        const el = document.getElementById('env-values');
+        if (!el) return;
+        const fmtTime = (s) => {
+            const ms = Math.round(s * 1000);
+            return ms >= 1000 ? (ms / 1000).toFixed(1) + 's' : ms + 'ms';
+        };
+        el.textContent = `A:${fmtTime(env.attack)}  D:${fmtTime(env.decay)}  S:${Math.round(env.sustain * 100)}%  R:${fmtTime(env.release)}`;
+    }
+
+    _envPointerDown(e) {
+        const canvas = document.getElementById('env-canvas');
+        const rect = canvas.getBoundingClientRect();
+        const px = e.clientX - rect.left;
+        const py = e.clientY - rect.top;
+
+        // Hit test: find closest node within 24px
+        let closest = -1;
+        let closestDist = 24;
+        for (let i = 0; i < this._envNodes.length; i++) {
+            const n = this._envNodes[i];
+            const dist = Math.sqrt((px - n.x) ** 2 + (py - n.y) ** 2);
+            if (dist < closestDist) {
+                closestDist = dist;
+                closest = i;
+            }
+        }
+
+        if (closest >= 0) {
+            this._envDragging = closest;
+            canvas.setPointerCapture(e.pointerId);
+            e.preventDefault();
+        }
+    }
+
+    _envPointerMove(e) {
+        if (this._envDragging < 0) return;
+        e.preventDefault();
+
+        const canvas = document.getElementById('env-canvas');
+        const rect = canvas.getBoundingClientRect();
+        const px = e.clientX - rect.left;
+        const py = e.clientY - rect.top;
+
+        const padding = 8;
+        const drawW = rect.width - padding * 2;
+        const drawH = rect.height - padding * 2;
+
+        const env = this._getEnvValues();
+        const sustainHoldFrac = 0.15;
+        const totalTime = env.attack + env.decay + env.release + 0.001;
+        const sustainHoldW = drawW * sustainHoldFrac;
+        const timeW = drawW - sustainHoldW;
+
+        const node = this._envDragging;
+
+        if (node === 0) {
+            // Attack node: horizontal only, controls attack time
+            const xClamped = Math.max(padding + 8, Math.min(px, padding + drawW * 0.45));
+            const frac = (xClamped - padding) / timeW;
+            const newAtk = Math.max(0.001, Math.min(2.0, frac * totalTime));
+            this._setEnvValues(newAtk, env.decay, env.sustain, env.release);
+        } else if (node === 1) {
+            // Decay/Sustain node: horizontal for decay, vertical for sustain
+            const atkFrac = env.attack / totalTime;
+            const atkEndX = padding + atkFrac * timeW;
+            const xClamped = Math.max(atkEndX + 8, Math.min(px, padding + drawW * 0.7));
+            const decFrac = (xClamped - atkEndX) / timeW;
+            const newDec = Math.max(0.001, Math.min(2.0, decFrac * totalTime));
+            // Vertical: sustain level
+            const yClamped = Math.max(padding, Math.min(py, padding + drawH));
+            const newSus = Math.max(0, Math.min(1, 1 - (yClamped - padding) / drawH));
+            this._setEnvValues(env.attack, newDec, newSus, env.release);
+        } else if (node === 2) {
+            // Release node: horizontal only, controls release time
+            // Node sits at start of release segment. Dragging left = longer release.
+            const minX = padding + drawW * 0.35;
+            const maxX = padding + drawW - 8;
+            const xClamped = Math.max(minX, Math.min(px, maxX));
+            // Distance from node to right edge proportional to release time
+            const relPixels = padding + drawW - xClamped;
+            const relFrac = relPixels / timeW;
+            const newRel = Math.max(0.005, Math.min(5.0, relFrac * totalTime));
+            this._setEnvValues(env.attack, env.decay, env.sustain, newRel);
+        }
+
+        this._drawEnvelope();
+    }
+
+    _envPointerUp(e) {
+        if (this._envDragging >= 0) {
+            this._envDragging = -1;
+            this._saveSamplerConfig();
+        }
     }
 
     _togglePadFilter() {
@@ -2817,6 +3468,201 @@ class App {
         document.getElementById('pad-lfo-rate-val').textContent = pad.lfoRate.toFixed(1);
         document.getElementById('pad-lfo-depth-val').textContent = Math.round(pad.lfoDepth * 100) + '%';
         this._saveSamplerConfig();
+    }
+
+    // === Chromatic Keyboard ===
+
+    _toggleChromaticMode() {
+        this._chromaticMode = !this._chromaticMode;
+        document.getElementById('pad-mode-keys').classList.toggle('keys-on', this._chromaticMode);
+        const canvas = document.getElementById('waveform');
+        if (this._chromaticMode) {
+            canvas.style.display = '';
+            document.getElementById('waveform-empty').hidden = true;
+            this._renderPianoKeyboard();
+            this._bindChromaticEvents();
+        } else {
+            this._unbindChromaticEvents();
+            // Restore normal waveform display
+            if (this.channels) {
+                this.waveform.setAudio(this.channels, this.bufferSampleRate);
+            } else {
+                this.waveform.clear();
+                document.getElementById('waveform-empty').hidden = false;
+            }
+        }
+    }
+
+    _renderPianoKeyboard() {
+        const canvas = document.getElementById('waveform');
+        const ctx = canvas.getContext('2d');
+        const dpr = window.devicePixelRatio || 1;
+        const w = canvas.clientWidth;
+        const h = canvas.clientHeight;
+        if (w === 0 || h === 0) return;
+        canvas.width = w * dpr;
+        canvas.height = h * dpr;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+        const totalNotes = this._chromaticOctaveSpan * 12;
+        const startNote = this._chromaticBaseOctave * 12; // MIDI note number (C of base octave)
+        const noteNames = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+        const isBlack = [false,true,false,true,false,false,true,false,true,false,true,false];
+
+        // Calculate white key count for layout
+        let whiteCount = 0;
+        for (let n = 0; n < totalNotes; n++) {
+            if (!isBlack[n % 12]) whiteCount++;
+        }
+        const whiteKeyWidth = w / whiteCount;
+        const blackKeyWidth = whiteKeyWidth * 0.6;
+        const blackKeyHeight = h * 0.6;
+
+        // Background
+        ctx.fillStyle = '#0a0e1a';
+        ctx.fillRect(0, 0, w, h);
+
+        // Draw white keys first
+        let whiteIdx = 0;
+        this._chromaticKeyRects = []; // Store rects for hit testing: [{x, w, h, noteIdx, isBlack}]
+        for (let n = 0; n < totalNotes; n++) {
+            if (!isBlack[n % 12]) {
+                const x = whiteIdx * whiteKeyWidth;
+                // White key rect
+                ctx.fillStyle = '#e8e8e8';
+                ctx.fillRect(x + 1, 0, whiteKeyWidth - 2, h - 2);
+                ctx.strokeStyle = '#999';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(x + 1, 0, whiteKeyWidth - 2, h - 2);
+
+                // Note label
+                const midiNote = startNote + n;
+                const octave = Math.floor(midiNote / 12);
+                const noteName = noteNames[midiNote % 12];
+                ctx.fillStyle = '#333';
+                ctx.font = '10px "JetBrains Mono", monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText(noteName + octave, x + whiteKeyWidth / 2, h - 8);
+
+                this._chromaticKeyRects.push({ x: x, w: whiteKeyWidth, h: h, noteIdx: n, isBlack: false });
+                whiteIdx++;
+            }
+        }
+
+        // Draw black keys on top
+        whiteIdx = 0;
+        for (let n = 0; n < totalNotes; n++) {
+            if (!isBlack[n % 12]) {
+                // If next note is black, draw it
+                if (n + 1 < totalNotes && isBlack[(n + 1) % 12]) {
+                    const x = (whiteIdx + 1) * whiteKeyWidth - blackKeyWidth / 2;
+                    ctx.fillStyle = '#1a1a1a';
+                    ctx.fillRect(x, 0, blackKeyWidth, blackKeyHeight);
+                    ctx.strokeStyle = '#333';
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(x, 0, blackKeyWidth, blackKeyHeight);
+
+                    this._chromaticKeyRects.push({ x: x, w: blackKeyWidth, h: blackKeyHeight, noteIdx: n + 1, isBlack: true });
+                }
+                whiteIdx++;
+            }
+        }
+    }
+
+    _chromaticNoteFromX(clientX, clientY) {
+        const canvas = document.getElementById('waveform');
+        const rect = canvas.getBoundingClientRect();
+        const px = clientX - rect.left;
+        const py = clientY - rect.top;
+        if (!this._chromaticKeyRects) return null;
+
+        // Check black keys first (they overlap white keys)
+        for (const kr of this._chromaticKeyRects) {
+            if (kr.isBlack && px >= kr.x && px <= kr.x + kr.w && py <= kr.h) {
+                return kr.noteIdx;
+            }
+        }
+        // Then white keys
+        for (const kr of this._chromaticKeyRects) {
+            if (!kr.isBlack && px >= kr.x && px <= kr.x + kr.w && py <= kr.h) {
+                return kr.noteIdx;
+            }
+        }
+        return null;
+    }
+
+    _chromaticPlayNote(noteIdx) {
+        if (noteIdx === null) return;
+        const startNote = this._chromaticBaseOctave * 12;
+        const midiNote = startNote + noteIdx;
+        const semitones = midiNote - 60; // offset from middle C
+        const padIdx = this._sampleSelectedPad;
+        if (this.sampler && this.slots.slots[padIdx].hasAudio) {
+            this.sampler.triggerWithPitch(padIdx, semitones);
+        }
+    }
+
+    _bindChromaticEvents() {
+        const canvas = document.getElementById('waveform');
+        this._chromaticTouchHandler = (e) => {
+            e.preventDefault();
+            if (e.touches.length === 2) {
+                // Two-finger horizontal drag: shift octave
+                if (!this._chromaticPanStartX) {
+                    this._chromaticPanStartX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+                    this._chromaticPanStartOctave = this._chromaticBaseOctave;
+                } else {
+                    const currentMid = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+                    const delta = currentMid - this._chromaticPanStartX;
+                    const octShift = Math.round(delta / 80);
+                    this._chromaticBaseOctave = Math.max(0, Math.min(8, this._chromaticPanStartOctave - octShift));
+                    this._renderPianoKeyboard();
+                }
+                return;
+            }
+            for (let i = 0; i < e.touches.length; i++) {
+                const noteIdx = this._chromaticNoteFromX(e.touches[i].clientX, e.touches[i].clientY);
+                this._chromaticPlayNote(noteIdx);
+            }
+        };
+        this._chromaticTouchEndHandler = (e) => {
+            e.preventDefault();
+            if (e.touches.length < 2) {
+                this._chromaticPanStartX = null;
+            }
+            if (e.touches.length === 0) {
+                this.sampler.release(this._sampleSelectedPad);
+            }
+        };
+        this._chromaticMouseHandler = (e) => {
+            const noteIdx = this._chromaticNoteFromX(e.clientX, e.clientY);
+            this._chromaticPlayNote(noteIdx);
+        };
+        this._chromaticMouseUpHandler = () => {
+            this.sampler.release(this._sampleSelectedPad);
+        };
+
+        canvas.addEventListener('touchstart', this._chromaticTouchHandler, { passive: false });
+        canvas.addEventListener('touchmove', this._chromaticTouchHandler, { passive: false });
+        canvas.addEventListener('touchend', this._chromaticTouchEndHandler, { passive: false });
+        canvas.addEventListener('mousedown', this._chromaticMouseHandler);
+        canvas.addEventListener('mouseup', this._chromaticMouseUpHandler);
+    }
+
+    _unbindChromaticEvents() {
+        const canvas = document.getElementById('waveform');
+        if (this._chromaticTouchHandler) {
+            canvas.removeEventListener('touchstart', this._chromaticTouchHandler);
+            canvas.removeEventListener('touchmove', this._chromaticTouchHandler);
+            canvas.removeEventListener('touchend', this._chromaticTouchEndHandler);
+        }
+        if (this._chromaticMouseHandler) {
+            canvas.removeEventListener('mousedown', this._chromaticMouseHandler);
+            canvas.removeEventListener('mouseup', this._chromaticMouseUpHandler);
+        }
+        this._chromaticTouchHandler = null;
+        this._chromaticMouseHandler = null;
+        this._chromaticPanStartX = null;
     }
 
     // Persistence

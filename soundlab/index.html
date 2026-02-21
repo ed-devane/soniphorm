@@ -49,10 +49,11 @@
             <div class="waveform-empty" id="waveform-empty">
                 <span>Select a slot to begin</span>
             </div>
+            <div id="seq-sample-list" class="seq-sample-list" hidden></div>
             <div class="zoom-bar">
                 <button id="zoom-in" class="zoom-btn" title="Zoom in">+</button>
                 <button id="zoom-out" class="zoom-btn" title="Zoom out">&minus;</button>
-                <button id="zoom-fit" class="zoom-btn" title="Fit to view">[ ]</button>
+                <button id="zoom-fit" class="zoom-btn zoom-fit-label" title="Fit to view">[ ]</button>
             </div>
             <div class="time-ruler" id="time-ruler"></div>
         </div>
@@ -62,6 +63,10 @@
             <div class="toolbar-scroll">
                 <!-- Transport -->
                 <button id="rec-btn" class="tb rec rec-only" title="Record">&#9679; REC</button>
+                <button id="gate-btn" class="tb rec-only" title="Noise gate">GATE</button>
+                <input type="range" id="gate-threshold" class="gate-slider rec-only"
+                       min="-60" max="0" value="-40" step="1" title="Gate threshold (dB)" hidden>
+                <span id="gate-db" class="gate-db rec-only" hidden>-40dB</span>
                 <button id="play-btn" class="tb rec-only" title="Play">&#9654; PLAY</button>
                 <button id="stop-btn" class="tb rec-only" title="Stop">&#9632; STOP</button>
                 <button id="loop-btn" class="tb rec-only" title="Toggle loop">&#8635; LOOP</button>
@@ -149,6 +154,7 @@
         <!-- Sequencer Transport -->
         <div class="seq-transport" id="seq-transport">
             <button id="seq-play-btn" class="tb" title="Play / Stop sequence">&#9654; PLAY</button>
+            <button id="seq-rec-btn" class="tb rec" title="Record pads into sequence">&#9679; REC</button>
             <div class="seq-sep"></div>
             <div class="seq-bpm">
                 <button class="seq-bpm-btn" id="bpm-down" title="BPM -1">&minus;</button>
@@ -176,6 +182,8 @@
                 <button id="pad-mode-gate" class="tb pad-mode-btn">GATE</button>
                 <button id="pad-mode-morph" class="tb pad-mode-btn">MORPH</button>
                 <div class="seq-sep"></div>
+                <button id="pad-mode-keys" class="tb">KEYS</button>
+                <div class="seq-sep"></div>
                 <button id="sample-stop-all" class="tb">STOP</button>
             </div>
             <!-- Tab bar -->
@@ -185,40 +193,28 @@
                 <button class="sample-tab" data-tab="lfo">LFO</button>
                 <button class="sample-tab" data-tab="morph">MORPH</button>
             </div>
-            <!-- ENV panel: PITCH + VOL + ADSR vertical faders -->
+            <!-- ENV panel: Visual curve editor + PIT/VOL controls -->
             <div class="sample-panel" id="panel-env">
-                <div class="adsr-faders">
-                    <div class="adsr-fader">
-                        <span class="adsr-label">PIT</span>
-                        <input type="range" class="adsr-slider" id="pad-pitch" min="-24" max="24" value="0" orient="vertical">
-                        <span class="adsr-value" id="pad-pitch-val">0st</span>
+                <div class="env-editor">
+                    <div class="env-header">
+                        <div class="env-toggle">
+                            <button class="env-toggle-btn active" data-env="amp">AMP</button>
+                            <button class="env-toggle-btn" data-env="pitch">PITCH</button>
+                        </div>
+                        <div class="env-controls">
+                            <label class="env-ctrl">PIT <span id="pad-pitch-val">+0st</span>
+                                <input type="range" id="pad-pitch" min="-24" max="24" value="0" class="env-mini-slider">
+                            </label>
+                            <label class="env-ctrl">VOL <span id="pad-volume-val">100%</span>
+                                <input type="range" id="pad-volume" min="0" max="100" value="100" class="env-mini-slider">
+                            </label>
+                        </div>
                     </div>
-                    <div class="adsr-fader">
-                        <span class="adsr-label">VOL</span>
-                        <input type="range" class="adsr-slider" id="pad-volume" min="0" max="100" value="100" orient="vertical">
-                        <span class="adsr-value" id="pad-volume-val">100%</span>
+                    <div class="env-canvas-wrap">
+                        <button class="env-pitch-enable" id="env-pitch-enable" hidden>ENABLE</button>
+                        <canvas id="env-canvas" class="env-canvas"></canvas>
                     </div>
-                    <div class="adsr-sep"></div>
-                    <div class="adsr-fader">
-                        <span class="adsr-label">ATK</span>
-                        <input type="range" class="adsr-slider" id="pad-attack" min="1" max="2000" value="10" orient="vertical">
-                        <span class="adsr-value" id="pad-attack-val">10ms</span>
-                    </div>
-                    <div class="adsr-fader">
-                        <span class="adsr-label">DEC</span>
-                        <input type="range" class="adsr-slider" id="pad-decay" min="1" max="2000" value="100" orient="vertical">
-                        <span class="adsr-value" id="pad-decay-val">100ms</span>
-                    </div>
-                    <div class="adsr-fader">
-                        <span class="adsr-label">SUS</span>
-                        <input type="range" class="adsr-slider" id="pad-sustain" min="0" max="100" value="100" orient="vertical">
-                        <span class="adsr-value" id="pad-sustain-val">100%</span>
-                    </div>
-                    <div class="adsr-fader">
-                        <span class="adsr-label">REL</span>
-                        <input type="range" class="adsr-slider" id="pad-release" min="5" max="5000" value="50" orient="vertical">
-                        <span class="adsr-value" id="pad-release-val">50ms</span>
-                    </div>
+                    <div class="env-values" id="env-values">A:10ms D:100ms S:100% R:50ms</div>
                 </div>
             </div>
             <!-- FILT panel: toggle + type + freq + Q -->

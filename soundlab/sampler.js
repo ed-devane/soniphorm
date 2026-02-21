@@ -39,6 +39,9 @@ class Sampler {
             'Z','X','C','V'
         ];
 
+        // Output routing (null = ctx.destination; set to effects bus for live FX)
+        this.outputNode = null;
+
         // Callbacks
         this.getSlotBuffer = null;  // (slotIndex) => AudioBuffer | null
         this.onTrigger = null;      // (slotIndex)
@@ -67,7 +70,13 @@ class Sampler {
             lfoDepth: 0.5,
             lfoShape: 'sine',
             regionStart: 0,
-            regionEnd: -1
+            regionEnd: -1,
+            pitchEnvEnabled: false,
+            pitchEnvAmount: 12,
+            pitchEnvAttack: 0.01,
+            pitchEnvDecay: 0.3,
+            pitchEnvSustain: 0,
+            pitchEnvRelease: 0.1
         };
     }
 
@@ -104,6 +113,22 @@ class Sampler {
             }
         }
 
+        if (this.onTrigger) this.onTrigger(slotIndex);
+    }
+
+    /** Trigger a pad with a temporary pitch offset (semitones from pad's base pitch). */
+    triggerWithPitch(slotIndex, pitchSemitones) {
+        if (!this.audioContext) return;
+        const pad = this.pads[slotIndex];
+        const originalPitch = pad.pitch;
+        pad.pitch = pitchSemitones;
+        this._stopVoice(slotIndex);
+        const buffer = this._getPlayBuffer(slotIndex);
+        if (buffer) {
+            this._startVoice(slotIndex, buffer, false);
+        }
+        // Restore original pitch — _startVoice reads it synchronously
+        pad.pitch = originalPitch;
         if (this.onTrigger) this.onTrigger(slotIndex);
     }
 
@@ -153,6 +178,15 @@ class Sampler {
             source.playbackRate.setValueAtTime(Math.pow(2, pad.pitch / 12), now);
         }
 
+        // Pitch envelope: modulate detune (cents)
+        if (pad.pitchEnvEnabled) {
+            const peakCents = pad.pitchEnvAmount * 100;
+            const sustainCents = pad.pitchEnvAmount * pad.pitchEnvSustain * 100;
+            source.detune.setValueAtTime(peakCents, now);
+            source.detune.linearRampToValueAtTime(peakCents, now + pad.pitchEnvAttack);
+            source.detune.linearRampToValueAtTime(sustainCents, now + pad.pitchEnvAttack + pad.pitchEnvDecay);
+        }
+
         // Region bounds
         const regStart = pad.regionStart || 0;
         const regEnd = (pad.regionEnd > 0) ? Math.min(pad.regionEnd, buffer.duration) : buffer.duration;
@@ -200,8 +234,8 @@ class Sampler {
         lastNode.connect(volumeGain);
         lastNode = volumeGain;
 
-        // 5. Connect to destination
-        lastNode.connect(ctx.destination);
+        // 5. Connect to output (effects bus or destination)
+        lastNode.connect(this.outputNode || ctx.destination);
 
         // 6. Optional LFO
         let posLfoInterval = null;
@@ -559,7 +593,13 @@ class Sampler {
                 lfoDepth: p.lfoDepth,
                 lfoShape: p.lfoShape,
                 regionStart: p.regionStart,
-                regionEnd: p.regionEnd
+                regionEnd: p.regionEnd,
+                pitchEnvEnabled: p.pitchEnvEnabled,
+                pitchEnvAmount: p.pitchEnvAmount,
+                pitchEnvAttack: p.pitchEnvAttack,
+                pitchEnvDecay: p.pitchEnvDecay,
+                pitchEnvSustain: p.pitchEnvSustain,
+                pitchEnvRelease: p.pitchEnvRelease
             }))
         };
     }
@@ -591,6 +631,12 @@ class Sampler {
                 this.pads[i].lfoShape = p.lfoShape || def.lfoShape;
                 this.pads[i].regionStart = p.regionStart !== undefined ? p.regionStart : def.regionStart;
                 this.pads[i].regionEnd = p.regionEnd !== undefined ? p.regionEnd : def.regionEnd;
+                this.pads[i].pitchEnvEnabled = p.pitchEnvEnabled !== undefined ? p.pitchEnvEnabled : def.pitchEnvEnabled;
+                this.pads[i].pitchEnvAmount = p.pitchEnvAmount !== undefined ? p.pitchEnvAmount : def.pitchEnvAmount;
+                this.pads[i].pitchEnvAttack = p.pitchEnvAttack !== undefined ? p.pitchEnvAttack : def.pitchEnvAttack;
+                this.pads[i].pitchEnvDecay = p.pitchEnvDecay !== undefined ? p.pitchEnvDecay : def.pitchEnvDecay;
+                this.pads[i].pitchEnvSustain = p.pitchEnvSustain !== undefined ? p.pitchEnvSustain : def.pitchEnvSustain;
+                this.pads[i].pitchEnvRelease = p.pitchEnvRelease !== undefined ? p.pitchEnvRelease : def.pitchEnvRelease;
             }
         }
     }

@@ -11,6 +11,7 @@ const COLORS = {
     emptyText: 'rgba(255, 255, 255, 0.25)',
 };
 
+const DEAD_ZONE = 0.05;
 const EMPTY_FONT = '14px "JetBrains Mono", monospace';
 const MIN_DRAG_PX = 3;
 const ZOOM_FACTOR = 1.15;
@@ -50,6 +51,8 @@ class WaveformRenderer {
         this._pinchStartZoom = 1;
         this._pinchMidSample = 0;
         this._pinchMidFraction = 0.5;
+        this._pinchStartMidX = 0;
+        this._pinchStartScrollOffset = 0;
 
         // Callbacks
         this.onSelectionChange = null;
@@ -172,10 +175,19 @@ class WaveformRenderer {
         return { start: this._scrollOffset, end: this._scrollOffset + vis };
     }
 
-    /** Convert a clientX coordinate to a sample index. */
+    /** Convert a clientX coordinate to a sample index (with dead zone remapping). */
     sampleAtX(clientX) {
         const rect = this._canvas.getBoundingClientRect();
-        const fraction = (clientX - rect.left) / rect.width;
+        const rawFraction = (clientX - rect.left) / rect.width;
+        // Remap: central 90% of canvas maps to full sample range; edges clamp
+        let fraction;
+        if (rawFraction <= DEAD_ZONE) {
+            fraction = 0;
+        } else if (rawFraction >= 1 - DEAD_ZONE) {
+            fraction = 1;
+        } else {
+            fraction = (rawFraction - DEAD_ZONE) / (1 - 2 * DEAD_ZONE);
+        }
         const vis = this.getVisibleSamples();
         return Math.round(this._scrollOffset + fraction * vis);
     }
@@ -368,23 +380,29 @@ class WaveformRenderer {
         if (this._scrollOffset > maxOffset) this._scrollOffset = Math.max(0, maxOffset);
     }
 
-    /** Convert a sample index to an x-coordinate in CSS pixels. */
+    /** Convert a sample index to an x-coordinate in CSS pixels (with dead zone mapping). */
     _sampleToX(sample, startSample, visibleSamples, canvasWidth) {
         if (visibleSamples === 0) return 0;
-        return ((sample - startSample) / visibleSamples) * canvasWidth;
+        const fraction = (sample - startSample) / visibleSamples;
+        // Inverse of dead zone remap: 0-1 sample fraction maps to DEAD_ZONE..(1-DEAD_ZONE) canvas
+        return (DEAD_ZONE + fraction * (1 - 2 * DEAD_ZONE)) * canvasWidth;
     }
 
-    /** Draw the waveform shape. */
+    /** Draw the waveform shape (within dead zone margins). */
     _drawWaveform(ctx, w, h, halfH, startSample, visibleSamples) {
         const data = this._mono;
         const total = this._totalSamples;
-        const samplesPerPx = visibleSamples / w;
+        const drawLeft = Math.floor(DEAD_ZONE * w);
+        const drawRight = Math.ceil((1 - DEAD_ZONE) * w);
+        const drawWidth = drawRight - drawLeft;
+        if (drawWidth <= 0) return;
+        const samplesPerPx = visibleSamples / drawWidth;
 
         ctx.fillStyle = COLORS.waveform;
         ctx.beginPath();
 
         // Top edge (max peaks left to right)
-        for (let px = 0; px < w; px++) {
+        for (let px = 0; px < drawWidth; px++) {
             const i0 = Math.max(0, Math.min(Math.floor(startSample + px * samplesPerPx), total - 1));
             const i1 = Math.max(0, Math.min(Math.floor(startSample + (px + 1) * samplesPerPx), total));
             let max = 0;
@@ -393,12 +411,12 @@ class WaveformRenderer {
                 if (v > max) max = v;
             }
             const y = halfH - max * halfH;
-            if (px === 0) ctx.moveTo(px, y);
-            else ctx.lineTo(px, y);
+            if (px === 0) ctx.moveTo(drawLeft + px, y);
+            else ctx.lineTo(drawLeft + px, y);
         }
 
         // Bottom edge (min peaks right to left)
-        for (let px = w - 1; px >= 0; px--) {
+        for (let px = drawWidth - 1; px >= 0; px--) {
             const i0 = Math.max(0, Math.min(Math.floor(startSample + px * samplesPerPx), total - 1));
             const i1 = Math.max(0, Math.min(Math.floor(startSample + (px + 1) * samplesPerPx), total));
             let min = 0;
@@ -407,7 +425,7 @@ class WaveformRenderer {
                 if (v < min) min = v;
             }
             const y = halfH - min * halfH;
-            ctx.lineTo(px, y);
+            ctx.lineTo(drawLeft + px, y);
         }
 
         ctx.closePath();
@@ -472,6 +490,8 @@ class WaveformRenderer {
                 const mid = this._touchMid(e.touches);
                 this._pinchMidFraction = (mid - c.getBoundingClientRect().left) / c.getBoundingClientRect().width;
                 this._pinchMidSample = this.sampleAtX(mid);
+                this._pinchStartMidX = mid;
+                this._pinchStartScrollOffset = this._scrollOffset;
             } else if (e.touches.length === 1 && !this._pinching) {
                 this._pointerDown(e.touches[0].clientX);
             }
@@ -483,9 +503,15 @@ class WaveformRenderer {
                 const dist = this._touchDist(e.touches);
                 const scale = dist / this._pinchStartDist;
                 this._zoom = Math.max(1, Math.min(MAX_ZOOM, this._pinchStartZoom * scale));
-                // Keep the pinch midpoint anchored
+                // Keep the pinch midpoint anchored (zoom)
                 const newVisible = this.getVisibleSamples();
+                const rect = c.getBoundingClientRect();
                 this._scrollOffset = this._pinchMidSample - this._pinchMidFraction * newVisible;
+                // Pan: add delta from midpoint drag
+                const currentMidX = this._touchMid(e.touches);
+                const midDeltaPx = currentMidX - this._pinchStartMidX;
+                const samplesPerPx = newVisible / rect.width;
+                this._scrollOffset -= midDeltaPx * samplesPerPx;
                 this._clampScroll();
                 this.render();
             } else if (e.touches.length === 1 && this._dragging && !this._pinching) {
