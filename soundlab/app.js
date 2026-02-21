@@ -2057,6 +2057,14 @@ class App {
             return this.sampler ? this.sampler.pads[slotIndex] : null;
         };
 
+        // Mute/Solo state
+        this._seqMutedSlots = new Set();
+        this._seqSoloSlot = -1; // -1 = no solo
+        this.sequencer.shouldPlaySlot = (slotIndex) => {
+            if (this._seqSoloSlot >= 0) return slotIndex === this._seqSoloSlot;
+            return !this._seqMutedSlots.has(slotIndex);
+        };
+
         this._slotBuffers = {}; // slotIndex → AudioBuffer (shared by sequencer + sampler)
         this._seqModeMenuStep = -1;
 
@@ -2209,7 +2217,10 @@ class App {
             const pitch = entry ? entry.pitch : 0;
 
             const row = document.createElement('div');
-            row.className = 'seq-sample-row' + (isOn ? ' on' : '');
+            const isMuted = this._seqMutedSlots.has(i);
+            const isSolo = this._seqSoloSlot === i;
+            const isSilenced = this._seqSoloSlot >= 0 ? !isSolo : isMuted;
+            row.className = 'seq-sample-row' + (isOn ? ' on' : '') + (isSilenced ? ' muted' : '') + (isSolo ? ' solo' : '');
             row.dataset.slotIdx = i;
 
             // Slot number
@@ -2224,6 +2235,32 @@ class App {
             nameSpan.textContent = slot.name || 'untitled';
             row.appendChild(nameSpan);
 
+            // Solo button
+            const soloBtn = document.createElement('button');
+            soloBtn.className = 'seq-solo-btn' + (this._seqSoloSlot === i ? ' on' : '');
+            soloBtn.textContent = 'S';
+            soloBtn.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                this._seqSoloSlot = (this._seqSoloSlot === i) ? -1 : i;
+                this._renderSeqSampleList();
+            });
+            row.appendChild(soloBtn);
+
+            // Mute button
+            const muteBtn = document.createElement('button');
+            muteBtn.className = 'seq-mute-btn' + (this._seqMutedSlots.has(i) ? ' on' : '');
+            muteBtn.textContent = 'M';
+            muteBtn.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                if (this._seqMutedSlots.has(i)) {
+                    this._seqMutedSlots.delete(i);
+                } else {
+                    this._seqMutedSlots.add(i);
+                }
+                this._renderSeqSampleList();
+            });
+            row.appendChild(muteBtn);
+
             // ON/OFF indicator
             const toggleBtn = document.createElement('span');
             toggleBtn.className = 'seq-toggle-btn' + (isOn ? ' on' : '');
@@ -2232,8 +2269,9 @@ class App {
 
             // Click entire row to toggle
             row.addEventListener('click', (ev) => {
-                // Don't toggle if clicking pitch buttons
+                // Don't toggle if clicking pitch buttons or solo/mute buttons
                 if (ev.target.closest('.seq-pitch-btn')) return;
+                if (ev.target.closest('.seq-solo-btn') || ev.target.closest('.seq-mute-btn')) return;
                 this.sequencer.toggleSlotOnStep(stepIndex, i);
                 this._renderSeqSampleList();
                 this.renderSeqGrid();
@@ -3289,6 +3327,29 @@ class App {
             pad.pitchEnvEnabled = !pad.pitchEnvEnabled;
             this._drawEnvelopes();
             this._saveSamplerConfig();
+        });
+
+        // Mobile envelope toggle (AMP <-> PITCH)
+        document.getElementById('env-mobile-toggle').addEventListener('click', () => {
+            const ampGroup = document.querySelector('.env-group-amp');
+            const pitchGroup = document.querySelector('.env-group-pitch');
+            const btn = document.getElementById('env-mobile-toggle');
+            const showingPitch = pitchGroup.classList.contains('env-show');
+            if (showingPitch) {
+                // Switch back to AMP
+                pitchGroup.classList.remove('env-show');
+                ampGroup.classList.remove('env-hide');
+                btn.textContent = 'PITCH';
+                btn.classList.remove('showing-pitch');
+            } else {
+                // Switch to PITCH
+                pitchGroup.classList.add('env-show');
+                ampGroup.classList.add('env-hide');
+                btn.textContent = 'AMP';
+                btn.classList.add('showing-pitch');
+            }
+            // Redraw envelopes since canvas may have resized
+            requestAnimationFrame(() => this._drawEnvelopes());
         });
 
         // Pointer events for both canvases

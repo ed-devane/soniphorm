@@ -980,6 +980,12 @@ main {
     flex: 1;
     min-width: 0;
 }
+.env-group {
+    display: contents;
+}
+.env-mobile-toggle {
+    display: none;
+}
 .env-editor {
     display: flex;
     flex-direction: column;
@@ -1368,6 +1374,42 @@ main {
     color: #000;
     border-color: var(--accent);
 }
+.seq-sample-row .seq-solo-btn,
+.seq-sample-row .seq-mute-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text3);
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 700;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    cursor: pointer;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.seq-sample-row .seq-solo-btn:hover,
+.seq-sample-row .seq-mute-btn:hover { background: var(--bg3); }
+.seq-sample-row .seq-solo-btn.on {
+    background: var(--yellow);
+    color: #000;
+    border-color: var(--yellow);
+}
+.seq-sample-row .seq-mute-btn.on {
+    background: var(--red);
+    color: #fff;
+    border-color: var(--red);
+}
+.seq-sample-row.muted {
+    opacity: 0.4;
+}
+.seq-sample-row.solo {
+    border-left: 3px solid var(--yellow);
+}
 .seq-sample-row .seq-pitch-ctrl {
     display: flex;
     align-items: center;
@@ -1536,6 +1578,34 @@ main {
         border-radius: 50%;
     }
     .env-dual .env-editor { flex-basis: 100%; }
+    .env-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        width: 100%;
+    }
+    .env-group .env-editor { flex-basis: 100%; }
+    .env-group-pitch { display: none; }
+    .env-group-pitch.env-show { display: flex; }
+    .env-group-amp.env-hide { display: none; }
+    .env-mobile-toggle {
+        display: block;
+        align-self: flex-start;
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        color: var(--text2);
+        font-family: var(--mono);
+        font-size: 9px;
+        font-weight: 700;
+        padding: 3px 10px;
+        cursor: pointer;
+        margin-bottom: 2px;
+    }
+    .env-mobile-toggle.showing-pitch {
+        color: var(--yellow);
+        border-color: var(--yellow);
+    }
     .env-canvas { height: 64px; }
     .env-label { font-size: 8px; }
     .env-values { font-size: 8px; }

@@ -51,6 +51,7 @@ class Sequencer {
         this.getSlotBuffer = null;
         this.getLoadedSlots = null;
         this.getPadSettings = null;  // (slotIndex) => pad object or null
+        this.shouldPlaySlot = null;  // (slotIndex) => bool — for mute/solo
     }
 
     get stepDuration() {
@@ -128,6 +129,7 @@ class Sequencer {
             const subTime = time + sub * subDur;
             for (let s = 0; s < step.slots.length; s++) {
                 const entry = step.slots[s];
+                if (this.shouldPlaySlot && !this.shouldPlaySlot(entry.slot)) continue;
                 const buffer = this._getBuffer(entry.slot, step.direction === 'reverse');
                 if (!buffer) continue;
 

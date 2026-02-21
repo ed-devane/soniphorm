@@ -197,39 +197,42 @@
             </div>
             <!-- ENV panel: Dual visual curve editors (AMP + PITCH) -->
             <div class="sample-panel" id="panel-env">
+                <button class="env-mobile-toggle" id="env-mobile-toggle">PITCH</button>
                 <div class="env-dual">
-                    <!-- VOL vertical fader -->
-                    <div class="env-vfader">
-                        <span class="env-vfader-label">VOL</span>
-                        <input type="range" id="pad-volume" min="0" max="100" value="100" class="env-vfader-input" orient="vertical">
-                        <span class="env-vfader-val" id="pad-volume-val">100%</span>
+                    <!-- AMP group (vol fader + amp envelope) -->
+                    <div class="env-group env-group-amp">
+                        <div class="env-vfader">
+                            <span class="env-vfader-label">VOL</span>
+                            <input type="range" id="pad-volume" min="0" max="100" value="100" class="env-vfader-input" orient="vertical">
+                            <span class="env-vfader-val" id="pad-volume-val">100%</span>
+                        </div>
+                        <div class="env-editor" data-env="amp">
+                            <div class="env-header">
+                                <span class="env-label">AMP</span>
+                            </div>
+                            <div class="env-canvas-wrap">
+                                <canvas id="env-canvas-amp" class="env-canvas"></canvas>
+                            </div>
+                            <div class="env-values" id="env-values-amp">A:10ms D:100ms S:100% R:50ms</div>
+                        </div>
                     </div>
-                    <!-- AMP envelope -->
-                    <div class="env-editor" data-env="amp">
-                        <div class="env-header">
-                            <span class="env-label">AMP</span>
+                    <!-- PITCH group (pit fader + pitch envelope) -->
+                    <div class="env-group env-group-pitch">
+                        <div class="env-vfader">
+                            <span class="env-vfader-label env-label-pitch">PIT</span>
+                            <input type="range" id="pad-pitch" min="-24" max="24" value="0" class="env-vfader-input" orient="vertical">
+                            <span class="env-vfader-val" id="pad-pitch-val">+0st</span>
                         </div>
-                        <div class="env-canvas-wrap">
-                            <canvas id="env-canvas-amp" class="env-canvas"></canvas>
+                        <div class="env-editor" data-env="pitch">
+                            <div class="env-header">
+                                <span class="env-label env-label-pitch">PITCH ENV</span>
+                                <button class="env-pitch-enable" id="env-pitch-enable" hidden>ENABLE</button>
+                            </div>
+                            <div class="env-canvas-wrap">
+                                <canvas id="env-canvas-pitch" class="env-canvas"></canvas>
+                            </div>
+                            <div class="env-values" id="env-values-pitch">A:10ms D:300ms S:0% R:100ms</div>
                         </div>
-                        <div class="env-values" id="env-values-amp">A:10ms D:100ms S:100% R:50ms</div>
-                    </div>
-                    <!-- PIT vertical fader -->
-                    <div class="env-vfader">
-                        <span class="env-vfader-label env-label-pitch">PIT</span>
-                        <input type="range" id="pad-pitch" min="-24" max="24" value="0" class="env-vfader-input" orient="vertical">
-                        <span class="env-vfader-val" id="pad-pitch-val">+0st</span>
-                    </div>
-                    <!-- PITCH envelope -->
-                    <div class="env-editor" data-env="pitch">
-                        <div class="env-header">
-                            <span class="env-label env-label-pitch">PITCH ENV</span>
-                            <button class="env-pitch-enable" id="env-pitch-enable" hidden>ENABLE</button>
-                        </div>
-                        <div class="env-canvas-wrap">
-                            <canvas id="env-canvas-pitch" class="env-canvas"></canvas>
-                        </div>
-                        <div class="env-values" id="env-values-pitch">A:10ms D:300ms S:0% R:100ms</div>
                     </div>
                 </div>
             </div>
