@@ -13,6 +13,9 @@ class Sequencer {
         this.bpm = 120;
         this.currentStep = -1;
         this.mutateEnabled = false;
+        this.mutateAmount = 0.5;    // 0-1: controls probability of per-step mutation
+        this.stutterEnabled = false;
+        this.stutterAmount = 0.5;   // 0-1: controls retrigger speed (2x to 16x subdivisions)
 
         // Pattern: 16 steps — each step can trigger multiple slots
         this.pattern = [];
@@ -117,17 +120,31 @@ class Sequencer {
         const step = this.pattern[stepIndex];
         if (!step || step.slots.length === 0) return;
 
-        for (let s = 0; s < step.slots.length; s++) {
-            const entry = step.slots[s];
-            const buffer = this._getBuffer(entry.slot, step.direction === 'reverse');
-            if (!buffer) continue;
+        // Stutter: retrigger samples at subdivisions within the step
+        const subdivs = this.stutterEnabled ? this._getStutterSubdivisions() : 1;
+        const subDur = this.stepDuration / subdivs;
 
-            const pad = this.getPadSettings ? this.getPadSettings(entry.slot) : null;
-            this._playBuffer(this.audioContext, buffer, entry, step, time, pad);
+        for (let sub = 0; sub < subdivs; sub++) {
+            const subTime = time + sub * subDur;
+            for (let s = 0; s < step.slots.length; s++) {
+                const entry = step.slots[s];
+                const buffer = this._getBuffer(entry.slot, step.direction === 'reverse');
+                if (!buffer) continue;
+
+                const pad = this.getPadSettings ? this.getPadSettings(entry.slot) : null;
+                this._playBuffer(this.audioContext, buffer, entry, step, subTime, pad, subDur);
+            }
         }
     }
 
-    _playBuffer(ctx, buffer, entry, step, time, pad) {
+    _getStutterSubdivisions() {
+        // Map 0-1 amount to subdivisions: 2, 3, 4, 6, 8, 12, 16
+        const divs = [2, 3, 4, 6, 8, 12, 16];
+        const idx = Math.min(divs.length - 1, Math.floor(this.stutterAmount * divs.length));
+        return divs[idx];
+    }
+
+    _playBuffer(ctx, buffer, entry, step, time, pad, maxDuration) {
         const source = ctx.createBufferSource();
         source.buffer = buffer;
 
@@ -209,8 +226,20 @@ class Sequencer {
 
         source.start(time);
 
-        if (step.mode === 'loop') {
-            const stopTime = time + this.stepDuration;
+        // Determine stop time based on: entry duration, stutter, or loop mode
+        const entryDur = (entry.duration > 0) ? entry.duration * this.stepDuration : 0;
+        const stutterCut = maxDuration && maxDuration < this.stepDuration;
+        const needsStop = step.mode === 'loop' || stutterCut || entryDur > 0;
+        if (needsStop) {
+            let dur;
+            if (stutterCut) {
+                dur = maxDuration;
+            } else if (entryDur > 0) {
+                dur = entryDur;
+            } else {
+                dur = this.stepDuration;
+            }
+            const stopTime = time + dur;
             source.stop(stopTime);
             if (lfo) lfo.stop(stopTime);
         }
@@ -277,14 +306,14 @@ class Sequencer {
 
     // === Step Assignment ===
 
-    /** Toggle a slot on/off for a step. Adds with pitch 0 if not present. */
+    /** Toggle a slot on/off for a step. Adds with pitch 0, duration 0 if not present. */
     toggleSlotOnStep(stepIndex, slotIdx) {
         const step = this.pattern[stepIndex];
         const pos = step.slots.findIndex(e => e.slot === slotIdx);
         if (pos >= 0) {
             step.slots.splice(pos, 1);
         } else {
-            step.slots.push({ slot: slotIdx, pitch: 0 });
+            step.slots.push({ slot: slotIdx, pitch: 0, duration: 0 });
         }
     }
 
@@ -296,6 +325,11 @@ class Sequencer {
     /** Get the slot entry object for a given slot on a step (or null). */
     getSlotEntry(stepIndex, slotIdx) {
         return this.pattern[stepIndex].slots.find(e => e.slot === slotIdx) || null;
+    }
+
+    /** Add a slot with specific pitch and duration to a step (allows duplicates for polyphony). */
+    addSlotToStep(stepIndex, slotIdx, pitch, duration) {
+        this.pattern[stepIndex].slots.push({ slot: slotIdx, pitch: pitch || 0, duration: duration || 0 });
     }
 
     /** Set pitch for a specific slot on a step. */
@@ -352,31 +386,16 @@ class Sequencer {
         }
     }
 
-    stutter() {
-        const filledSteps = [];
-        for (let i = 0; i < 16; i++) {
-            if (this.pattern[i].slots.length > 0) filledSteps.push(i);
-        }
-        if (filledSteps.length === 0) return;
-        const numStutters = 1 + Math.floor(Math.random() * 3);
-        for (let s = 0; s < numStutters; s++) {
-            const srcStep = filledSteps[Math.floor(Math.random() * filledSteps.length)];
-            const srcData = this.pattern[srcStep];
-            const count = 2 + Math.floor(Math.random() * 3);
-            for (let j = 0; j < count; j++) {
-                const t = (srcStep + j) % 16;
-                this.pattern[t].slots = srcData.slots.map(e => ({ slot: e.slot, pitch: e.pitch }));
-                this.pattern[t].mode = srcData.mode;
-                this.pattern[t].direction = srcData.direction;
-            }
-        }
+    toggleStutter() {
+        this.stutterEnabled = !this.stutterEnabled;
     }
 
     _applyMutations() {
         const loaded = this.getLoadedSlots ? this.getLoadedSlots() : [];
         if (loaded.length === 0) return;
+        const prob = 0.03 + this.mutateAmount * 0.27; // range: 0.03 (subtle) to 0.30 (frantic)
         for (let i = 0; i < 16; i++) {
-            if (Math.random() < 0.15) {
+            if (Math.random() < prob) {
                 const m = Math.random();
                 if (m < 0.35) {
                     if (this.pattern[i].slots.length === 0) {
@@ -470,8 +489,10 @@ class Sequencer {
         return {
             bpm: this.bpm,
             mutateEnabled: this.mutateEnabled,
+            mutateAmount: this.mutateAmount,
+            stutterAmount: this.stutterAmount,
             pattern: this.pattern.map(step => ({
-                slots: step.slots.map(e => ({ slot: e.slot, pitch: e.pitch })),
+                slots: step.slots.map(e => ({ slot: e.slot, pitch: e.pitch, duration: e.duration || 0 })),
                 mode: step.mode,
                 direction: step.direction
             }))
@@ -482,6 +503,8 @@ class Sequencer {
         if (!data) return;
         if (data.bpm !== undefined) this.bpm = data.bpm;
         if (data.mutateEnabled !== undefined) this.mutateEnabled = data.mutateEnabled;
+        if (data.mutateAmount !== undefined) this.mutateAmount = data.mutateAmount;
+        if (data.stutterAmount !== undefined) this.stutterAmount = data.stutterAmount;
         if (data.pattern && Array.isArray(data.pattern)) {
             for (let i = 0; i < 16 && i < data.pattern.length; i++) {
                 const s = data.pattern[i];
@@ -491,10 +514,10 @@ class Sequencer {
                         // Also handle old plain-index format: [0, 5, ...]
                         this.pattern[i].slots = s.slots.map(e => {
                             if (typeof e === 'object' && e !== null) {
-                                return { slot: e.slot, pitch: e.pitch || 0 };
+                                return { slot: e.slot, pitch: e.pitch || 0, duration: e.duration || 0 };
                             }
                             // Old format: plain number — apply step-level pitch if present
-                            return { slot: e, pitch: s.pitch || 0 };
+                            return { slot: e, pitch: s.pitch || 0, duration: 0 };
                         });
                     } else if (s.slotIndex !== undefined && s.slotIndex !== null) {
                         // Oldest format: single slotIndex

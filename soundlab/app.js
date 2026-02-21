@@ -30,11 +30,14 @@ class App {
         this.sequencer = null;
         this._seqMode = false;
         this._seqAnimFrame = null;
-        this._seqPreStutterPattern = null; // saved pattern for stutter undo
+        // (stutter is now a real-time toggle on sequencer)
         this._seqPreMutatePattern = null; // saved pattern for mutate revert
         this._seqBankIndex = 0;
         this._seqBanks = null; // array of 16 pattern JSONs, lazily initialized
         this._seqRecording = false;
+        this._seqShowTransportInSample = false;
+        this._seqLooperUndoStack = []; // array of pattern snapshots for looper undo
+        this._seqRecordingNotes = new Map(); // key -> {step, slotIndex, pitch, entryRef}
 
         // Sampler
         this.sampler = null;
@@ -47,13 +50,14 @@ class App {
 
         // Chromatic keyboard state
         this._chromaticMode = false;
-        this._chromaticBaseOctave = 4;
-        this._chromaticOctaveSpan = 1;
+        this._chromaticBaseOctave = 3;
+        this._chromaticOctaveSpan = 3;
 
-        // Envelope editor state
-        this._envView = 'amp'; // 'amp' or 'pitch'
-        this._envNodes = [];   // computed node positions [{x, y}]
-        this._envDragging = -1; // index of node being dragged, -1 = none
+        // Envelope editor state (dual canvases)
+        this._envNodesAmp = [];    // computed node positions for amp canvas
+        this._envNodesPitch = [];  // computed node positions for pitch canvas
+        this._envDragging = -1;    // index of node being dragged, -1 = none
+        this._envDragTarget = null; // 'amp' or 'pitch' — which canvas is being dragged
     }
 
     async init() {
@@ -69,15 +73,35 @@ class App {
         try {
             const canvas = document.getElementById('waveform');
             this.waveform = new WaveformRenderer(canvas);
-            this.waveform.onSelectionChange = () => {
+            this.waveform.onSelectionChange = (sel) => {
                 this.updateToolbarState();
                 // If looping, restart with new selection
                 if (this.audio.isPlaying && this.audio.isLooping) {
                     this._restartLoop();
                 }
-                // Update sampler loop region live
+                // Update sampler region/loop live
                 if (this._sampleMode) {
-                    this._updateSamplerRegionFromSelection();
+                    const pad = this.sampler.pads[this._sampleSelectedPad];
+                    if (pad.mode === 'loop' && sel) {
+                        this.waveform.setLoopMarkers(sel.start, sel.end);
+                        this.waveform.clearSelection();
+                        this._updateSamplerLoopFromMarkers(sel);
+                    } else {
+                        this._updateSamplerRegionFromSelection();
+                    }
+                }
+            };
+            this.waveform.onLoopChange = (loop) => {
+                if (this._sampleMode) this._updateSamplerLoopFromMarkers(loop);
+            };
+            this.waveform.onLoopClear = () => {
+                if (this._sampleMode) {
+                    const pad = this.sampler.pads[this._sampleSelectedPad];
+                    pad.loopStart = -1;
+                    pad.loopEnd = -1;
+                    this.waveform.clearLoopMarkers();
+                    this.sampler.updateLoopRegion(this._sampleSelectedPad, -1, -1);
+                    this._saveSamplerConfig();
                 }
             };
             this.waveform.onCursorSet = (sample) => {
@@ -443,9 +467,9 @@ class App {
 
     onSlotContext(index, e) {
         e.preventDefault?.();
-        // In sequencer mode, long-press opens step mode menu
+        // In sequencer mode, long-press selects step (same as tap)
         if (this._seqMode) {
-            this.openStepModeMenu(index, e);
+            this.seqStepTap(index);
             return;
         }
         // In sampler mode, long-press selects pad for config (transport updates)
@@ -688,9 +712,7 @@ class App {
         // Sampler transport — mode buttons
         $('pad-mode-oneshot').addEventListener('click', () => this.setPadMode('oneshot'));
         $('pad-mode-loop').addEventListener('click', () => this.setPadMode('loop'));
-        $('pad-mode-gate').addEventListener('click', () => this.setPadMode('gate'));
-        $('pad-mode-morph').addEventListener('click', () => this.setPadMode('morph'));
-        $('sample-stop-all').addEventListener('click', () => this.sampler && this.sampler.stopAll());
+        $('pad-mode-rev').addEventListener('click', () => this._togglePadReverse());
         $('pad-mode-keys').addEventListener('click', () => this._toggleChromaticMode());
 
         // Sample tabs
@@ -727,13 +749,20 @@ class App {
         });
         $('seq-play-btn').addEventListener('click', () => this.seqPlayStop());
         $('seq-rec-btn').addEventListener('click', () => this.seqToggleRecord());
+        $('seq-undo-btn').addEventListener('click', () => this.seqLooperUndo());
         $('bpm-down').addEventListener('click', () => this.seqAdjustBpm(-1));
         $('bpm-up').addEventListener('click', () => this.seqAdjustBpm(1));
         $('bpm-display').addEventListener('click', () => this.seqEditBpm());
         $('tap-tempo-btn').addEventListener('click', () => this.seqTapTempo());
         $('seq-random-btn').addEventListener('click', () => this.seqRandomise());
         $('seq-stutter-btn').addEventListener('click', () => this.seqStutter());
+        $('seq-stutter-amount').addEventListener('input', (e) => {
+            this.sequencer.stutterAmount = parseInt(e.target.value) / 100;
+        });
         $('seq-mutate-btn').addEventListener('click', () => this.seqToggleMutate());
+        $('seq-mutate-amount').addEventListener('input', (e) => {
+            this.sequencer.mutateAmount = parseInt(e.target.value) / 100;
+        });
         $('seq-bounce-btn').addEventListener('click', () => this.seqBounce());
         $('seq-clear-btn').addEventListener('click', () => this.seqClear());
 
@@ -756,7 +785,7 @@ class App {
                 return;
             }
             if (this._sampleMode && this._chromaticMode) {
-                this._chromaticOctaveSpan = Math.min(4, this._chromaticOctaveSpan + 1);
+                this._chromaticOctaveSpan = Math.min(7, this._chromaticOctaveSpan + 1);
                 this._renderPianoKeyboard();
                 return;
             }
@@ -1915,7 +1944,7 @@ class App {
             this.sequencer.clearPattern();
             this.sequencer.setBpm(120);
             this.sequencer.mutateEnabled = false;
-            this._seqPreStutterPattern = null;
+            this.sequencer.stutterEnabled = false;
             this._seqPreMutatePattern = null;
             this._slotBuffers = {};
             this._saveSeqPattern();
@@ -2013,6 +2042,7 @@ class App {
         };
         this.sequencer.onStepChange = (step) => {
             this._seqHighlightStep(step);
+            this._seqFlashSampleRows(step);
         };
         this.sequencer.onMutate = (step) => {
             this._seqFlashMutate(step);
@@ -2179,7 +2209,8 @@ class App {
             const pitch = entry ? entry.pitch : 0;
 
             const row = document.createElement('div');
-            row.className = 'seq-sample-row';
+            row.className = 'seq-sample-row' + (isOn ? ' on' : '');
+            row.dataset.slotIdx = i;
 
             // Slot number
             const numSpan = document.createElement('span');
@@ -2193,17 +2224,21 @@ class App {
             nameSpan.textContent = slot.name || 'untitled';
             row.appendChild(nameSpan);
 
-            // ON/OFF toggle
-            const toggleBtn = document.createElement('button');
+            // ON/OFF indicator
+            const toggleBtn = document.createElement('span');
             toggleBtn.className = 'seq-toggle-btn' + (isOn ? ' on' : '');
             toggleBtn.textContent = isOn ? 'ON' : 'OFF';
-            toggleBtn.addEventListener('click', () => {
+            row.appendChild(toggleBtn);
+
+            // Click entire row to toggle
+            row.addEventListener('click', (ev) => {
+                // Don't toggle if clicking pitch buttons
+                if (ev.target.closest('.seq-pitch-btn')) return;
                 this.sequencer.toggleSlotOnStep(stepIndex, i);
                 this._renderSeqSampleList();
                 this.renderSeqGrid();
                 this._saveSeqPattern();
             });
-            row.appendChild(toggleBtn);
 
             // Pitch controls
             const pitchCtrl = document.createElement('div');
@@ -2378,6 +2413,7 @@ class App {
         await this.ensureAudioInit();
         if (!this.audio.audioContext) return;
         this.sequencer.audioContext = this.audio.audioContext;
+        this.sequencer.outputNode = this.audio.getEffectsBus();
 
         if (this.sequencer.playing) {
             this.sequencer.stop();
@@ -2396,6 +2432,11 @@ class App {
             this.sequencer.play();
             this._seqStartAnimation();
             document.getElementById('seq-play-btn').innerHTML = '&#9632; STOP';
+            // Show seq transport if starting from sample mode
+            if (this._sampleMode) {
+                this._seqShowTransportInSample = true;
+                document.getElementById('seq-transport').classList.add('active');
+            }
         }
     }
 
@@ -2422,6 +2463,21 @@ class App {
         slotEls.forEach((el, i) => {
             el.classList.toggle('step-active', i === stepIndex);
         });
+    }
+
+    _seqFlashSampleRows(stepIndex) {
+        const step = this.sequencer.pattern[stepIndex];
+        if (!step || step.slots.length === 0) return;
+        const rows = document.querySelectorAll('#seq-sample-list .seq-sample-row');
+        for (const entry of step.slots) {
+            for (const row of rows) {
+                if (parseInt(row.dataset.slotIdx) === entry.slot) {
+                    row.classList.remove('seq-triggered');
+                    void row.offsetWidth;
+                    row.classList.add('seq-triggered');
+                }
+            }
+        }
     }
 
     _seqFlashMutate(stepIndex) {
@@ -2462,7 +2518,7 @@ class App {
     }
 
     seqRandomise() {
-        this._seqPreStutterPattern = null;
+        this.sequencer.stutterEnabled = false;
         this._seqPreMutatePattern = null;
         this.sequencer.mutateEnabled = false;
         document.getElementById('seq-stutter-btn').classList.remove('stutter-on');
@@ -2473,20 +2529,8 @@ class App {
     }
 
     seqStutter() {
-        const btn = document.getElementById('seq-stutter-btn');
-        if (this._seqPreStutterPattern) {
-            // Undo stutter: restore saved pattern
-            this.sequencer.fromJSON(this._seqPreStutterPattern);
-            this._seqPreStutterPattern = null;
-            btn.classList.remove('stutter-on');
-        } else {
-            // Save current pattern then apply stutter
-            this._seqPreStutterPattern = this.sequencer.toJSON();
-            this.sequencer.stutter();
-            btn.classList.add('stutter-on');
-        }
-        this.renderSeqGrid();
-        this._saveSeqPattern();
+        this.sequencer.toggleStutter();
+        document.getElementById('seq-stutter-btn').classList.toggle('stutter-on', this.sequencer.stutterEnabled);
     }
 
     seqToggleMutate() {
@@ -2507,7 +2551,7 @@ class App {
     }
 
     seqClear() {
-        this._seqPreStutterPattern = null;
+        this.sequencer.stutterEnabled = false;
         this._seqPreMutatePattern = null;
         this.sequencer.mutateEnabled = false;
         document.getElementById('seq-stutter-btn').classList.remove('stutter-on');
@@ -2567,12 +2611,16 @@ class App {
         }
     }
 
-    // === Live Recording into Sequencer ===
+    // === Live Recording into Sequencer (Looper) ===
 
     async seqToggleRecord() {
         this._seqRecording = !this._seqRecording;
         document.getElementById('seq-rec-btn').classList.toggle('rec-on', this._seqRecording);
         if (this._seqRecording) {
+            // Snapshot pattern for undo before this recording pass
+            this._seqLooperUndoStack.push(this.sequencer.toJSON());
+            // Cap undo stack at 20 layers
+            if (this._seqLooperUndoStack.length > 20) this._seqLooperUndoStack.shift();
             // If seq not playing, start playback
             if (!this.sequencer.playing) {
                 await this.seqPlayStop();
@@ -2580,17 +2628,56 @@ class App {
         }
     }
 
-    _recordPadToStep(slotIndex) {
+    seqLooperUndo() {
+        if (this._seqLooperUndoStack.length === 0) return;
+        const snapshot = this._seqLooperUndoStack.pop();
+        this.sequencer.fromJSON(snapshot);
+        if (this._seqMode) this.renderSeqGrid();
+        this._saveSeqPattern();
+    }
+
+    _recordPadToStep(slotIndex, pitch, trackingKey) {
         if (!this._seqRecording || !this.sequencer.playing) return;
         const step = this.sequencer.currentStep;
         if (step < 0) return;
-        // If slot not already on that step, toggle it on
-        if (!this.sequencer.hasSlotOnStep(step, slotIndex)) {
-            this.sequencer.toggleSlotOnStep(step, slotIndex);
+        if (pitch !== undefined && pitch !== 0) {
+            // Chromatic recording: add with specific pitch, duration TBD on release
+            this.sequencer.addSlotToStep(step, slotIndex, pitch, 0);
+            // Track the note for duration calculation on release
+            const entry = this.sequencer.pattern[step].slots[this.sequencer.pattern[step].slots.length - 1];
+            if (trackingKey) {
+                this._seqRecordingNotes.set(trackingKey, { step, entry });
+            }
+        } else {
+            // Pad recording: add if not already present, track for duration
+            if (!this.sequencer.hasSlotOnStep(step, slotIndex)) {
+                this.sequencer.toggleSlotOnStep(step, slotIndex);
+                const entry = this.sequencer.pattern[step].slots[this.sequencer.pattern[step].slots.length - 1];
+                if (trackingKey) {
+                    this._seqRecordingNotes.set(trackingKey, { step, entry });
+                }
+            }
+        }
+        if (this._seqMode) {
             this.renderSeqGrid();
             if (this._seqModeMenuStep === step) this._renderSeqSampleList();
-            this._saveSeqPattern();
         }
+        this._saveSeqPattern();
+    }
+
+    _recordNoteOff(trackingKey) {
+        if (!this._seqRecordingNotes.has(trackingKey)) return;
+        const { step: startStep, entry } = this._seqRecordingNotes.get(trackingKey);
+        this._seqRecordingNotes.delete(trackingKey);
+        if (!this.sequencer.playing) return;
+        const currentStep = this.sequencer.currentStep;
+        // Calculate duration in steps (wrapping around 16-step pattern)
+        let dur = currentStep - startStep;
+        if (dur <= 0) dur += 16;
+        // Clamp to reasonable range (1-16 steps)
+        dur = Math.max(1, Math.min(16, dur));
+        entry.duration = dur;
+        this._saveSeqPattern();
     }
 
     // Persistence (with 16 banks)
@@ -2667,7 +2754,7 @@ class App {
         }
 
         // Clear stutter/mutate state
-        this._seqPreStutterPattern = null;
+        this.sequencer.stutterEnabled = false;
         this._seqPreMutatePattern = null;
         this.sequencer.mutateEnabled = false;
         document.getElementById('seq-stutter-btn').classList.remove('stutter-on');
@@ -2725,9 +2812,9 @@ class App {
             e.preventDefault();
             this._keysDown.add(e.code);
             this.sampler.trigger(padIdx);
-            // Record to current step if in SEQ recording mode
-            if (this._seqMode && this._seqRecording) {
-                this._recordPadToStep(padIdx);
+            // Record to current step if recording
+            if (this._seqRecording && this.sequencer.playing) {
+                this._recordPadToStep(padIdx, undefined, 'pad-' + padIdx);
             }
         }
     }
@@ -2738,6 +2825,10 @@ class App {
         if (padIdx !== undefined && this._keysDown.has(e.code)) {
             e.preventDefault();
             this._keysDown.delete(e.code);
+            // Record note-off for duration tracking
+            if (this._seqRecording && this.sequencer.playing) {
+                this._recordNoteOff('pad-' + padIdx);
+            }
             this.sampler.release(padIdx);
         }
     }
@@ -2749,10 +2840,12 @@ class App {
 
         // Exit current mode
         if (this._seqMode) {
-            if (this.sequencer.playing) {
+            // Keep sequencer playing if switching to sample mode
+            if (this.sequencer.playing && mode !== 'sample') {
                 this.sequencer.stop();
                 this._seqStopAnimation();
             }
+            this._seqShowTransportInSample = (mode === 'sample');
             this._saveSeqPattern();
             this._seqMode = false;
             // Restore waveform canvas
@@ -2768,10 +2861,18 @@ class App {
         if (this._sampleMode) {
             this.sampler.stopAll();
             this._keysDown.clear();
+            this._seqShowTransportInSample = false;
             // Exit chromatic mode if active
             if (this._chromaticMode) {
                 this._chromaticMode = false;
+                this.waveform.chromaticMode = false;
+                this._unbindChromaticEvents();
                 document.getElementById('pad-mode-keys').classList.remove('keys-on');
+            }
+            // Stop sequencer if switching away from sample to non-seq mode
+            if (mode !== 'seq' && this.sequencer && this.sequencer.playing) {
+                this.sequencer.stop();
+                this._seqStopAnimation();
             }
             this._sampleMode = false;
         }
@@ -2790,6 +2891,9 @@ class App {
             this.renderSeqGrid();
             this._updateBpmDisplay();
             document.getElementById('seq-mutate-btn').classList.toggle('mutate-on', this.sequencer.mutateEnabled);
+            document.getElementById('seq-stutter-btn').classList.toggle('stutter-on', this.sequencer.stutterEnabled);
+            document.getElementById('seq-mutate-amount').value = Math.round(this.sequencer.mutateAmount * 100);
+            document.getElementById('seq-stutter-amount').value = Math.round(this.sequencer.stutterAmount * 100);
             // Show sample list in waveform area
             document.getElementById('waveform').style.display = 'none';
             document.getElementById('waveform-empty').hidden = true;
@@ -2819,7 +2923,7 @@ class App {
         document.getElementById('mode-seq').classList.toggle('active', mode === 'seq');
 
         // Show/hide transport bars and toolbar
-        document.getElementById('seq-transport').classList.toggle('active', mode === 'seq');
+        document.getElementById('seq-transport').classList.toggle('active', mode === 'seq' || (mode === 'sample' && this._seqShowTransportInSample));
         document.getElementById('sample-transport').classList.toggle('active', mode === 'sample');
         document.getElementById('slot-grid').classList.toggle('seq-mode', mode === 'seq');
         document.getElementById('slot-grid').classList.toggle('sample-mode', mode === 'sample');
@@ -2899,6 +3003,18 @@ class App {
         }
     }
 
+    _updateSamplerLoopFromMarkers(loop) {
+        const padIdx = this._sampleSelectedPad;
+        const pad = this.sampler.pads[padIdx];
+        const buf = this._slotBuffers[padIdx];
+        if (!buf) return;
+        const sr = buf.sampleRate;
+        pad.loopStart = loop.start / sr;
+        pad.loopEnd = loop.end / sr;
+        this.sampler.updateLoopRegion(padIdx, pad.loopStart, pad.loopEnd);
+        this._saveSamplerConfig();
+    }
+
     _updateSamplerRegionFromSelection() {
         // Update all playing looping voices with the current waveform selection
         for (let i = 0; i < 16; i++) {
@@ -2944,6 +3060,16 @@ class App {
             pad.regionEnd = -1;
         }
 
+        // Apply waveform loop markers to pad if present
+        if (this.waveform && buf) {
+            const loopMarkers = this.waveform.getLoopMarkers();
+            if (loopMarkers && pad.mode === 'loop') {
+                const sr = buf.sampleRate;
+                pad.loopStart = loopMarkers.start / sr;
+                pad.loopEnd = loopMarkers.end / sr;
+            }
+        }
+
         this._updateSampleTransport();
         this.renderSampleGrid();
         this.sampler.trigger(index);
@@ -2959,19 +3085,40 @@ class App {
         const pad = this.sampler.pads[this._sampleSelectedPad];
         pad.mode = mode;
 
-        // Update button active states
-        document.querySelectorAll('.pad-mode-btn').forEach(btn => {
-            btn.classList.toggle('active', btn.id === 'pad-mode-' + mode);
-        });
+        // Update toggle active states
+        document.getElementById('pad-mode-oneshot').classList.toggle('active', mode === 'oneshot');
+        document.getElementById('pad-mode-loop').classList.toggle('active', mode === 'loop');
 
-        // Auto-switch to MORPH tab when morph mode selected
-        if (mode === 'morph') {
-            this._switchSampleTab('morph');
-            this._populateMorphTargets();
+        // Show/hide loop markers
+        if (this.waveform) {
+            if (mode === 'loop') {
+                this.waveform.setLoopVisible(true);
+                if (pad.loopStart >= 0 && pad.loopEnd >= 0) {
+                    const buf = this._slotBuffers[this._sampleSelectedPad];
+                    if (buf) {
+                        this.waveform.setLoopMarkers(
+                            Math.round(pad.loopStart * buf.sampleRate),
+                            Math.round(pad.loopEnd * buf.sampleRate)
+                        );
+                    }
+                }
+            } else {
+                this.waveform.setLoopVisible(false);
+                this.waveform.clearLoopMarkers();
+            }
         }
 
         this.sampler.invalidateMorphCache();
         this.renderSampleGrid();
+        this._saveSamplerConfig();
+    }
+
+    _togglePadReverse() {
+        const padIdx = this._sampleSelectedPad;
+        const pad = this.sampler.pads[padIdx];
+        pad.reverse = !pad.reverse;
+        this.sampler.invalidateReverseBuffer(padIdx);
+        document.getElementById('pad-mode-rev').classList.toggle('rev-on', pad.reverse);
         this._saveSamplerConfig();
     }
 
@@ -3021,10 +3168,32 @@ class App {
         document.getElementById('sample-pad-info').textContent =
             `${String(this._sampleSelectedPad + 1).padStart(2, '0')} ${name}`;
 
-        // Update mode buttons
-        document.querySelectorAll('.pad-mode-btn').forEach(btn => {
-            btn.classList.toggle('active', btn.id === 'pad-mode-' + pad.mode);
-        });
+        // Update ONE/LOOP toggle
+        document.getElementById('pad-mode-oneshot').classList.toggle('active', pad.mode === 'oneshot');
+        document.getElementById('pad-mode-loop').classList.toggle('active', pad.mode === 'loop');
+
+        // Show/hide loop markers on waveform
+        if (this.waveform) {
+            if (pad.mode === 'loop' && pad.loopStart >= 0 && pad.loopEnd >= 0) {
+                const buf = this._slotBuffers[this._sampleSelectedPad];
+                if (buf) {
+                    this.waveform.setLoopMarkers(
+                        Math.round(pad.loopStart * buf.sampleRate),
+                        Math.round(pad.loopEnd * buf.sampleRate)
+                    );
+                }
+                this.waveform.setLoopVisible(true);
+            } else if (pad.mode === 'loop') {
+                this.waveform.clearLoopMarkers();
+                this.waveform.setLoopVisible(true);
+            } else {
+                this.waveform.clearLoopMarkers();
+                this.waveform.setLoopVisible(false);
+            }
+        }
+
+        // Update REV button
+        document.getElementById('pad-mode-rev').classList.toggle('rev-on', pad.reverse);
 
         // ENV panel: pitch + volume sliders
         document.getElementById('pad-pitch').value = pad.pitch;
@@ -3032,8 +3201,8 @@ class App {
         document.getElementById('pad-volume').value = Math.round(pad.volume * 100);
         document.getElementById('pad-volume-val').textContent = Math.round(pad.volume * 100) + '%';
 
-        // ENV panel: canvas envelope
-        this._drawEnvelope();
+        // ENV panel: canvas envelopes (both amp + pitch)
+        this._drawEnvelopes();
 
         // FILT panel
         const filtToggle = document.getElementById('pad-filter-toggle');
@@ -3072,7 +3241,19 @@ class App {
         document.getElementById('panel-filter').hidden = (tabName !== 'filter');
         document.getElementById('panel-lfo').hidden = (tabName !== 'lfo');
         document.getElementById('panel-morph').hidden = (tabName !== 'morph');
-        if (tabName === 'env') this._drawEnvelope();
+        if (tabName === 'env') this._drawEnvelopes();
+
+        // MORPH tab: enter morph mode and populate targets
+        if (tabName === 'morph') {
+            const pad = this.sampler.pads[this._sampleSelectedPad];
+            pad.mode = 'morph';
+            document.getElementById('pad-mode-oneshot').classList.remove('active');
+            document.getElementById('pad-mode-loop').classList.remove('active');
+            this._populateMorphTargets();
+            this.sampler.invalidateMorphCache();
+            this.renderSampleGrid();
+            this._saveSamplerConfig();
+        }
     }
 
     // === Pad Parameter Updates ===
@@ -3099,39 +3280,32 @@ class App {
     // === Envelope Curve Editor ===
 
     _initEnvEditor() {
-        const canvas = document.getElementById('env-canvas');
+        const canvasAmp = document.getElementById('env-canvas-amp');
+        const canvasPitch = document.getElementById('env-canvas-pitch');
 
-        // Toggle buttons
-        document.querySelectorAll('.env-toggle-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-                this._envView = btn.dataset.env;
-                document.querySelectorAll('.env-toggle-btn').forEach(b =>
-                    b.classList.toggle('active', b.dataset.env === this._envView));
-                this._drawEnvelope();
-            });
-        });
-
-        // Pitch envelope enable button
+        // Pitch envelope enable/disable toggle
         document.getElementById('env-pitch-enable').addEventListener('click', () => {
             const pad = this.sampler.pads[this._sampleSelectedPad];
-            pad.pitchEnvEnabled = true;
-            this._drawEnvelope();
+            pad.pitchEnvEnabled = !pad.pitchEnvEnabled;
+            this._drawEnvelopes();
             this._saveSamplerConfig();
         });
 
-        // Pointer events for node dragging
-        canvas.addEventListener('pointerdown', (e) => this._envPointerDown(e));
-        canvas.addEventListener('pointermove', (e) => this._envPointerMove(e));
-        canvas.addEventListener('pointerup', (e) => this._envPointerUp(e));
-        canvas.addEventListener('pointercancel', (e) => this._envPointerUp(e));
+        // Pointer events for both canvases
+        for (const [canvas, envType] of [[canvasAmp, 'amp'], [canvasPitch, 'pitch']]) {
+            canvas.addEventListener('pointerdown', (e) => this._envPointerDown(e, envType));
+            canvas.addEventListener('pointermove', (e) => this._envPointerMove(e, envType));
+            canvas.addEventListener('pointerup', (e) => this._envPointerUp(e));
+            canvas.addEventListener('pointercancel', (e) => this._envPointerUp(e));
+        }
 
         // Resize handler
-        window.addEventListener('resize', () => this._drawEnvelope());
+        window.addEventListener('resize', () => this._drawEnvelopes());
     }
 
-    _getEnvValues() {
+    _getEnvValuesFor(type) {
         const pad = this.sampler.pads[this._sampleSelectedPad];
-        if (this._envView === 'pitch') {
+        if (type === 'pitch') {
             return {
                 attack: pad.pitchEnvAttack,
                 decay: pad.pitchEnvDecay,
@@ -3149,9 +3323,9 @@ class App {
         };
     }
 
-    _setEnvValues(attack, decay, sustain, release) {
+    _setEnvValuesFor(type, attack, decay, sustain, release) {
         const pad = this.sampler.pads[this._sampleSelectedPad];
-        if (this._envView === 'pitch') {
+        if (type === 'pitch') {
             pad.pitchEnvAttack = attack;
             pad.pitchEnvDecay = decay;
             pad.pitchEnvSustain = sustain;
@@ -3164,11 +3338,16 @@ class App {
         }
     }
 
-    _drawEnvelope() {
-        const canvas = document.getElementById('env-canvas');
+    _drawEnvelopes() {
+        this._drawEnvelopeOn('env-canvas-amp', 'amp');
+        this._drawEnvelopeOn('env-canvas-pitch', 'pitch');
+    }
+
+    _drawEnvelopeOn(canvasId, envType) {
+        const canvas = document.getElementById(canvasId);
         if (!canvas) return;
         const rect = canvas.getBoundingClientRect();
-        if (rect.width < 1 || rect.height < 1) return; // hidden or zero-size
+        if (rect.width < 1 || rect.height < 1) return;
         const ctx = canvas.getContext('2d');
         const dpr = window.devicePixelRatio || 1;
         canvas.width = rect.width * dpr;
@@ -3181,27 +3360,30 @@ class App {
         const pad = this.sampler ? this.sampler.pads[this._sampleSelectedPad] : null;
         if (!pad) return;
 
-        const env = this._getEnvValues();
+        const env = this._getEnvValuesFor(envType);
+        const nodes = envType === 'amp' ? '_envNodesAmp' : '_envNodesPitch';
+        const valuesId = envType === 'amp' ? 'env-values-amp' : 'env-values-pitch';
 
-        // Show/hide pitch enable button
-        const enableBtn = document.getElementById('env-pitch-enable');
-        if (this._envView === 'pitch' && !env.enabled) {
+        // Show pitch enable/disable toggle (only relevant for pitch canvas)
+        if (envType === 'pitch') {
+            const enableBtn = document.getElementById('env-pitch-enable');
             enableBtn.hidden = false;
-            // Draw dimmed placeholder
-            ctx.strokeStyle = 'rgba(148,163,184,0.2)';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.moveTo(0, H);
-            ctx.lineTo(W * 0.2, 4);
-            ctx.lineTo(W * 0.5, H * 0.6);
-            ctx.lineTo(W * 0.7, H * 0.6);
-            ctx.lineTo(W, H);
-            ctx.stroke();
-            this._envNodes = [];
-            this._updateEnvValues(env);
-            return;
+            enableBtn.textContent = env.enabled ? 'DISABLE' : 'ENABLE';
+            if (!env.enabled) {
+                ctx.strokeStyle = 'rgba(148,163,184,0.2)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(0, H);
+                ctx.lineTo(W * 0.2, 4);
+                ctx.lineTo(W * 0.5, H * 0.6);
+                ctx.lineTo(W * 0.7, H * 0.6);
+                ctx.lineTo(W, H);
+                ctx.stroke();
+                this[nodes] = [];
+                this._updateEnvValues(env, valuesId);
+                return;
+            }
         }
-        enableBtn.hidden = true;
 
         // Layout: proportional time segments with min widths
         const padding = 8;
@@ -3212,12 +3394,10 @@ class App {
         const sustainHoldW = drawW * sustainHoldFrac;
         const timeW = drawW - sustainHoldW;
 
-        // Proportional widths with minimum of 12px per segment
         const minSeg = 12;
         let atkW = Math.max(minSeg, (env.attack / totalTime) * timeW);
         let decW = Math.max(minSeg, (env.decay / totalTime) * timeW);
         let relW = Math.max(minSeg, (env.release / totalTime) * timeW);
-        // Normalize to fit
         const segTotal = atkW + decW + relW;
         if (segTotal > timeW) {
             const scale = timeW / segTotal;
@@ -3227,21 +3407,19 @@ class App {
         }
         const susW = drawW - atkW - decW - relW;
 
-        // Key positions
-        const x0 = padding;                       // start (bottom-left)
-        const x1 = padding + atkW;                 // attack peak
-        const x2 = padding + atkW + decW;          // end of decay (sustain start)
-        const x3 = padding + atkW + decW + susW;   // end of sustain hold
-        const x4 = padding + drawW;                // end of release (bottom-right)
+        const x0 = padding;
+        const x1 = padding + atkW;
+        const x2 = padding + atkW + decW;
+        const x3 = padding + atkW + decW + susW;
+        const x4 = padding + drawW;
         const yTop = padding;
         const yBot = padding + drawH;
         const ySus = yTop + (1 - env.sustain) * drawH;
 
-        // Compute node positions
-        this._envNodes = [
-            { x: x1, y: yTop },   // Attack node
-            { x: x2, y: ySus },   // Decay/Sustain node
-            { x: x3, y: ySus }    // Release node (start of release, for dragging)
+        this[nodes] = [
+            { x: x1, y: yTop },
+            { x: x2, y: ySus },
+            { x: x3, y: ySus }
         ];
 
         // Draw filled area
@@ -3252,20 +3430,18 @@ class App {
         ctx.lineTo(x3, ySus);
         ctx.lineTo(x4, yBot);
         ctx.closePath();
-        const accentColor = this._envView === 'pitch' ? '234,179,8' : '14,165,233';
+        const accentColor = envType === 'pitch' ? '234,179,8' : '14,165,233';
         ctx.fillStyle = `rgba(${accentColor},0.08)`;
         ctx.fill();
 
         // Draw gridlines
         ctx.strokeStyle = 'rgba(148,163,184,0.08)';
         ctx.lineWidth = 1;
-        // 50% line
         const y50 = yTop + 0.5 * drawH;
         ctx.beginPath();
         ctx.moveTo(padding, y50);
         ctx.lineTo(padding + drawW, y50);
         ctx.stroke();
-        // sustain line
         if (env.sustain > 0.01 && env.sustain < 0.99) {
             ctx.strokeStyle = 'rgba(148,163,184,0.12)';
             ctx.setLineDash([3, 3]);
@@ -3277,7 +3453,7 @@ class App {
         }
 
         // Draw curve
-        const strokeColor = this._envView === 'pitch' ? '#eab308' : '#0ea5e9';
+        const strokeColor = envType === 'pitch' ? '#eab308' : '#0ea5e9';
         ctx.strokeStyle = strokeColor;
         ctx.lineWidth = 2;
         ctx.lineJoin = 'round';
@@ -3290,9 +3466,10 @@ class App {
         ctx.stroke();
 
         // Draw nodes
-        const nodeColor = this._envView === 'pitch' ? '#eab308' : '#0ea5e9';
-        for (let i = 0; i < this._envNodes.length; i++) {
-            const n = this._envNodes[i];
+        const nodeColor = envType === 'pitch' ? '#eab308' : '#0ea5e9';
+        const nodeArr = this[nodes];
+        for (let i = 0; i < nodeArr.length; i++) {
+            const n = nodeArr[i];
             ctx.beginPath();
             ctx.arc(n.x, n.y, 6, 0, Math.PI * 2);
             ctx.fillStyle = nodeColor;
@@ -3302,12 +3479,11 @@ class App {
             ctx.stroke();
         }
 
-        // Update value text
-        this._updateEnvValues(env);
+        this._updateEnvValues(env, valuesId);
     }
 
-    _updateEnvValues(env) {
-        const el = document.getElementById('env-values');
+    _updateEnvValues(env, elId) {
+        const el = document.getElementById(elId);
         if (!el) return;
         const fmtTime = (s) => {
             const ms = Math.round(s * 1000);
@@ -3316,17 +3492,18 @@ class App {
         el.textContent = `A:${fmtTime(env.attack)}  D:${fmtTime(env.decay)}  S:${Math.round(env.sustain * 100)}%  R:${fmtTime(env.release)}`;
     }
 
-    _envPointerDown(e) {
-        const canvas = document.getElementById('env-canvas');
+    _envPointerDown(e, envType) {
+        const canvasId = envType === 'amp' ? 'env-canvas-amp' : 'env-canvas-pitch';
+        const canvas = document.getElementById(canvasId);
         const rect = canvas.getBoundingClientRect();
         const px = e.clientX - rect.left;
         const py = e.clientY - rect.top;
 
-        // Hit test: find closest node within 24px
+        const nodeArr = envType === 'amp' ? this._envNodesAmp : this._envNodesPitch;
         let closest = -1;
         let closestDist = 24;
-        for (let i = 0; i < this._envNodes.length; i++) {
-            const n = this._envNodes[i];
+        for (let i = 0; i < nodeArr.length; i++) {
+            const n = nodeArr[i];
             const dist = Math.sqrt((px - n.x) ** 2 + (py - n.y) ** 2);
             if (dist < closestDist) {
                 closestDist = dist;
@@ -3336,16 +3513,18 @@ class App {
 
         if (closest >= 0) {
             this._envDragging = closest;
+            this._envDragTarget = envType;
             canvas.setPointerCapture(e.pointerId);
             e.preventDefault();
         }
     }
 
-    _envPointerMove(e) {
-        if (this._envDragging < 0) return;
+    _envPointerMove(e, envType) {
+        if (this._envDragging < 0 || this._envDragTarget !== envType) return;
         e.preventDefault();
 
-        const canvas = document.getElementById('env-canvas');
+        const canvasId = envType === 'amp' ? 'env-canvas-amp' : 'env-canvas-pitch';
+        const canvas = document.getElementById(canvasId);
         const rect = canvas.getBoundingClientRect();
         const px = e.clientX - rect.left;
         const py = e.clientY - rect.top;
@@ -3354,7 +3533,7 @@ class App {
         const drawW = rect.width - padding * 2;
         const drawH = rect.height - padding * 2;
 
-        const env = this._getEnvValues();
+        const env = this._getEnvValuesFor(envType);
         const sustainHoldFrac = 0.15;
         const totalTime = env.attack + env.decay + env.release + 0.001;
         const sustainHoldW = drawW * sustainHoldFrac;
@@ -3363,41 +3542,36 @@ class App {
         const node = this._envDragging;
 
         if (node === 0) {
-            // Attack node: horizontal only, controls attack time
             const xClamped = Math.max(padding + 8, Math.min(px, padding + drawW * 0.45));
             const frac = (xClamped - padding) / timeW;
             const newAtk = Math.max(0.001, Math.min(2.0, frac * totalTime));
-            this._setEnvValues(newAtk, env.decay, env.sustain, env.release);
+            this._setEnvValuesFor(envType, newAtk, env.decay, env.sustain, env.release);
         } else if (node === 1) {
-            // Decay/Sustain node: horizontal for decay, vertical for sustain
             const atkFrac = env.attack / totalTime;
             const atkEndX = padding + atkFrac * timeW;
             const xClamped = Math.max(atkEndX + 8, Math.min(px, padding + drawW * 0.7));
             const decFrac = (xClamped - atkEndX) / timeW;
             const newDec = Math.max(0.001, Math.min(2.0, decFrac * totalTime));
-            // Vertical: sustain level
             const yClamped = Math.max(padding, Math.min(py, padding + drawH));
             const newSus = Math.max(0, Math.min(1, 1 - (yClamped - padding) / drawH));
-            this._setEnvValues(env.attack, newDec, newSus, env.release);
+            this._setEnvValuesFor(envType, env.attack, newDec, newSus, env.release);
         } else if (node === 2) {
-            // Release node: horizontal only, controls release time
-            // Node sits at start of release segment. Dragging left = longer release.
             const minX = padding + drawW * 0.35;
             const maxX = padding + drawW - 8;
             const xClamped = Math.max(minX, Math.min(px, maxX));
-            // Distance from node to right edge proportional to release time
             const relPixels = padding + drawW - xClamped;
             const relFrac = relPixels / timeW;
             const newRel = Math.max(0.005, Math.min(5.0, relFrac * totalTime));
-            this._setEnvValues(env.attack, env.decay, env.sustain, newRel);
+            this._setEnvValuesFor(envType, env.attack, env.decay, env.sustain, newRel);
         }
 
-        this._drawEnvelope();
+        this._drawEnvelopeOn(canvasId, envType);
     }
 
     _envPointerUp(e) {
         if (this._envDragging >= 0) {
             this._envDragging = -1;
+            this._envDragTarget = null;
             this._saveSamplerConfig();
         }
     }
@@ -3477,11 +3651,13 @@ class App {
         document.getElementById('pad-mode-keys').classList.toggle('keys-on', this._chromaticMode);
         const canvas = document.getElementById('waveform');
         if (this._chromaticMode) {
+            this.waveform.chromaticMode = true;
             canvas.style.display = '';
             document.getElementById('waveform-empty').hidden = true;
             this._renderPianoKeyboard();
             this._bindChromaticEvents();
         } else {
+            this.waveform.chromaticMode = false;
             this._unbindChromaticEvents();
             // Restore normal waveform display
             if (this.channels) {
@@ -3523,20 +3699,22 @@ class App {
         ctx.fillRect(0, 0, w, h);
 
         // Draw white keys first
+        const homePitch = 60; // MIDI note for original sample pitch
         let whiteIdx = 0;
         this._chromaticKeyRects = []; // Store rects for hit testing: [{x, w, h, noteIdx, isBlack}]
         for (let n = 0; n < totalNotes; n++) {
             if (!isBlack[n % 12]) {
                 const x = whiteIdx * whiteKeyWidth;
-                // White key rect
-                ctx.fillStyle = '#e8e8e8';
+                const midiNote = startNote + n;
+                const isHome = (midiNote === homePitch);
+                // White key rect — home pitch gets a distinct grey
+                ctx.fillStyle = isHome ? '#b0b8c0' : '#e8e8e8';
                 ctx.fillRect(x + 1, 0, whiteKeyWidth - 2, h - 2);
                 ctx.strokeStyle = '#999';
                 ctx.lineWidth = 1;
                 ctx.strokeRect(x + 1, 0, whiteKeyWidth - 2, h - 2);
 
                 // Note label
-                const midiNote = startNote + n;
                 const octave = Math.floor(midiNote / 12);
                 const noteName = noteNames[midiNote % 12];
                 ctx.fillStyle = '#333';
@@ -3597,21 +3775,73 @@ class App {
         const midiNote = startNote + noteIdx;
         const semitones = midiNote - 60; // offset from middle C
         const padIdx = this._sampleSelectedPad;
-        if (this.sampler && this.slots.slots[padIdx].hasAudio) {
-            this.sampler.triggerWithPitch(padIdx, semitones);
+        if (!this.sampler || !this.slots.slots[padIdx].hasAudio) return;
+
+        // Release previous held note if different
+        if (this._chromaticHeldNote !== undefined && this._chromaticHeldNote !== null && this._chromaticHeldNote !== noteIdx) {
+            this.sampler.release(padIdx);
+        }
+
+        this._chromaticHeldNote = noteIdx;
+
+        // Temporarily set pitch and trigger with loop for sustain
+        const pad = this.sampler.pads[padIdx];
+        const originalPitch = pad.pitch;
+        const originalMode = pad.mode;
+        pad.pitch = semitones;
+        pad.mode = 'gate'; // gate mode so release stops the sound
+        this.sampler._stopVoice(padIdx);
+        const buffer = this.sampler._getPlayBuffer(padIdx);
+        if (buffer) {
+            this.sampler._startVoice(padIdx, buffer, true);
+        }
+        // Restore original settings — _startVoice reads them synchronously
+        pad.pitch = originalPitch;
+        pad.mode = originalMode;
+        if (this.sampler.onTrigger) this.sampler.onTrigger(padIdx);
+
+        // Record to sequencer if looper recording is armed
+        if (this._seqRecording && this.sequencer.playing) {
+            this._recordPadToStep(padIdx, semitones, 'chromatic-' + noteIdx);
+        }
+    }
+
+    _chromaticReleaseNote() {
+        const padIdx = this._sampleSelectedPad;
+        if (this._chromaticHeldNote !== undefined && this._chromaticHeldNote !== null) {
+            // Record note-off for duration tracking
+            if (this._seqRecording && this.sequencer.playing) {
+                this._recordNoteOff('chromatic-' + this._chromaticHeldNote);
+            }
+            const pad = this.sampler.pads[padIdx];
+            this.sampler._fadeOutVoice(padIdx, pad.release);
+            if (this.sampler.onRelease) this.sampler.onRelease(padIdx);
+            this._chromaticHeldNote = null;
         }
     }
 
     _bindChromaticEvents() {
         const canvas = document.getElementById('waveform');
-        this._chromaticTouchHandler = (e) => {
+        this._chromaticHeldNote = null;
+
+        // Touch: start triggers note, move glides, end releases
+        this._chromaticTouchStartHandler = (e) => {
             e.preventDefault();
             if (e.touches.length === 2) {
                 // Two-finger horizontal drag: shift octave
-                if (!this._chromaticPanStartX) {
-                    this._chromaticPanStartX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
-                    this._chromaticPanStartOctave = this._chromaticBaseOctave;
-                } else {
+                this._chromaticPanStartX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+                this._chromaticPanStartOctave = this._chromaticBaseOctave;
+                return;
+            }
+            if (e.touches.length === 1) {
+                const noteIdx = this._chromaticNoteFromX(e.touches[0].clientX, e.touches[0].clientY);
+                this._chromaticPlayNote(noteIdx);
+            }
+        };
+        this._chromaticTouchMoveHandler = (e) => {
+            e.preventDefault();
+            if (e.touches.length === 2) {
+                if (this._chromaticPanStartX !== null) {
                     const currentMid = (e.touches[0].clientX + e.touches[1].clientX) / 2;
                     const delta = currentMid - this._chromaticPanStartX;
                     const octShift = Math.round(delta / 80);
@@ -3620,9 +3850,11 @@ class App {
                 }
                 return;
             }
-            for (let i = 0; i < e.touches.length; i++) {
-                const noteIdx = this._chromaticNoteFromX(e.touches[i].clientX, e.touches[i].clientY);
-                this._chromaticPlayNote(noteIdx);
+            if (e.touches.length === 1) {
+                const noteIdx = this._chromaticNoteFromX(e.touches[0].clientX, e.touches[0].clientY);
+                if (noteIdx !== null && noteIdx !== this._chromaticHeldNote) {
+                    this._chromaticPlayNote(noteIdx); // triggers release of old + play new
+                }
             }
         };
         this._chromaticTouchEndHandler = (e) => {
@@ -3631,19 +3863,21 @@ class App {
                 this._chromaticPanStartX = null;
             }
             if (e.touches.length === 0) {
-                this.sampler.release(this._sampleSelectedPad);
+                this._chromaticReleaseNote();
             }
         };
+
+        // Mouse: down triggers, up releases
         this._chromaticMouseHandler = (e) => {
             const noteIdx = this._chromaticNoteFromX(e.clientX, e.clientY);
             this._chromaticPlayNote(noteIdx);
         };
         this._chromaticMouseUpHandler = () => {
-            this.sampler.release(this._sampleSelectedPad);
+            this._chromaticReleaseNote();
         };
 
-        canvas.addEventListener('touchstart', this._chromaticTouchHandler, { passive: false });
-        canvas.addEventListener('touchmove', this._chromaticTouchHandler, { passive: false });
+        canvas.addEventListener('touchstart', this._chromaticTouchStartHandler, { passive: false });
+        canvas.addEventListener('touchmove', this._chromaticTouchMoveHandler, { passive: false });
         canvas.addEventListener('touchend', this._chromaticTouchEndHandler, { passive: false });
         canvas.addEventListener('mousedown', this._chromaticMouseHandler);
         canvas.addEventListener('mouseup', this._chromaticMouseUpHandler);
@@ -3651,18 +3885,20 @@ class App {
 
     _unbindChromaticEvents() {
         const canvas = document.getElementById('waveform');
-        if (this._chromaticTouchHandler) {
-            canvas.removeEventListener('touchstart', this._chromaticTouchHandler);
-            canvas.removeEventListener('touchmove', this._chromaticTouchHandler);
+        if (this._chromaticTouchStartHandler) {
+            canvas.removeEventListener('touchstart', this._chromaticTouchStartHandler);
+            canvas.removeEventListener('touchmove', this._chromaticTouchMoveHandler);
             canvas.removeEventListener('touchend', this._chromaticTouchEndHandler);
         }
         if (this._chromaticMouseHandler) {
             canvas.removeEventListener('mousedown', this._chromaticMouseHandler);
             canvas.removeEventListener('mouseup', this._chromaticMouseUpHandler);
         }
-        this._chromaticTouchHandler = null;
+        this._chromaticTouchStartHandler = null;
+        this._chromaticTouchMoveHandler = null;
         this._chromaticMouseHandler = null;
         this._chromaticPanStartX = null;
+        this._chromaticHeldNote = null;
     }
 
     // Persistence

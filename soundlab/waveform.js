@@ -2,6 +2,8 @@
 
 const COLORS = {
     background: '#0a0e1a',
+    deadZone: '#040609',
+    deadZoneBorder: 'rgba(255, 255, 255, 0.12)',
     waveform: '#0ea5e9',
     centerLine: '#1e293b',
     selectionFill: 'rgba(14, 165, 233, 0.15)',
@@ -9,6 +11,9 @@ const COLORS = {
     cursor: '#ffffff',
     miniWaveform: 'rgba(14, 165, 233, 0.6)',
     emptyText: 'rgba(255, 255, 255, 0.25)',
+    loopFill: 'rgba(34, 197, 94, 0.12)',
+    loopEdge: 'rgba(34, 197, 94, 0.7)',
+    loopEdgeActive: 'rgba(34, 197, 94, 1.0)',
 };
 
 const DEAD_ZONE = 0.05;
@@ -37,6 +42,15 @@ class WaveformRenderer {
         this._selStart = -1;
         this._selEnd = -1;
 
+        // Loop markers (sample indices)
+        this._loopStart = -1;
+        this._loopEnd = -1;
+        this._loopVisible = false;
+        this._draggingLoopMarker = null; // 'start' | 'end' | null
+        this._lastPointerDownTime = 0;
+        this.onLoopChange = null;
+        this.onLoopClear = null;
+
         // Playback cursor
         this._cursorSample = -1;
 
@@ -53,6 +67,9 @@ class WaveformRenderer {
         this._pinchMidFraction = 0.5;
         this._pinchStartMidX = 0;
         this._pinchStartScrollOffset = 0;
+
+        // Chromatic mode: suppress all pointer/render when piano is drawn
+        this.chromaticMode = false;
 
         // Callbacks
         this.onSelectionChange = null;
@@ -82,6 +99,8 @@ class WaveformRenderer {
         this._selStart = -1;
         this._selEnd = -1;
         this._cursorSample = -1;
+        this._loopStart = -1;
+        this._loopEnd = -1;
 
         this.render();
     }
@@ -102,6 +121,8 @@ class WaveformRenderer {
         this._selStart = -1;
         this._selEnd = -1;
         this._cursorSample = -1;
+        this._loopStart = -1;
+        this._loopEnd = -1;
         this._zoom = 1;
         this._scrollOffset = 0;
         this.render();
@@ -125,6 +146,31 @@ class WaveformRenderer {
     getSelection() {
         if (this._selStart < 0 || this._selEnd < 0) return null;
         return { start: this._selStart, end: this._selEnd };
+    }
+
+    // -- Loop markers -----------------------------------------------------
+
+    setLoopMarkers(startSample, endSample) {
+        this._loopStart = Math.min(startSample, endSample);
+        this._loopEnd = Math.max(startSample, endSample);
+        this.render();
+    }
+
+    clearLoopMarkers() {
+        this._loopStart = -1;
+        this._loopEnd = -1;
+        this._draggingLoopMarker = null;
+        this.render();
+    }
+
+    getLoopMarkers() {
+        if (this._loopStart < 0 || this._loopEnd < 0) return null;
+        return { start: this._loopStart, end: this._loopEnd };
+    }
+
+    setLoopVisible(visible) {
+        this._loopVisible = visible;
+        this.render();
     }
 
     // -- Playback cursor --------------------------------------------------
@@ -207,6 +253,7 @@ class WaveformRenderer {
     // -- Render -----------------------------------------------------------
 
     render() {
+        if (this.chromaticMode) return;
         const ctx = this._ctx;
         const w = this._width;
         const h = this._height;
@@ -225,6 +272,25 @@ class WaveformRenderer {
         const visibleSamples = this.getVisibleSamples();
         const startSample = this._scrollOffset;
 
+        // Dead zone margins
+        const dzLeft = Math.floor(DEAD_ZONE * w);
+        const dzRight = Math.ceil((1 - DEAD_ZONE) * w);
+        ctx.fillStyle = COLORS.deadZone;
+        ctx.fillRect(0, 0, dzLeft, h);
+        ctx.fillRect(dzRight, 0, w - dzRight, h);
+
+        // Boundary lines at dead zone edges
+        ctx.strokeStyle = COLORS.deadZoneBorder;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(dzLeft, 0);
+        ctx.lineTo(dzLeft, h);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(dzRight, 0);
+        ctx.lineTo(dzRight, h);
+        ctx.stroke();
+
         // Center line
         ctx.strokeStyle = COLORS.centerLine;
         ctx.lineWidth = 1;
@@ -239,6 +305,11 @@ class WaveformRenderer {
         // --- Selection overlay ---
         if (this._selStart >= 0 && this._selEnd >= 0) {
             this._drawSelection(ctx, w, h, startSample, visibleSamples);
+        }
+
+        // --- Loop markers ---
+        if (this._loopVisible && this._loopStart >= 0 && this._loopEnd >= 0) {
+            this._drawLoopMarkers(ctx, w, h, startSample, visibleSamples);
         }
 
         // --- Playback cursor ---
@@ -462,6 +533,62 @@ class WaveformRenderer {
         }
     }
 
+    /** Draw loop marker overlay: green fill + edge lines + triangular handles. */
+    _drawLoopMarkers(ctx, w, h, startSample, visibleSamples) {
+        const x0 = this._sampleToX(this._loopStart, startSample, visibleSamples, w);
+        const x1 = this._sampleToX(this._loopEnd, startSample, visibleSamples, w);
+        const left = Math.max(0, Math.min(x0, x1));
+        const right = Math.min(w, Math.max(x0, x1));
+
+        if (right < 0 || left > w) return;
+
+        // Filled overlay
+        ctx.fillStyle = COLORS.loopFill;
+        ctx.fillRect(left, 0, right - left, h);
+
+        // Edge lines
+        const startActive = this._draggingLoopMarker === 'start';
+        const endActive = this._draggingLoopMarker === 'end';
+
+        // Start edge
+        if (left >= 0 && left <= w) {
+            ctx.strokeStyle = startActive ? COLORS.loopEdgeActive : COLORS.loopEdge;
+            ctx.lineWidth = startActive ? 2 : 1;
+            ctx.beginPath();
+            ctx.moveTo(left, 0);
+            ctx.lineTo(left, h);
+            ctx.stroke();
+
+            // Right-pointing triangle handle at top
+            ctx.fillStyle = startActive ? COLORS.loopEdgeActive : COLORS.loopEdge;
+            ctx.beginPath();
+            ctx.moveTo(left, 0);
+            ctx.lineTo(left + 8, 6);
+            ctx.lineTo(left, 12);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        // End edge
+        if (right >= 0 && right <= w) {
+            ctx.strokeStyle = endActive ? COLORS.loopEdgeActive : COLORS.loopEdge;
+            ctx.lineWidth = endActive ? 2 : 1;
+            ctx.beginPath();
+            ctx.moveTo(right, 0);
+            ctx.lineTo(right, h);
+            ctx.stroke();
+
+            // Left-pointing triangle handle at top
+            ctx.fillStyle = endActive ? COLORS.loopEdgeActive : COLORS.loopEdge;
+            ctx.beginPath();
+            ctx.moveTo(right, 0);
+            ctx.lineTo(right - 8, 6);
+            ctx.lineTo(right, 12);
+            ctx.closePath();
+            ctx.fill();
+        }
+    }
+
     // --------------------------------------------------------- event binding
 
     _bindEvents() {
@@ -470,12 +597,12 @@ class WaveformRenderer {
         // --- Mouse events ---
         c.addEventListener('mousedown', (e) => this._pointerDown(e.clientX));
         c.addEventListener('mousemove', (e) => {
-            if (this._dragging) this._pointerMove(e.clientX);
+            if (this._dragging || this._draggingLoopMarker) this._pointerMove(e.clientX);
         });
         c.addEventListener('mouseup', (e) => this._pointerUp(e.clientX));
         // Handle mouse leaving the canvas while dragging
         c.addEventListener('mouseleave', (e) => {
-            if (this._dragging) this._pointerUp(e.clientX);
+            if (this._dragging || this._draggingLoopMarker) this._pointerUp(e.clientX);
         });
 
         // --- Touch events (single-touch selection + two-finger pinch zoom) ---
@@ -514,7 +641,7 @@ class WaveformRenderer {
                 this._scrollOffset -= midDeltaPx * samplesPerPx;
                 this._clampScroll();
                 this.render();
-            } else if (e.touches.length === 1 && this._dragging && !this._pinching) {
+            } else if (e.touches.length === 1 && (this._dragging || this._draggingLoopMarker) && !this._pinching) {
                 this._pointerMove(e.touches[0].clientX);
             }
         }, { passive: false });
@@ -568,13 +695,69 @@ class WaveformRenderer {
     }
 
     _pointerDown(clientX) {
+        if (this.chromaticMode) return;
         if (!this._mono || this._totalSamples === 0) return;
+
+        const now = Date.now();
+
+        // Loop marker hit-test (if visible)
+        if (this._loopVisible && this._loopStart >= 0 && this._loopEnd >= 0) {
+            const rect = this._canvas.getBoundingClientRect();
+            const w = this._width;
+            const startSample = this._scrollOffset;
+            const visibleSamples = this.getVisibleSamples();
+            const xStart = this._sampleToX(this._loopStart, startSample, visibleSamples, w);
+            const xEnd = this._sampleToX(this._loopEnd, startSample, visibleSamples, w);
+            const px = clientX - rect.left;
+
+            // Double-click to clear: inside loop region, within 300ms
+            if (now - this._lastPointerDownTime < 300) {
+                if (px >= xStart && px <= xEnd) {
+                    this._lastPointerDownTime = 0;
+                    if (this.onLoopClear) this.onLoopClear();
+                    return;
+                }
+            }
+
+            // Hit-test edges (20px tolerance)
+            if (Math.abs(px - xStart) <= 20) {
+                this._draggingLoopMarker = 'start';
+                this._lastPointerDownTime = now;
+                this.render();
+                return;
+            }
+            if (Math.abs(px - xEnd) <= 20) {
+                this._draggingLoopMarker = 'end';
+                this._lastPointerDownTime = now;
+                this.render();
+                return;
+            }
+        }
+
+        this._lastPointerDownTime = now;
         this._dragging = true;
         this._dragStartX = clientX;
         this._dragStartSample = this.sampleAtX(clientX);
     }
 
     _pointerMove(clientX) {
+        if (this.chromaticMode) return;
+
+        // Loop marker dragging
+        if (this._draggingLoopMarker) {
+            const sample = Math.max(0, Math.min(this.sampleAtX(clientX), this._totalSamples));
+            if (this._draggingLoopMarker === 'start') {
+                this._loopStart = Math.min(sample, this._loopEnd - 1);
+            } else {
+                this._loopEnd = Math.max(sample, this._loopStart + 1);
+            }
+            this.render();
+            if (this.onLoopChange) {
+                this.onLoopChange({ start: this._loopStart, end: this._loopEnd });
+            }
+            return;
+        }
+
         if (!this._dragging) return;
         const currentSample = this.sampleAtX(clientX);
 
@@ -586,6 +769,24 @@ class WaveformRenderer {
     }
 
     _pointerUp(clientX) {
+        if (this.chromaticMode) return;
+
+        // Finalize loop marker drag
+        if (this._draggingLoopMarker) {
+            const sample = Math.max(0, Math.min(this.sampleAtX(clientX), this._totalSamples));
+            if (this._draggingLoopMarker === 'start') {
+                this._loopStart = Math.min(sample, this._loopEnd - 1);
+            } else {
+                this._loopEnd = Math.max(sample, this._loopStart + 1);
+            }
+            this._draggingLoopMarker = null;
+            this.render();
+            if (this.onLoopChange) {
+                this.onLoopChange({ start: this._loopStart, end: this._loopEnd });
+            }
+            return;
+        }
+
         if (!this._dragging) return;
         this._dragging = false;
 

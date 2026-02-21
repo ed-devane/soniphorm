@@ -154,7 +154,8 @@
         <!-- Sequencer Transport -->
         <div class="seq-transport" id="seq-transport">
             <button id="seq-play-btn" class="tb" title="Play / Stop sequence">&#9654; PLAY</button>
-            <button id="seq-rec-btn" class="tb rec" title="Record pads into sequence">&#9679; REC</button>
+            <button id="seq-rec-btn" class="tb rec" title="Record pads/keys into sequence">&#9679; REC</button>
+            <button id="seq-undo-btn" class="tb" title="Undo last recording layer">UNDO</button>
             <div class="seq-sep"></div>
             <div class="seq-bpm">
                 <button class="seq-bpm-btn" id="bpm-down" title="BPM -1">&minus;</button>
@@ -165,7 +166,9 @@
             <div class="seq-sep"></div>
             <button id="seq-random-btn" class="tb" title="Randomise pattern">RAND</button>
             <button id="seq-stutter-btn" class="tb" title="Stutter / glitch pattern">STUT</button>
+            <input type="range" id="seq-stutter-amount" class="seq-amount-slider" min="0" max="100" value="50" title="Stutter amount">
             <button id="seq-mutate-btn" class="tb" title="Toggle mutate (evolving pattern)">MUTATE</button>
+            <input type="range" id="seq-mutate-amount" class="seq-amount-slider" min="0" max="100" value="50" title="Mutate amount">
             <div class="seq-sep"></div>
             <button id="seq-bounce-btn" class="tb" title="Bounce sequence to slot">BOUNCE</button>
             <button id="seq-clear-btn" class="tb" title="Clear pattern">CLEAR</button>
@@ -173,18 +176,17 @@
 
         <!-- Sampler Transport -->
         <div class="sample-transport" id="sample-transport">
-            <!-- Row 1: pad info + mode + stop -->
+            <!-- Row 1: pad info + ONE/LOOP toggle + REV + KEYS -->
             <div class="sample-row-main">
                 <span class="sample-pad-info" id="sample-pad-info">Tap a pad</span>
                 <div class="seq-sep"></div>
-                <button id="pad-mode-oneshot" class="tb pad-mode-btn active">ONE</button>
-                <button id="pad-mode-loop" class="tb pad-mode-btn">LOOP</button>
-                <button id="pad-mode-gate" class="tb pad-mode-btn">GATE</button>
-                <button id="pad-mode-morph" class="tb pad-mode-btn">MORPH</button>
+                <div class="mode-toggle" id="pad-mode-toggle">
+                    <button class="mode-toggle-opt active" id="pad-mode-oneshot" data-mode="oneshot">ONE</button>
+                    <button class="mode-toggle-opt" id="pad-mode-loop" data-mode="loop">LOOP</button>
+                </div>
+                <button id="pad-mode-rev" class="tb" title="Reverse">REV</button>
                 <div class="seq-sep"></div>
-                <button id="pad-mode-keys" class="tb">KEYS</button>
-                <div class="seq-sep"></div>
-                <button id="sample-stop-all" class="tb">STOP</button>
+                <button id="pad-mode-keys" class="tb" title="Chromatic keyboard">&#127929;</button>
             </div>
             <!-- Tab bar -->
             <div class="sample-tabs">
@@ -193,28 +195,42 @@
                 <button class="sample-tab" data-tab="lfo">LFO</button>
                 <button class="sample-tab" data-tab="morph">MORPH</button>
             </div>
-            <!-- ENV panel: Visual curve editor + PIT/VOL controls -->
+            <!-- ENV panel: Dual visual curve editors (AMP + PITCH) -->
             <div class="sample-panel" id="panel-env">
-                <div class="env-editor">
-                    <div class="env-header">
-                        <div class="env-toggle">
-                            <button class="env-toggle-btn active" data-env="amp">AMP</button>
-                            <button class="env-toggle-btn" data-env="pitch">PITCH</button>
-                        </div>
-                        <div class="env-controls">
-                            <label class="env-ctrl">PIT <span id="pad-pitch-val">+0st</span>
-                                <input type="range" id="pad-pitch" min="-24" max="24" value="0" class="env-mini-slider">
-                            </label>
-                            <label class="env-ctrl">VOL <span id="pad-volume-val">100%</span>
-                                <input type="range" id="pad-volume" min="0" max="100" value="100" class="env-mini-slider">
-                            </label>
-                        </div>
+                <div class="env-dual">
+                    <!-- VOL vertical fader -->
+                    <div class="env-vfader">
+                        <span class="env-vfader-label">VOL</span>
+                        <input type="range" id="pad-volume" min="0" max="100" value="100" class="env-vfader-input" orient="vertical">
+                        <span class="env-vfader-val" id="pad-volume-val">100%</span>
                     </div>
-                    <div class="env-canvas-wrap">
-                        <button class="env-pitch-enable" id="env-pitch-enable" hidden>ENABLE</button>
-                        <canvas id="env-canvas" class="env-canvas"></canvas>
+                    <!-- AMP envelope -->
+                    <div class="env-editor" data-env="amp">
+                        <div class="env-header">
+                            <span class="env-label">AMP</span>
+                        </div>
+                        <div class="env-canvas-wrap">
+                            <canvas id="env-canvas-amp" class="env-canvas"></canvas>
+                        </div>
+                        <div class="env-values" id="env-values-amp">A:10ms D:100ms S:100% R:50ms</div>
                     </div>
-                    <div class="env-values" id="env-values">A:10ms D:100ms S:100% R:50ms</div>
+                    <!-- PIT vertical fader -->
+                    <div class="env-vfader">
+                        <span class="env-vfader-label env-label-pitch">PIT</span>
+                        <input type="range" id="pad-pitch" min="-24" max="24" value="0" class="env-vfader-input" orient="vertical">
+                        <span class="env-vfader-val" id="pad-pitch-val">+0st</span>
+                    </div>
+                    <!-- PITCH envelope -->
+                    <div class="env-editor" data-env="pitch">
+                        <div class="env-header">
+                            <span class="env-label env-label-pitch">PITCH ENV</span>
+                            <button class="env-pitch-enable" id="env-pitch-enable" hidden>ENABLE</button>
+                        </div>
+                        <div class="env-canvas-wrap">
+                            <canvas id="env-canvas-pitch" class="env-canvas"></canvas>
+                        </div>
+                        <div class="env-values" id="env-values-pitch">A:10ms D:300ms S:0% R:100ms</div>
+                    </div>
                 </div>
             </div>
             <!-- FILT panel: toggle + type + freq + Q -->

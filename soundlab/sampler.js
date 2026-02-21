@@ -25,6 +25,9 @@ class Sampler {
         // Morph buffer cache: key -> AudioBuffer
         this._morphCache = {};
 
+        // Reverse buffer cache: slotIndex -> AudioBuffer
+        this._reverseBuffers = {};
+
         // Keyboard mapping (code -> pad index)
         this.keyMap = {
             'Digit1': 0,  'Digit2': 1,  'Digit3': 2,  'Digit4': 3,
@@ -69,8 +72,11 @@ class Sampler {
             lfoRate: 2.0,
             lfoDepth: 0.5,
             lfoShape: 'sine',
+            reverse: false,
             regionStart: 0,
             regionEnd: -1,
+            loopStart: -1,
+            loopEnd: -1,
             pitchEnvEnabled: false,
             pitchEnvAmount: 12,
             pitchEnvAttack: 0.01,
@@ -100,11 +106,8 @@ class Sampler {
                     this._startVoice(slotIndex, buffer, false);
                     break;
                 case 'loop':
-                    if (this._voices[slotIndex]) {
-                        this._fadeOutVoice(slotIndex, pad.release);
-                    } else {
-                        this._startVoice(slotIndex, buffer, true);
-                    }
+                    this._stopVoice(slotIndex);
+                    this._startVoice(slotIndex, buffer, true);
                     break;
                 case 'gate':
                     this._stopVoice(slotIndex);
@@ -134,7 +137,14 @@ class Sampler {
 
     release(slotIndex) {
         const pad = this.pads[slotIndex];
-        if (pad.mode === 'gate') {
+        if (pad.mode === 'gate' || pad.mode === 'loop') {
+            const voice = this._voices[slotIndex];
+            if (voice) {
+                const hasExplicitLoop = (pad.loopStart >= 0 && pad.loopEnd >= 0);
+                if (hasExplicitLoop && pad.mode === 'loop') {
+                    voice.source.loop = false;
+                }
+            }
             this._fadeOutVoice(slotIndex, pad.release);
         }
         if (this.onRelease) this.onRelease(slotIndex);
@@ -165,6 +175,27 @@ class Sampler {
         voice.source.loopEnd = regEnd;
     }
 
+    updateLoopRegion(slotIndex, loopStart, loopEnd) {
+        const voice = this._voices[slotIndex];
+        if (!voice || !voice.source.loop) return;
+        const buf = voice.source.buffer;
+        if (!buf) return;
+        const pad = this.pads[slotIndex];
+        pad.loopStart = loopStart;
+        pad.loopEnd = loopEnd;
+        if (loopStart >= 0 && loopEnd >= 0) {
+            const regStart = pad.regionStart || 0;
+            const regEnd = (pad.regionEnd > 0) ? Math.min(pad.regionEnd, buf.duration) : buf.duration;
+            voice.source.loopStart = Math.max(regStart, loopStart);
+            voice.source.loopEnd = Math.min(regEnd, loopEnd);
+        } else {
+            const regStart = pad.regionStart || 0;
+            const regEnd = (pad.regionEnd > 0) ? Math.min(pad.regionEnd, buf.duration) : buf.duration;
+            voice.source.loopStart = regStart;
+            voice.source.loopEnd = regEnd;
+        }
+    }
+
     _startVoice(slotIndex, buffer, loop) {
         const pad = this.pads[slotIndex];
         const ctx = this.audioContext;
@@ -193,8 +224,14 @@ class Sampler {
         const regDuration = regEnd - regStart;
 
         if (loop) {
-            source.loopStart = regStart;
-            source.loopEnd = regEnd;
+            const hasExplicitLoop = (pad.loopStart >= 0 && pad.loopEnd >= 0);
+            if (hasExplicitLoop) {
+                source.loopStart = Math.max(regStart, pad.loopStart);
+                source.loopEnd = Math.min(regEnd, pad.loopEnd);
+            } else {
+                source.loopStart = regStart;
+                source.loopEnd = regEnd;
+            }
         }
 
         // Build chain: source -> filter -> envelopeGain -> volumeGain -> destination
@@ -242,7 +279,11 @@ class Sampler {
         if (pad.lfoEnabled && pad.lfoDepth > 0) {
             if (pad.lfoTarget === 'position' && loop) {
                 // Position LFO: timer-based modulation of loopStart/loopEnd
-                const windowSize = regDuration;
+                const hasExplicitLoopLfo = (pad.loopStart >= 0 && pad.loopEnd >= 0);
+                const lfoWindow = hasExplicitLoopLfo
+                    ? (Math.min(regEnd, pad.loopEnd) - Math.max(regStart, pad.loopStart))
+                    : regDuration;
+                const windowSize = lfoWindow;
                 const maxShift = Math.max(0, (buffer.duration - windowSize) * pad.lfoDepth);
                 const lfoRate = pad.lfoRate;
                 const lfoShape = pad.lfoShape;
@@ -362,7 +403,31 @@ class Sampler {
     // === Buffer Access ===
 
     _getPlayBuffer(slotIndex) {
-        return this.getSlotBuffer ? this.getSlotBuffer(slotIndex) : null;
+        const buffer = this.getSlotBuffer ? this.getSlotBuffer(slotIndex) : null;
+        if (!buffer) return null;
+        const pad = this.pads[slotIndex];
+        if (!pad.reverse) return buffer;
+
+        // Return cached reverse buffer if available
+        if (this._reverseBuffers[slotIndex]) return this._reverseBuffers[slotIndex];
+
+        // Create reversed copy
+        const numCh = buffer.numberOfChannels;
+        const len = buffer.length;
+        const revBuf = this.audioContext.createBuffer(numCh, len, buffer.sampleRate);
+        for (let ch = 0; ch < numCh; ch++) {
+            const src = buffer.getChannelData(ch);
+            const dst = revBuf.getChannelData(ch);
+            for (let i = 0; i < len; i++) {
+                dst[i] = src[len - 1 - i];
+            }
+        }
+        this._reverseBuffers[slotIndex] = revBuf;
+        return revBuf;
+    }
+
+    invalidateReverseBuffer(slotIndex) {
+        delete this._reverseBuffers[slotIndex];
     }
 
     _getMorphBuffer(slotIndex) {
@@ -578,6 +643,7 @@ class Sampler {
                 morphType: p.morphType,
                 morphAmount: p.morphAmount,
                 pitch: p.pitch,
+                reverse: p.reverse,
                 volume: p.volume,
                 attack: p.attack,
                 decay: p.decay,
@@ -594,6 +660,8 @@ class Sampler {
                 lfoShape: p.lfoShape,
                 regionStart: p.regionStart,
                 regionEnd: p.regionEnd,
+                loopStart: p.loopStart,
+                loopEnd: p.loopEnd,
                 pitchEnvEnabled: p.pitchEnvEnabled,
                 pitchEnvAmount: p.pitchEnvAmount,
                 pitchEnvAttack: p.pitchEnvAttack,
@@ -615,6 +683,7 @@ class Sampler {
                 this.pads[i].morphType = p.morphType || def.morphType;
                 this.pads[i].morphAmount = p.morphAmount !== undefined ? p.morphAmount : def.morphAmount;
                 this.pads[i].pitch = p.pitch !== undefined ? p.pitch : def.pitch;
+                this.pads[i].reverse = p.reverse !== undefined ? p.reverse : def.reverse;
                 this.pads[i].volume = p.volume !== undefined ? p.volume : def.volume;
                 this.pads[i].attack = p.attack !== undefined ? p.attack : def.attack;
                 this.pads[i].decay = p.decay !== undefined ? p.decay : def.decay;
@@ -631,6 +700,8 @@ class Sampler {
                 this.pads[i].lfoShape = p.lfoShape || def.lfoShape;
                 this.pads[i].regionStart = p.regionStart !== undefined ? p.regionStart : def.regionStart;
                 this.pads[i].regionEnd = p.regionEnd !== undefined ? p.regionEnd : def.regionEnd;
+                this.pads[i].loopStart = p.loopStart !== undefined ? p.loopStart : def.loopStart;
+                this.pads[i].loopEnd = p.loopEnd !== undefined ? p.loopEnd : def.loopEnd;
                 this.pads[i].pitchEnvEnabled = p.pitchEnvEnabled !== undefined ? p.pitchEnvEnabled : def.pitchEnvEnabled;
                 this.pads[i].pitchEnvAmount = p.pitchEnvAmount !== undefined ? p.pitchEnvAmount : def.pitchEnvAmount;
                 this.pads[i].pitchEnvAttack = p.pitchEnvAttack !== undefined ? p.pitchEnvAttack : def.pitchEnvAttack;
