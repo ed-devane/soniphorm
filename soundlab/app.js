@@ -3339,7 +3339,7 @@ class App {
         filtToggle.textContent = pad.filterEnabled ? 'ON' : 'OFF';
         filtToggle.classList.toggle('active', pad.filterEnabled);
         document.getElementById('pad-filter-type').value = pad.filterType;
-        document.getElementById('pad-filter-freq').value = pad.filterFreq;
+        document.getElementById('pad-filter-freq').value = this._sliderFromFreq(pad.filterFreq);
         document.getElementById('pad-filter-freq-val').textContent = pad.filterFreq;
         document.getElementById('pad-filter-q').value = Math.round(pad.filterQ * 10);
         document.getElementById('pad-filter-q-val').textContent = pad.filterQ.toFixed(1);
@@ -3755,11 +3755,23 @@ class App {
         this._saveSamplerConfig();
     }
 
+    // Log scale: slider 0-1000 -> freq 20-20000Hz
+    _freqFromSlider(val) {
+        const minLog = Math.log(20);
+        const maxLog = Math.log(20000);
+        return Math.round(Math.exp(minLog + (val / 1000) * (maxLog - minLog)));
+    }
+    _sliderFromFreq(freq) {
+        const minLog = Math.log(20);
+        const maxLog = Math.log(20000);
+        return Math.round(((Math.log(Math.max(20, freq)) - minLog) / (maxLog - minLog)) * 1000);
+    }
+
     _updatePadFilter() {
         const idx = this._sampleSelectedPad;
         const pad = this.sampler.pads[idx];
         pad.filterType = document.getElementById('pad-filter-type').value;
-        pad.filterFreq = parseInt(document.getElementById('pad-filter-freq').value);
+        pad.filterFreq = this._freqFromSlider(parseInt(document.getElementById('pad-filter-freq').value));
         pad.filterQ = parseInt(document.getElementById('pad-filter-q').value) / 10;
 
         // Live-update filter on playing voice
