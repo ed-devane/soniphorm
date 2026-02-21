@@ -226,6 +226,15 @@ class Sequencer {
             lfo.start(time);
         }
 
+        // Pitch envelope: modulate detune (cents)
+        if (pad && pad.pitchEnvEnabled) {
+            const peakCents = pad.pitchEnvAmount * 100;
+            const sustainCents = pad.pitchEnvAmount * pad.pitchEnvSustain * 100;
+            source.detune.setValueAtTime(peakCents, time);
+            source.detune.linearRampToValueAtTime(peakCents, time + pad.pitchEnvAttack);
+            source.detune.linearRampToValueAtTime(sustainCents, time + pad.pitchEnvAttack + pad.pitchEnvDecay);
+        }
+
         source.start(time);
 
         // Determine stop time based on: entry duration, stutter, or loop mode
