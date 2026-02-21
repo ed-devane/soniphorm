@@ -333,7 +333,7 @@ class App {
             if (this.audio.isPlaying) {
                 this.stopAudio();
             } else {
-                this.playAudio();
+                this.playAudio(true); // from start
             }
             return;
         }
@@ -844,11 +844,11 @@ class App {
 
     // === Playback ===
 
-    playAudio() {
+    playAudio(fromStart = false) {
         if (!this.channels) return;
         const sel = this.waveform.getSelection();
         const cursor = this.waveform.getCursor();
-        const start = sel ? sel.start : cursor;
+        const start = sel ? sel.start : (fromStart ? 0 : cursor);
         const end = sel ? sel.end : this.channels[0].length;
 
         this.audio.play(this.channels, this.bufferSampleRate, start, end, () => {
