@@ -3869,8 +3869,9 @@ class App {
         if (this.sampler.onTrigger) this.sampler.onTrigger(padIdx);
 
         // Record to sequencer if looper recording is armed
+        // Store pitch relative to pad's base pitch, since sequencer adds pad.pitch on playback
         if (this._seqRecording && this.sequencer.playing) {
-            this._recordPadToStep(padIdx, semitones, 'chromatic-' + noteIdx);
+            this._recordPadToStep(padIdx, semitones - pad.pitch, 'chromatic-' + noteIdx);
         }
     }
 
