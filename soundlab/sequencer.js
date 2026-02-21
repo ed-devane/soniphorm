@@ -52,6 +52,8 @@ class Sequencer {
         this.getLoadedSlots = null;
         this.getPadSettings = null;  // (slotIndex) => pad object or null
         this.shouldPlaySlot = null;  // (slotIndex) => bool — for mute/solo
+        this.shouldStutterSlot = null; // (slotIndex) => bool — per-slot stutter
+        this.shouldMutateSlot = null;  // (slotIndex) => bool — per-slot mutate
     }
 
     get stepDuration() {
@@ -121,19 +123,20 @@ class Sequencer {
         const step = this.pattern[stepIndex];
         if (!step || step.slots.length === 0) return;
 
-        // Stutter: retrigger samples at subdivisions within the step
-        const subdivs = this.stutterEnabled ? this._getStutterSubdivisions() : 1;
-        const subDur = this.stepDuration / subdivs;
+        for (let s = 0; s < step.slots.length; s++) {
+            const entry = step.slots[s];
+            if (this.shouldPlaySlot && !this.shouldPlaySlot(entry.slot)) continue;
+            const buffer = this._getBuffer(entry.slot, step.direction === 'reverse');
+            if (!buffer) continue;
 
-        for (let sub = 0; sub < subdivs; sub++) {
-            const subTime = time + sub * subDur;
-            for (let s = 0; s < step.slots.length; s++) {
-                const entry = step.slots[s];
-                if (this.shouldPlaySlot && !this.shouldPlaySlot(entry.slot)) continue;
-                const buffer = this._getBuffer(entry.slot, step.direction === 'reverse');
-                if (!buffer) continue;
+            // Per-slot stutter: check if this slot has stutter enabled
+            const slotStutter = this.shouldStutterSlot ? this.shouldStutterSlot(entry.slot) : this.stutterEnabled;
+            const subdivs = slotStutter ? this._getStutterSubdivisions() : 1;
+            const subDur = this.stepDuration / subdivs;
+            const pad = this.getPadSettings ? this.getPadSettings(entry.slot) : null;
 
-                const pad = this.getPadSettings ? this.getPadSettings(entry.slot) : null;
+            for (let sub = 0; sub < subdivs; sub++) {
+                const subTime = time + sub * subDur;
                 this._playBuffer(this.audioContext, buffer, entry, step, subTime, pad, subDur);
             }
         }
@@ -404,33 +407,47 @@ class Sequencer {
     _applyMutations() {
         const loaded = this.getLoadedSlots ? this.getLoadedSlots() : [];
         if (loaded.length === 0) return;
+        // Filter loaded slots to only those with mutate enabled (if per-slot callback exists)
+        const mutatable = this.shouldMutateSlot
+            ? loaded.filter(s => this.shouldMutateSlot(s))
+            : loaded;
+        if (mutatable.length === 0) return;
         const prob = 0.03 + this.mutateAmount * 0.27; // range: 0.03 (subtle) to 0.30 (frantic)
         for (let i = 0; i < 16; i++) {
             if (Math.random() < prob) {
+                const step = this.pattern[i];
+                // Only mutate entries belonging to mutatable slots
+                const mutableEntries = step.slots.filter(e => mutatable.includes(e.slot));
                 const m = Math.random();
                 if (m < 0.35) {
-                    if (this.pattern[i].slots.length === 0) {
-                        this.pattern[i].slots = [{ slot: loaded[Math.floor(Math.random() * loaded.length)], pitch: 0 }];
+                    if (mutableEntries.length === 0) {
+                        // Add a random mutatable slot
+                        step.slots.push({ slot: mutatable[Math.floor(Math.random() * mutatable.length)], pitch: 0, duration: 0 });
                     } else if (Math.random() < 0.3) {
-                        this.pattern[i].slots = [];
+                        // Remove mutable entries only
+                        this.pattern[i].slots = step.slots.filter(e => !mutatable.includes(e.slot));
                     } else {
-                        this.pattern[i].slots = [{ slot: loaded[Math.floor(Math.random() * loaded.length)], pitch: 0 }];
+                        // Replace a mutable entry with a different mutatable slot
+                        const idx = step.slots.indexOf(mutableEntries[Math.floor(Math.random() * mutableEntries.length)]);
+                        if (idx >= 0) step.slots[idx] = { slot: mutatable[Math.floor(Math.random() * mutatable.length)], pitch: 0, duration: 0 };
                     }
                 } else if (m < 0.5) {
-                    this.pattern[i].direction = this.pattern[i].direction === 'forward' ? 'reverse' : 'forward';
+                    step.direction = step.direction === 'forward' ? 'reverse' : 'forward';
                 } else if (m < 0.65) {
-                    this.pattern[i].mode = this.pattern[i].mode === 'oneshot' ? 'loop' : 'oneshot';
+                    step.mode = step.mode === 'oneshot' ? 'loop' : 'oneshot';
                 } else if (m < 0.8) {
-                    // Mutate pitch of a random slot entry
-                    if (this.pattern[i].slots.length > 0) {
-                        const entry = this.pattern[i].slots[Math.floor(Math.random() * this.pattern[i].slots.length)];
+                    // Mutate pitch of a random mutable entry
+                    if (mutableEntries.length > 0) {
+                        const entry = mutableEntries[Math.floor(Math.random() * mutableEntries.length)];
                         entry.pitch = Math.max(-24, Math.min(24, entry.pitch + Math.floor(Math.random() * 5) - 2));
                     }
                 } else {
-                    if (this.pattern[i].slots.length > 0) {
-                        this.pattern[i].slots = [];
+                    if (mutableEntries.length > 0) {
+                        // Remove mutable entries
+                        this.pattern[i].slots = step.slots.filter(e => !mutatable.includes(e.slot));
                     } else {
-                        this.pattern[i].slots = [{ slot: loaded[Math.floor(Math.random() * loaded.length)], pitch: 0 }];
+                        // Add a random mutatable slot
+                        step.slots.push({ slot: mutatable[Math.floor(Math.random() * mutatable.length)], pitch: 0, duration: 0 });
                     }
                 }
                 if (this.onMutate) this.onMutate(i);

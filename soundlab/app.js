@@ -1946,6 +1946,8 @@ class App {
             this.sequencer.mutateEnabled = false;
             this.sequencer.stutterEnabled = false;
             this._seqPreMutatePattern = null;
+            this._seqStutterSlots.clear();
+            this._seqMutateSlots.clear();
             this._slotBuffers = {};
             this._saveSeqPattern();
         }
@@ -2063,6 +2065,16 @@ class App {
         this.sequencer.shouldPlaySlot = (slotIndex) => {
             if (this._seqSoloSlot >= 0) return slotIndex === this._seqSoloSlot;
             return !this._seqMutedSlots.has(slotIndex);
+        };
+
+        // Per-slot stutter/mutate
+        this._seqStutterSlots = new Set();
+        this._seqMutateSlots = new Set();
+        this.sequencer.shouldStutterSlot = (slotIndex) => {
+            return this._seqStutterSlots.has(slotIndex);
+        };
+        this.sequencer.shouldMutateSlot = (slotIndex) => {
+            return this._seqMutateSlots.has(slotIndex);
         };
 
         this._slotBuffers = {}; // slotIndex → AudioBuffer (shared by sequencer + sampler)
@@ -2261,6 +2273,52 @@ class App {
             });
             row.appendChild(muteBtn);
 
+            // Stutter button
+            const stutterBtn = document.createElement('button');
+            stutterBtn.className = 'seq-stutter-slot-btn' + (this._seqStutterSlots.has(i) ? ' on' : '');
+            stutterBtn.textContent = 'ST';
+            stutterBtn.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                if (this._seqStutterSlots.has(i)) {
+                    this._seqStutterSlots.delete(i);
+                } else {
+                    this._seqStutterSlots.add(i);
+                }
+                // Sync global flag
+                this.sequencer.stutterEnabled = this._seqStutterSlots.size > 0;
+                document.getElementById('seq-stutter-btn').classList.toggle('stutter-on', this._seqStutterSlots.size > 0);
+                this._renderSeqSampleList();
+            });
+            row.appendChild(stutterBtn);
+
+            // Mutate button
+            const mutateBtn = document.createElement('button');
+            mutateBtn.className = 'seq-mutate-slot-btn' + (this._seqMutateSlots.has(i) ? ' on' : '');
+            mutateBtn.textContent = 'MT';
+            mutateBtn.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                if (this._seqMutateSlots.has(i)) {
+                    this._seqMutateSlots.delete(i);
+                } else {
+                    this._seqMutateSlots.add(i);
+                }
+                // Sync global flag and pre-mutate snapshot
+                const wasEnabled = this.sequencer.mutateEnabled;
+                this.sequencer.mutateEnabled = this._seqMutateSlots.size > 0;
+                if (this.sequencer.mutateEnabled && !wasEnabled) {
+                    this._seqPreMutatePattern = this.sequencer.toJSON();
+                } else if (!this.sequencer.mutateEnabled && wasEnabled && this._seqPreMutatePattern) {
+                    this.sequencer.fromJSON(this._seqPreMutatePattern);
+                    this.sequencer.mutateEnabled = false;
+                    this._seqPreMutatePattern = null;
+                    this.renderSeqGrid();
+                }
+                document.getElementById('seq-mutate-btn').classList.toggle('mutate-on', this._seqMutateSlots.size > 0);
+                this._renderSeqSampleList();
+                this._saveSeqPattern();
+            });
+            row.appendChild(mutateBtn);
+
             // ON/OFF indicator
             const toggleBtn = document.createElement('span');
             toggleBtn.className = 'seq-toggle-btn' + (isOn ? ' on' : '');
@@ -2269,9 +2327,10 @@ class App {
 
             // Click entire row to toggle
             row.addEventListener('click', (ev) => {
-                // Don't toggle if clicking pitch buttons or solo/mute buttons
+                // Don't toggle if clicking control buttons
                 if (ev.target.closest('.seq-pitch-btn')) return;
                 if (ev.target.closest('.seq-solo-btn') || ev.target.closest('.seq-mute-btn')) return;
+                if (ev.target.closest('.seq-stutter-slot-btn') || ev.target.closest('.seq-mutate-slot-btn')) return;
                 this.sequencer.toggleSlotOnStep(stepIndex, i);
                 this._renderSeqSampleList();
                 this.renderSeqGrid();
@@ -2559,6 +2618,8 @@ class App {
         this.sequencer.stutterEnabled = false;
         this._seqPreMutatePattern = null;
         this.sequencer.mutateEnabled = false;
+        this._seqStutterSlots.clear();
+        this._seqMutateSlots.clear();
         document.getElementById('seq-stutter-btn').classList.remove('stutter-on');
         document.getElementById('seq-mutate-btn').classList.remove('mutate-on');
         this.sequencer.randomise(0.75);
@@ -2567,24 +2628,44 @@ class App {
     }
 
     seqStutter() {
-        this.sequencer.toggleStutter();
-        document.getElementById('seq-stutter-btn').classList.toggle('stutter-on', this.sequencer.stutterEnabled);
+        // Global toggle: enable/disable stutter for ALL loaded slots
+        const anyOn = this._seqStutterSlots.size > 0;
+        if (anyOn) {
+            this._seqStutterSlots.clear();
+            this.sequencer.stutterEnabled = false;
+        } else {
+            for (let i = 0; i < 16; i++) {
+                if (this.slots.slots[i].hasAudio) this._seqStutterSlots.add(i);
+            }
+            this.sequencer.stutterEnabled = true;
+        }
+        document.getElementById('seq-stutter-btn').classList.toggle('stutter-on', this._seqStutterSlots.size > 0);
+        if (this._seqModeMenuStep >= 0) this._renderSeqSampleList();
     }
 
     seqToggleMutate() {
-        this.sequencer.mutateEnabled = !this.sequencer.mutateEnabled;
-        if (this.sequencer.mutateEnabled) {
-            // Save pattern before mutate starts
-            this._seqPreMutatePattern = this.sequencer.toJSON();
-        } else {
+        // Global toggle: enable/disable mutate for ALL loaded slots
+        const anyOn = this._seqMutateSlots.size > 0;
+        if (anyOn) {
+            this._seqMutateSlots.clear();
+            this.sequencer.mutateEnabled = false;
             // Restore original pattern
             if (this._seqPreMutatePattern) {
                 this.sequencer.fromJSON(this._seqPreMutatePattern);
+                // fromJSON restores mutateEnabled from snapshot, force it off
+                this.sequencer.mutateEnabled = false;
                 this._seqPreMutatePattern = null;
                 this.renderSeqGrid();
             }
+        } else {
+            for (let i = 0; i < 16; i++) {
+                if (this.slots.slots[i].hasAudio) this._seqMutateSlots.add(i);
+            }
+            this.sequencer.mutateEnabled = true;
+            this._seqPreMutatePattern = this.sequencer.toJSON();
         }
-        document.getElementById('seq-mutate-btn').classList.toggle('mutate-on', this.sequencer.mutateEnabled);
+        document.getElementById('seq-mutate-btn').classList.toggle('mutate-on', this._seqMutateSlots.size > 0);
+        if (this._seqModeMenuStep >= 0) this._renderSeqSampleList();
         this._saveSeqPattern();
     }
 
@@ -2592,6 +2673,8 @@ class App {
         this.sequencer.stutterEnabled = false;
         this._seqPreMutatePattern = null;
         this.sequencer.mutateEnabled = false;
+        this._seqStutterSlots.clear();
+        this._seqMutateSlots.clear();
         document.getElementById('seq-stutter-btn').classList.remove('stutter-on');
         document.getElementById('seq-mutate-btn').classList.remove('mutate-on');
         this.sequencer.clearPattern();
@@ -2793,6 +2876,8 @@ class App {
         this.sequencer.stutterEnabled = false;
         this._seqPreMutatePattern = null;
         this.sequencer.mutateEnabled = false;
+        this._seqStutterSlots.clear();
+        this._seqMutateSlots.clear();
         document.getElementById('seq-stutter-btn').classList.remove('stutter-on');
         document.getElementById('seq-mutate-btn').classList.remove('mutate-on');
 
