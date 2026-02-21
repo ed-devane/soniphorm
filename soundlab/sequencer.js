@@ -38,6 +38,9 @@ class Sequencer {
         // Tap tempo
         this._tapTimes = [];
 
+        // Output routing (null = ctx.destination; set to effects bus for live FX)
+        this.outputNode = null;
+
         // Callbacks
         this.onStepChange = null;
         this.onMutate = null;
@@ -171,7 +174,9 @@ class Sequencer {
         lastNode.connect(volumeGain);
         lastNode = volumeGain;
 
-        lastNode.connect(ctx.destination);
+        // Route to effects bus for live playback, direct for bounce (OfflineAudioContext)
+        const output = (ctx === this.audioContext && this.outputNode) ? this.outputNode : ctx.destination;
+        lastNode.connect(output);
 
         // Optional LFO
         let lfo = null;

@@ -20,6 +20,14 @@ class AudioEngine {
         this._workletReady = false;
         this._workletNode = null;
 
+        // Noise gate
+        this._gateEnabled = false;
+        this._gateThreshold = 0.01; // linear amplitude
+        this._gateOpen = true;
+
+        // Persistent master bus (created in init)
+        this._masterBus = null;
+
         // Real-time effect nodes
         this._liveFilter = null;
         this._liveReverb = null;
@@ -45,6 +53,12 @@ class AudioEngine {
             await this.audioContext.resume();
         }
 
+        // Create persistent master bus and output gain
+        this._masterBus = this.audioContext.createGain();
+        this._liveGain = this.audioContext.createGain();
+        this._masterBus.connect(this._liveGain);
+        this._liveGain.connect(this.audioContext.destination);
+
         // Try to register AudioWorklet for recording (modern replacement for ScriptProcessor)
         if (this.audioContext.audioWorklet) {
             try {
@@ -55,6 +69,30 @@ class AudioEngine {
             }
         }
     }
+
+    // === Noise Gate ===
+
+    setGateEnabled(enabled) {
+        this._gateEnabled = enabled;
+        if (!enabled) this._gateOpen = true;
+        // Push to worklet if active
+        if (this._workletNode) {
+            this._workletNode.port.postMessage({ gate: enabled, gateThreshold: this._gateThreshold });
+        }
+    }
+
+    setGateThreshold(linear) {
+        this._gateThreshold = linear;
+        if (this._workletNode) {
+            this._workletNode.port.postMessage({ gateThreshold: linear });
+        }
+    }
+
+    isGateOpen() {
+        return this._gateOpen;
+    }
+
+    // === Recording ===
 
     async startRecording() {
         if (!this.audioContext) await this.init();
@@ -80,13 +118,20 @@ class AudioEngine {
             // Modern path: AudioWorkletNode
             this._workletNode = new AudioWorkletNode(this.audioContext, 'recorder-processor');
             this._workletNode.port.onmessage = (e) => {
-                const { chunk, peak } = e.data;
+                const { chunk, peak, gateOpen } = e.data;
                 this._recordedChunks.push(chunk);
                 this._inputLevel = peak;
+                if (gateOpen !== undefined) this._gateOpen = gateOpen;
                 if (this.onRecordChunk) this.onRecordChunk(chunk);
             };
             this._mediaStreamSource.connect(this._workletNode);
             this._workletNode.connect(this.audioContext.destination);
+
+            // Send initial gate config
+            this._workletNode.port.postMessage({
+                gate: this._gateEnabled,
+                gateThreshold: this._gateThreshold
+            });
         } else {
             // Fallback: ScriptProcessor (deprecated but still widely supported)
             this._scriptProcessor = this.audioContext.createScriptProcessor(4096, 1, 1);
@@ -94,13 +139,23 @@ class AudioEngine {
                 const inputData = e.inputBuffer.getChannelData(0);
                 const chunk = new Float32Array(inputData.length);
                 chunk.set(inputData);
-                this._recordedChunks.push(chunk);
 
                 let peak = 0;
                 for (let i = 0; i < inputData.length; i++) {
                     const abs = Math.abs(inputData[i]);
                     if (abs > peak) peak = abs;
                 }
+
+                // ScriptProcessor gate: zero the chunk if peak < threshold
+                if (this._gateEnabled) {
+                    this._gateOpen = peak >= this._gateThreshold;
+                    if (!this._gateOpen) {
+                        chunk.fill(0);
+                        peak = 0;
+                    }
+                }
+
+                this._recordedChunks.push(chunk);
                 this._inputLevel = peak;
                 if (this.onRecordChunk) this.onRecordChunk(chunk);
             };
@@ -165,6 +220,14 @@ class AudioEngine {
         return this._inputLevel;
     }
 
+    // === Master bus for external routing (sampler/sequencer) ===
+
+    getEffectsBus() {
+        return this._masterBus;
+    }
+
+    // === Playback ===
+
     play(channels, sampleRate, startSample = 0, endSample = null, onEnded = null) {
         this.stop();
 
@@ -184,8 +247,8 @@ class AudioEngine {
         this._sourceNode.buffer = buffer;
         this._sourceNode.loop = this._isLooping;
 
-        // Route through live effect chain
-        this._connectEffectChain();
+        // Route through persistent master bus
+        this._sourceNode.connect(this._masterBus);
 
         this._playbackStartTime = this.audioContext.currentTime;
         this._playbackStartSample = startSample;
@@ -218,6 +281,7 @@ class AudioEngine {
             try {
                 this._sourceNode.onended = null;
                 this._sourceNode.stop();
+                this._sourceNode.disconnect();
             } catch (e) {
                 // Already stopped
             }
@@ -232,13 +296,30 @@ class AudioEngine {
         }
     }
 
-    // === Real-time effect chain ===
+    // === Real-time effect chain (persistent master bus) ===
 
-    _connectEffectChain() {
-        if (!this._sourceNode || !this.audioContext) return;
+    /**
+     * Rebuild the effect bus from _masterBus forward.
+     * Disconnects everything downstream of _masterBus and rebuilds:
+     * _masterBus → [filter] → [reverb] → [delay] → _liveGain → destination
+     */
+    _rebuildEffectBus() {
+        if (!this._masterBus || !this.audioContext) return;
 
-        // Build chain: source → [filter] → [reverb] → [delay] → gain → destination
-        let node = this._sourceNode;
+        // Disconnect everything from masterBus forward
+        try { this._masterBus.disconnect(); } catch (e) {}
+        if (this._liveFilter) try { this._liveFilter.disconnect(); } catch (e) {}
+        if (this._liveReverb) try { this._liveReverb.disconnect(); } catch (e) {}
+        if (this._liveReverbDry) try { this._liveReverbDry.disconnect(); } catch (e) {}
+        if (this._liveReverbWet) try { this._liveReverbWet.disconnect(); } catch (e) {}
+        if (this._liveGain) try { this._liveGain.disconnect(); } catch (e) {}
+        if (this._liveDelay) try { this._liveDelay.disconnect(); } catch (e) {}
+        if (this._liveDelayFeedback) try { this._liveDelayFeedback.disconnect(); } catch (e) {}
+        if (this._liveDelayDry) try { this._liveDelayDry.disconnect(); } catch (e) {}
+        if (this._liveDelayWet) try { this._liveDelayWet.disconnect(); } catch (e) {}
+
+        // Build chain: masterBus → [filter] → [reverb] → [delay] → liveGain → destination
+        let node = this._masterBus;
 
         if (this._liveFilter) {
             node.connect(this._liveFilter);
@@ -246,7 +327,6 @@ class AudioEngine {
         }
 
         if (this._liveReverb && this._liveReverbDry && this._liveReverbWet) {
-            // Parallel dry/wet for reverb
             const reverbMerge = this.audioContext.createGain();
             node.connect(this._liveReverbDry);
             node.connect(this._liveReverb);
@@ -257,7 +337,6 @@ class AudioEngine {
         }
 
         if (this._liveDelay) {
-            // Parallel dry/wet for delay
             const merger = this.audioContext.createGain();
             this._liveDelayDry = this.audioContext.createGain();
             this._liveDelayWet = this.audioContext.createGain();
@@ -291,9 +370,8 @@ class AudioEngine {
         this._liveFilter.frequency.setTargetAtTime(frequency || 1000, this.audioContext.currentTime, 0.02);
         this._liveFilter.Q.setTargetAtTime(q || 1, this.audioContext.currentTime, 0.02);
 
-        // Only reconnect chain when filter is newly added
-        if (isNew && this._isPlaying && this._sourceNode) {
-            this._reconnectChain();
+        if (isNew) {
+            this._rebuildEffectBus();
         }
     }
 
@@ -312,9 +390,7 @@ class AudioEngine {
         if (this._liveFilter) {
             this._liveFilter.disconnect();
             this._liveFilter = null;
-            if (this._isPlaying && this._sourceNode) {
-                this._reconnectChain();
-            }
+            this._rebuildEffectBus();
         }
     }
 
@@ -327,7 +403,6 @@ class AudioEngine {
         // Generate new IR if decay changed or first time
         if (isNew || Math.abs(this._liveReverbDecay - decay) > 0.05) {
             if (!isNew) {
-                // Rebuild convolver with new IR
                 try { this._liveReverb.disconnect(); } catch (e) {}
             }
             this._liveReverb = this.audioContext.createConvolver();
@@ -350,8 +425,8 @@ class AudioEngine {
         this._liveReverbDry.gain.setTargetAtTime(1 - mix, this.audioContext.currentTime, 0.02);
         this._liveReverbWet.gain.setTargetAtTime(mix, this.audioContext.currentTime, 0.02);
 
-        if (isNew && this._isPlaying && this._sourceNode) {
-            this._reconnectChain();
+        if (isNew) {
+            this._rebuildEffectBus();
         }
     }
 
@@ -359,9 +434,7 @@ class AudioEngine {
         if (!this._liveReverb || !this.audioContext) return;
         if (params.decay !== undefined && Math.abs(this._liveReverbDecay - params.decay) > 0.05) {
             this.enableLiveReverb(params.decay, params.mix);
-            if (this._isPlaying && this._sourceNode) {
-                this._reconnectChain();
-            }
+            this._rebuildEffectBus();
             return;
         }
         if (params.mix !== undefined) {
@@ -384,9 +457,7 @@ class AudioEngine {
             try { this._liveReverbWet.disconnect(); } catch (e) {}
             this._liveReverbWet = null;
         }
-        if (this._isPlaying && this._sourceNode) {
-            this._reconnectChain();
-        }
+        this._rebuildEffectBus();
     }
 
     enableLiveDelay(time, feedback, mix) {
@@ -399,8 +470,8 @@ class AudioEngine {
         this._liveDelay.delayTime.setTargetAtTime(time || 0.3, this.audioContext.currentTime, 0.02);
         this._liveDelayFeedback.gain.setTargetAtTime(feedback || 0.4, this.audioContext.currentTime, 0.02);
 
-        if (isNew && this._isPlaying && this._sourceNode) {
-            this._reconnectChain();
+        if (isNew) {
+            this._rebuildEffectBus();
         }
     }
 
@@ -422,26 +493,8 @@ class AudioEngine {
                 this._liveDelayFeedback.disconnect();
                 this._liveDelayFeedback = null;
             }
-            if (this._isPlaying && this._sourceNode) {
-                this._reconnectChain();
-            }
+            this._rebuildEffectBus();
         }
-    }
-
-    _reconnectChain() {
-        if (!this._sourceNode) return;
-        // Disconnect everything from source
-        try { this._sourceNode.disconnect(); } catch (e) {}
-        if (this._liveFilter) try { this._liveFilter.disconnect(); } catch (e) {}
-        if (this._liveReverb) try { this._liveReverb.disconnect(); } catch (e) {}
-        if (this._liveReverbDry) try { this._liveReverbDry.disconnect(); } catch (e) {}
-        if (this._liveReverbWet) try { this._liveReverbWet.disconnect(); } catch (e) {}
-        if (this._liveGain) try { this._liveGain.disconnect(); } catch (e) {}
-        if (this._liveDelay) try { this._liveDelay.disconnect(); } catch (e) {}
-        if (this._liveDelayFeedback) try { this._liveDelayFeedback.disconnect(); } catch (e) {}
-        if (this._liveDelayDry) try { this._liveDelayDry.disconnect(); } catch (e) {}
-        if (this._liveDelayWet) try { this._liveDelayWet.disconnect(); } catch (e) {}
-        this._connectEffectChain();
     }
 
     clearLiveEffects() {
@@ -470,9 +523,9 @@ class AudioEngine {
             try { this._liveDelayFeedback.disconnect(); } catch (e) {}
             this._liveDelayFeedback = null;
         }
-        if (this._liveGain) {
-            try { this._liveGain.disconnect(); } catch (e) {}
-            this._liveGain = null;
+        // Rebuild to restore clean masterBus → liveGain → destination
+        if (this._masterBus) {
+            this._rebuildEffectBus();
         }
     }
 
