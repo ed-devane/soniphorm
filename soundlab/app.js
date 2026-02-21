@@ -2678,7 +2678,7 @@ class App {
         if (!this._seqRecording || !this.sequencer.playing) return;
         const step = this.sequencer.currentStep;
         if (step < 0) return;
-        if (pitch !== undefined && pitch !== 0) {
+        if (pitch !== undefined) {
             // Chromatic recording: add with specific pitch, duration TBD on release
             this.sequencer.addSlotToStep(step, slotIndex, pitch, 0);
             // Track the note for duration calculation on release
@@ -2687,13 +2687,11 @@ class App {
                 this._seqRecordingNotes.set(trackingKey, { step, entry });
             }
         } else {
-            // Pad recording: add if not already present, track for duration
-            if (!this.sequencer.hasSlotOnStep(step, slotIndex)) {
-                this.sequencer.toggleSlotOnStep(step, slotIndex);
-                const entry = this.sequencer.pattern[step].slots[this.sequencer.pattern[step].slots.length - 1];
-                if (trackingKey) {
-                    this._seqRecordingNotes.set(trackingKey, { step, entry });
-                }
+            // Pad recording: add with duration TBD on release
+            this.sequencer.addSlotToStep(step, slotIndex, 0, 0);
+            const entry = this.sequencer.pattern[step].slots[this.sequencer.pattern[step].slots.length - 1];
+            if (trackingKey) {
+                this._seqRecordingNotes.set(trackingKey, { step, entry });
             }
         }
         if (this._seqMode) {
