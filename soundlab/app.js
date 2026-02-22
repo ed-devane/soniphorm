@@ -3553,9 +3553,11 @@ class App {
                 this.sampler.outputNode = this.audio.getEffectsBus();
             }
             await this._seqPreloadBuffers(); // reuse same buffer cache
+            this.buildSlotGrid();
             this.renderSampleGrid();
         } else {
-            // rec mode — restore normal grid
+            // rec mode — rebuild grid (seq mode may have >16 slots)
+            this.buildSlotGrid();
             this.renderSlotGrid();
         }
 
