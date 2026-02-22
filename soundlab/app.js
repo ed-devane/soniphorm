@@ -34,6 +34,7 @@ class App {
         this._seqPreMutatePattern = null; // saved pattern for mutate revert
         this._seqBankIndex = 0;
         this._seqPreviewBankIndex = null; // non-null when browsing a different pattern
+        this._seqQueuedBankIndex = null; // non-null when confirmed but waiting for loop end
         this._seqBanks = null; // array of 16 pattern JSONs, lazily initialized
         this._seqRecording = false;
         this._seqShowTransportInSample = false;
@@ -187,81 +188,112 @@ class App {
     buildSlotGrid() {
         const grid = document.getElementById('slot-grid');
         grid.innerHTML = '';
-        for (let i = 0; i < 16; i++) {
-            const slot = this.slots.slots[i];
+
+        // In seq mode, use sequencer step count; otherwise 16 sample slots
+        const count = this._seqMode ? this.sequencer.pattern.length : 16;
+
+        // Adjust grid columns for extended sequences
+        if (this._seqMode && count > 16) {
+            grid.style.gridTemplateColumns = 'repeat(8, 1fr)';
+            grid.style.gridTemplateRows = '';
+            grid.classList.add('seq-extended');
+        } else {
+            grid.style.gridTemplateColumns = '';
+            grid.style.gridTemplateRows = '';
+            grid.classList.remove('seq-extended');
+        }
+
+        for (let i = 0; i < count; i++) {
+            const slot = i < 16 ? this.slots.slots[i] : null;
             const el = document.createElement('div');
             el.className = 'slot';
             el.dataset.index = i;
-            el.dataset.bank = slot.bank;
+            if (slot) {
+                el.dataset.bank = slot.bank;
+            } else {
+                el.dataset.bank = Math.floor(i / 4) % 4;
+            }
 
-            el.innerHTML = `
-                <span class="slot-number">${String(i + 1).padStart(2, '0')}</span>
-                <span class="slot-name ${slot.hasAudio ? '' : 'empty'}">${slot.hasAudio ? slot.name || 'untitled' : 'empty'}</span>
-                <div class="slot-mini"><canvas></canvas></div>
-            `;
+            if (slot) {
+                el.innerHTML = `
+                    <span class="slot-number">${String(i + 1).padStart(2, '0')}</span>
+                    <span class="slot-name ${slot.hasAudio ? '' : 'empty'}">${slot.hasAudio ? slot.name || 'untitled' : 'empty'}</span>
+                    <div class="slot-mini"><canvas></canvas></div>
+                `;
+            } else {
+                // Extended seq steps (>16) — step-only cells
+                el.innerHTML = `
+                    <span class="slot-number">${String(i + 1).padStart(2, '0')}</span>
+                    <span class="slot-name empty">--</span>
+                `;
+            }
 
             el.addEventListener('click', (e) => {
                 this.onSlotTap(i, e);
             });
-            el.addEventListener('contextmenu', (e) => this.onSlotContext(i, e));
-            el.addEventListener('dblclick', async (e) => {
-                if (this._sampleMode && this.slots.slots[i].hasAudio) {
-                    this.sampler.stopAll();
-                    this.slots.selectSlot(i);
-                    const data = await this.slots.getSlotAudio(i);
-                    if (data) {
-                        this.channels = data.channels;
-                        this.bufferSampleRate = data.sampleRate;
+            if (i < 16) {
+                el.addEventListener('contextmenu', (e) => this.onSlotContext(i, e));
+                el.addEventListener('dblclick', async (e) => {
+                    if (this._sampleMode && this.slots.slots[i].hasAudio) {
+                        this.sampler.stopAll();
+                        this.slots.selectSlot(i);
+                        const data = await this.slots.getSlotAudio(i);
+                        if (data) {
+                            this.channels = data.channels;
+                            this.bufferSampleRate = data.sampleRate;
+                        }
+                        await this.switchMode('rec');
+                        if (this.channels) {
+                            this.waveform.setAudio(this.channels, this.bufferSampleRate);
+                            document.getElementById('waveform-empty').hidden = true;
+                        }
+                        this.updateTransportInfo();
+                        this.updateToolbarState();
                     }
-                    await this.switchMode('rec');
-                    if (this.channels) {
-                        this.waveform.setAudio(this.channels, this.bufferSampleRate);
-                        document.getElementById('waveform-empty').hidden = true;
-                    }
-                    this.updateTransportInfo();
-                    this.updateToolbarState();
-                }
-            });
+                });
+            }
 
             // Sample mode: trigger on press, release on lift
             let usedTouch = false;
 
-            el.addEventListener('mousedown', (e) => {
-                if (usedTouch) return;
-                if (this._sampleMode && e.button === 0) this.samplePadTap(i);
-            });
-            el.addEventListener('mouseup', () => {
-                if (usedTouch) return;
-                if (this._sampleMode) this.samplePadRelease(i);
-            });
-            el.addEventListener('mouseleave', () => {
-                if (usedTouch) return;
-                if (this._sampleMode) this.samplePadRelease(i);
-            });
+            if (i < 16) {
+                el.addEventListener('mousedown', (e) => {
+                    if (usedTouch) return;
+                    if (this._sampleMode && e.button === 0) this.samplePadTap(i);
+                });
+                el.addEventListener('mouseup', () => {
+                    if (usedTouch) return;
+                    if (this._sampleMode) this.samplePadRelease(i);
+                });
+                el.addEventListener('mouseleave', () => {
+                    if (usedTouch) return;
+                    if (this._sampleMode) this.samplePadRelease(i);
+                });
 
-            // Touch events
-            el.addEventListener('touchstart', (e) => {
-                usedTouch = true;
-                if (this._sampleMode) {
-                    e.preventDefault();
-                    this.samplePadTap(i);
-                }
-            });
-            el.addEventListener('touchend', (e) => {
-                if (this._sampleMode) {
-                    e.preventDefault();
-                    this.samplePadRelease(i);
-                }
-                setTimeout(() => { usedTouch = false; }, 400);
-            });
-            el.addEventListener('touchcancel', () => {
-                if (this._sampleMode) this.samplePadRelease(i);
-                setTimeout(() => { usedTouch = false; }, 400);
-            });
+                // Touch events
+                el.addEventListener('touchstart', (e) => {
+                    usedTouch = true;
+                    if (this._sampleMode) {
+                        e.preventDefault();
+                        this.samplePadTap(i);
+                    }
+                });
+                el.addEventListener('touchend', (e) => {
+                    if (this._sampleMode) {
+                        e.preventDefault();
+                        this.samplePadRelease(i);
+                    }
+                    setTimeout(() => { usedTouch = false; }, 400);
+                });
+                el.addEventListener('touchcancel', () => {
+                    if (this._sampleMode) this.samplePadRelease(i);
+                    setTimeout(() => { usedTouch = false; }, 400);
+                });
+            }
 
             grid.appendChild(el);
         }
-        this.renderSlotGrid();
+        if (!this._seqMode) this.renderSlotGrid();
     }
 
     renderSlotGrid() {
@@ -678,6 +710,15 @@ class App {
             this.audio.stop();
         });
 
+        // Layer & Bounce
+        $('layer-btn').addEventListener('click', () => this.openLayerDialog());
+        $('layer-preview').addEventListener('click', () => this.previewLayer());
+        $('layer-bounce').addEventListener('click', () => this.bounceLayer());
+        $('layer-cancel').addEventListener('click', () => {
+            document.getElementById('layer-dialog').hidden = true;
+            this.audio.stop();
+        });
+
         // FX dialog buttons
         $('fx-preview').addEventListener('click', () => this.previewFx());
         $('fx-apply').addEventListener('click', () => this.applyFx());
@@ -813,6 +854,13 @@ class App {
         });
         $('seq-bounce-btn').addEventListener('click', () => this.seqBounce());
         $('seq-clear-btn').addEventListener('click', () => this.seqClear());
+        $('seq-step-count').addEventListener('change', (e) => {
+            const n = parseInt(e.target.value);
+            this.sequencer.setStepCount(n);
+            this.buildSlotGrid();
+            this.renderSeqGrid();
+            this._saveSeqPattern();
+        });
 
         // Step mode menu (mode/direction buttons only; per-slot pitch is in the picker)
         document.getElementById('step-mode-menu').addEventListener('click', (e) => {
@@ -1958,6 +2006,234 @@ class App {
         }
     }
 
+    // === Layer & Bounce ===
+
+    openLayerDialog() {
+        const slotsWithAudio = this.slots.slots.filter(s => s.hasAudio);
+        if (slotsWithAudio.length < 2) {
+            alert('Need at least 2 slots with audio to layer');
+            return;
+        }
+
+        const container = document.getElementById('layer-slot-list');
+        container.innerHTML = '';
+
+        for (const slot of this.slots.slots) {
+            if (!slot.hasAudio) continue;
+            const row = document.createElement('div');
+            row.className = 'layer-slot-row';
+            row.dataset.slotIndex = slot.index;
+
+            const cb = document.createElement('input');
+            cb.type = 'checkbox';
+            cb.className = 'layer-cb';
+
+            const name = document.createElement('span');
+            name.className = 'layer-slot-name';
+            name.textContent = `${String(slot.index + 1).padStart(2, '0')} — ${slot.name || 'untitled'}`;
+
+            const volCtrl = document.createElement('span');
+            volCtrl.className = 'layer-slot-ctrl';
+            const volLabel = document.createElement('label');
+            volLabel.textContent = 'VOL';
+            const volSlider = document.createElement('input');
+            volSlider.type = 'range';
+            volSlider.className = 'layer-vol';
+            volSlider.min = '0';
+            volSlider.max = '100';
+            volSlider.value = '100';
+            const volVal = document.createElement('span');
+            volVal.className = 'layer-val';
+            volVal.textContent = '100%';
+            volSlider.addEventListener('input', () => {
+                volVal.textContent = volSlider.value + '%';
+            });
+            volCtrl.appendChild(volLabel);
+            volCtrl.appendChild(volSlider);
+            volCtrl.appendChild(volVal);
+
+            const panCtrl = document.createElement('span');
+            panCtrl.className = 'layer-slot-ctrl';
+            const panLabel = document.createElement('label');
+            panLabel.textContent = 'PAN';
+            const panSlider = document.createElement('input');
+            panSlider.type = 'range';
+            panSlider.className = 'layer-pan';
+            panSlider.min = '-100';
+            panSlider.max = '100';
+            panSlider.value = '0';
+            const panVal = document.createElement('span');
+            panVal.className = 'layer-val';
+            panVal.textContent = 'C';
+            panSlider.addEventListener('input', () => {
+                const v = parseInt(panSlider.value);
+                panVal.textContent = v < 0 ? Math.abs(v) + 'L' : v > 0 ? v + 'R' : 'C';
+            });
+            panCtrl.appendChild(panLabel);
+            panCtrl.appendChild(panSlider);
+            panCtrl.appendChild(panVal);
+
+            row.appendChild(cb);
+            row.appendChild(name);
+            row.appendChild(volCtrl);
+            row.appendChild(panCtrl);
+            container.appendChild(row);
+        }
+
+        document.getElementById('layer-dialog').hidden = false;
+    }
+
+    _getLayerSelections() {
+        const rows = document.querySelectorAll('#layer-slot-list .layer-slot-row');
+        const selections = [];
+        for (const row of rows) {
+            const cb = row.querySelector('.layer-cb');
+            if (!cb.checked) continue;
+            selections.push({
+                slotIndex: parseInt(row.dataset.slotIndex),
+                volume: parseInt(row.querySelector('.layer-vol').value) / 100,
+                pan: parseInt(row.querySelector('.layer-pan').value) / 100
+            });
+        }
+        return selections;
+    }
+
+    async _renderLayerMix(selections) {
+        await this.ensureAudioInit();
+        const sampleRate = this.audio.audioContext.sampleRate;
+
+        // Load all selected slot audio
+        const audioData = [];
+        let maxLength = 0;
+        for (const sel of selections) {
+            const data = await this.slots.getSlotAudio(sel.slotIndex);
+            if (!data) continue;
+            audioData.push({ data, sel });
+            maxLength = Math.max(maxLength, data.channels[0].length);
+        }
+
+        if (audioData.length === 0) throw new Error('No audio to mix');
+
+        const offline = new OfflineAudioContext(2, maxLength, sampleRate);
+
+        for (const { data, sel } of audioData) {
+            const buf = offline.createBuffer(
+                data.channels.length,
+                data.channels[0].length,
+                data.sampleRate
+            );
+            for (let ch = 0; ch < data.channels.length; ch++) {
+                buf.getChannelData(ch).set(data.channels[ch]);
+            }
+
+            const source = offline.createBufferSource();
+            source.buffer = buf;
+
+            const gain = offline.createGain();
+            gain.gain.setValueAtTime(sel.volume, 0);
+
+            const panner = offline.createStereoPanner();
+            panner.pan.setValueAtTime(sel.pan, 0);
+
+            source.connect(gain);
+            gain.connect(panner);
+            panner.connect(offline.destination);
+            source.start(0);
+        }
+
+        const rendered = await offline.startRendering();
+        const channels = [];
+        for (let ch = 0; ch < rendered.numberOfChannels; ch++) {
+            channels.push(new Float32Array(rendered.getChannelData(ch)));
+        }
+        return { channels, sampleRate: rendered.sampleRate };
+    }
+
+    async previewLayer() {
+        const selections = this._getLayerSelections();
+        if (selections.length < 2) {
+            alert('Select at least 2 slots to layer');
+            return;
+        }
+
+        const btn = document.getElementById('layer-preview');
+        btn.textContent = 'Mixing...';
+        btn.disabled = true;
+
+        try {
+            const result = await this._renderLayerMix(selections);
+            // Play the preview
+            const ctx = this.audio.audioContext;
+            const buf = ctx.createBuffer(result.channels.length, result.channels[0].length, result.sampleRate);
+            for (let ch = 0; ch < result.channels.length; ch++) {
+                buf.getChannelData(ch).set(result.channels[ch]);
+            }
+            const src = ctx.createBufferSource();
+            src.buffer = buf;
+            src.connect(ctx.destination);
+            src.start();
+        } catch (e) {
+            console.error('Layer preview error:', e);
+            alert('Preview failed');
+        } finally {
+            btn.textContent = 'Preview';
+            btn.disabled = false;
+        }
+    }
+
+    async bounceLayer() {
+        const selections = this._getLayerSelections();
+        if (selections.length < 2) {
+            alert('Select at least 2 slots to layer');
+            return;
+        }
+
+        const btn = document.getElementById('layer-bounce');
+        btn.textContent = 'Bouncing...';
+        btn.disabled = true;
+
+        try {
+            const result = await this._renderLayerMix(selections);
+            const emptySlot = this.slots.findEmptySlot();
+            if (emptySlot < 0) {
+                alert('No empty slots available');
+                return;
+            }
+
+            // Auto-name: layer-01+03+05
+            const slotNums = selections.map(s => String(s.slotIndex + 1).padStart(2, '0'));
+            const layerName = 'layer-' + slotNums.join('+');
+
+            await this.slots.saveSlotAudio(emptySlot, result.channels, result.sampleRate);
+            this.slots.slots[emptySlot].name = layerName;
+            await this.slots.renameSlot(emptySlot, layerName);
+
+            // Update buffer cache for sequencer/sampler
+            if (this.audio.audioContext) {
+                const buf = this.audio.audioContext.createBuffer(
+                    result.channels.length,
+                    result.channels[0].length,
+                    result.sampleRate
+                );
+                for (let ch = 0; ch < result.channels.length; ch++) {
+                    buf.getChannelData(ch).set(result.channels[ch]);
+                }
+                this._slotBuffers[emptySlot] = buf;
+            }
+
+            document.getElementById('layer-dialog').hidden = true;
+            this.buildSlotGrid();
+            this.renderSlotGrid();
+            this.updateToolbarState();
+        } catch (e) {
+            console.error('Layer bounce error:', e);
+            alert('Bounce failed');
+        } finally {
+            btn.textContent = 'Bounce';
+            btn.disabled = false;
+        }
+    }
+
     // === Main Menu ===
 
     _toggleMainMenu() {
@@ -2068,6 +2344,7 @@ class App {
         document.getElementById('bounce-btn').disabled = !hasAudio;
         document.getElementById('export-all-btn').disabled = !this.slots.slots.some(s => s.hasAudio);
         document.getElementById('cross-btn').disabled = !hasAudio;
+        document.getElementById('layer-btn').disabled = this.slots.slots.filter(s => s.hasAudio).length < 2;
 
         // FX buttons
         document.querySelectorAll('.fx-btn').forEach(btn => {
@@ -2103,6 +2380,13 @@ class App {
             this.renderSeqGrid();
         };
         this.sequencer.onPatternLoop = () => {
+            // Switch to queued pattern at loop boundary
+            if (this._seqQueuedBankIndex !== null) {
+                const queued = this._seqQueuedBankIndex;
+                this._seqQueuedBankIndex = null;
+                this._seqPreviewBankIndex = null;
+                this.seqSwitchBank(queued);
+            }
             if (this.sequencer.mutateEnabled) {
                 this.renderSeqGrid();
             }
@@ -2169,6 +2453,7 @@ class App {
         const slotEls = grid.querySelectorAll('.slot');
 
         slotEls.forEach((el, i) => {
+            if (i >= this.sequencer.pattern.length) return;
             const step = this.sequencer.pattern[i];
             const hasSound = step.slots.length > 0 && step.slots.some(
                 e => this.slots.slots[e.slot] && this.slots.slots[e.slot].hasAudio
@@ -2287,17 +2572,61 @@ class App {
             row.className = 'seq-sample-row' + (isOn ? ' on' : '') + (isSilenced ? ' muted' : '') + (isSolo ? ' solo' : '');
             row.dataset.slotIdx = i;
 
-            // Slot number
+            // Trigger zone: wraps num + name for audition/recording
+            const triggerZone = document.createElement('span');
+            triggerZone.className = 'seq-trigger-zone';
+
             const numSpan = document.createElement('span');
             numSpan.className = 'slot-num';
             numSpan.textContent = String(i + 1).padStart(2, '0');
-            row.appendChild(numSpan);
+            triggerZone.appendChild(numSpan);
 
-            // Name
             const nameSpan = document.createElement('span');
             nameSpan.className = 'slot-name';
             nameSpan.textContent = slot.name || 'untitled';
-            row.appendChild(nameSpan);
+            triggerZone.appendChild(nameSpan);
+
+            // Trigger zone: press to audition, record if in rec mode
+            const slotIdx = i;
+            let triggerUsedTouch = false;
+            const triggerDown = (ev) => {
+                ev.stopPropagation();
+                this._seqTriggerFromList(slotIdx);
+            };
+            const triggerUp = (ev) => {
+                ev.stopPropagation();
+                this._seqTriggerRelease(slotIdx);
+            };
+            triggerZone.addEventListener('mousedown', (ev) => {
+                if (triggerUsedTouch) return;
+                triggerDown(ev);
+            });
+            triggerZone.addEventListener('mouseup', (ev) => {
+                if (triggerUsedTouch) return;
+                triggerUp(ev);
+            });
+            triggerZone.addEventListener('mouseleave', (ev) => {
+                if (triggerUsedTouch) return;
+                triggerUp(ev);
+            });
+            triggerZone.addEventListener('touchstart', (ev) => {
+                triggerUsedTouch = true;
+                ev.preventDefault();
+                triggerDown(ev);
+            });
+            triggerZone.addEventListener('touchend', (ev) => {
+                ev.preventDefault();
+                triggerUp(ev);
+                setTimeout(() => { triggerUsedTouch = false; }, 400);
+            });
+            triggerZone.addEventListener('touchcancel', () => {
+                triggerUp({ stopPropagation: () => {} });
+                setTimeout(() => { triggerUsedTouch = false; }, 400);
+            });
+            // Prevent click from bubbling to row toggle
+            triggerZone.addEventListener('click', (ev) => ev.stopPropagation());
+
+            row.appendChild(triggerZone);
 
             // Solo button
             const soloBtn = document.createElement('button');
@@ -2379,7 +2708,8 @@ class App {
 
             // Click entire row to toggle
             row.addEventListener('click', (ev) => {
-                // Don't toggle if clicking control buttons
+                // Don't toggle if clicking control buttons or trigger zone
+                if (ev.target.closest('.seq-trigger-zone')) return;
                 if (ev.target.closest('.seq-pitch-btn')) return;
                 if (ev.target.closest('.seq-solo-btn') || ev.target.closest('.seq-mute-btn')) return;
                 if (ev.target.closest('.seq-stutter-slot-btn') || ev.target.closest('.seq-mutate-slot-btn')) return;
@@ -2822,6 +3152,35 @@ class App {
         this._saveSeqPattern();
     }
 
+    _seqTriggerFromList(slotIndex) {
+        // Audition the sound
+        if (this.sampler) {
+            this.sampler.trigger(slotIndex);
+        }
+        // Visual flash
+        const rows = document.querySelectorAll('#seq-sample-list .seq-sample-row');
+        for (const row of rows) {
+            if (parseInt(row.dataset.slotIdx) === slotIndex) {
+                row.classList.remove('seq-triggered');
+                void row.offsetWidth;
+                row.classList.add('seq-triggered');
+            }
+        }
+        // Record if in recording mode and playing
+        if (this._seqRecording && this.sequencer.playing) {
+            this._recordPadToStep(slotIndex, 0, 'list:' + slotIndex);
+        }
+    }
+
+    _seqTriggerRelease(slotIndex) {
+        if (this.sampler) {
+            this.sampler.release(slotIndex);
+        }
+        if (this._seqRecording) {
+            this._recordNoteOff('list:' + slotIndex);
+        }
+    }
+
     _recordPadToStep(slotIndex, pitch, trackingKey) {
         if (!this._seqRecording || !this.sequencer.playing) return;
         const step = this.sequencer.currentStep;
@@ -2855,11 +3214,12 @@ class App {
         this._seqRecordingNotes.delete(trackingKey);
         if (!this.sequencer.playing) return;
         const currentStep = this.sequencer.currentStep;
-        // Calculate duration in steps (wrapping around 16-step pattern)
+        // Calculate duration in steps (wrapping around pattern)
+        const patLen = this.sequencer.pattern.length;
         let dur = currentStep - startStep;
-        if (dur <= 0) dur += 16;
-        // Clamp to reasonable range (1-16 steps)
-        dur = Math.max(1, Math.min(16, dur));
+        if (dur <= 0) dur += patLen;
+        // Clamp to reasonable range (1 to pattern length)
+        dur = Math.max(1, Math.min(patLen, dur));
         entry.duration = dur;
         this._saveSeqPattern();
     }
@@ -2946,6 +3306,11 @@ class App {
         document.getElementById('seq-stutter-btn').classList.remove('stutter-on');
         document.getElementById('seq-mutate-btn').classList.remove('mutate-on');
 
+        // Sync step count dropdown and rebuild grid for new bank's step count
+        const stepSelect = document.getElementById('seq-step-count');
+        if (stepSelect) stepSelect.value = this.sequencer.stepCount;
+        this.buildSlotGrid();
+
         // Update display
         this.renderSeqGrid();
         this._updateBpmDisplay();
@@ -2997,21 +3362,37 @@ class App {
 
     _seqConfirmBank() {
         if (this._seqPreviewBankIndex === null) return;
-        this.seqSwitchBank(this._seqPreviewBankIndex);
-        this._seqPreviewBankIndex = null;
-        this._updateBankDisplay();
+        if (this.sequencer && this.sequencer.playing) {
+            // Queue: switch at end of current pattern loop
+            this._seqQueuedBankIndex = this._seqPreviewBankIndex;
+            this._updateBankDisplay();
+        } else {
+            // Not playing: switch immediately
+            this.seqSwitchBank(this._seqPreviewBankIndex);
+            this._seqPreviewBankIndex = null;
+            this._seqQueuedBankIndex = null;
+            this._updateBankDisplay();
+        }
     }
 
     _updateBankDisplay() {
         const label = document.getElementById('zoom-fit');
+        label.classList.remove('pat-active', 'pat-preview', 'pat-queued');
         if (this._seqMode) {
-            if (this._seqPreviewBankIndex !== null) {
+            if (this._seqQueuedBankIndex !== null) {
+                // Confirmed but waiting for loop end — show queued pattern, green
+                label.textContent = 'PAT ' + String(this._seqQueuedBankIndex + 1).padStart(2, '0');
+                label.classList.add('pat-queued');
+            } else if (this._seqPreviewBankIndex !== null) {
+                // Browsing but not confirmed — orange
                 label.textContent = '>' + String(this._seqPreviewBankIndex + 1).padStart(2, '0') + '<';
-                label.style.color = '#eab308';
+                label.classList.add('pat-preview');
             } else {
+                // Showing active pattern — green
                 label.textContent = 'PAT ' + String(this._seqBankIndex + 1).padStart(2, '0');
-                label.style.color = '';
+                label.classList.add('pat-active');
             }
+            label.style.color = '';
         } else {
             label.textContent = '[ ]';
             label.style.color = '';
@@ -3134,6 +3515,10 @@ class App {
                 this.sampler.outputNode = this.audio.getEffectsBus();
             }
             await this._seqPreloadBuffers();
+            // Sync step count dropdown
+            const stepSelect = document.getElementById('seq-step-count');
+            if (stepSelect) stepSelect.value = this.sequencer.stepCount;
+            this.buildSlotGrid();
             this.renderSeqGrid();
             this._updateBpmDisplay();
             document.getElementById('seq-mutate-btn').classList.toggle('mutate-on', this.sequencer.mutateEnabled);

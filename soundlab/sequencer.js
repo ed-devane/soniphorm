@@ -17,9 +17,10 @@ class Sequencer {
         this.stutterEnabled = false;
         this.stutterAmount = 0.5;   // 0-1: controls retrigger speed (2x to 16x subdivisions)
 
-        // Pattern: 16 steps — each step can trigger multiple slots
+        // Pattern: variable-length steps (16-64, default 16)
+        this.stepCount = 16;
         this.pattern = [];
-        for (let i = 0; i < 16; i++) {
+        for (let i = 0; i < this.stepCount; i++) {
             this.pattern.push({
                 slots: [],              // array of { slot: N, pitch: 0 }
                 mode: 'oneshot',        // 'oneshot' | 'loop'
@@ -274,7 +275,7 @@ class Sequencer {
     _advanceStep() {
         this._nextStepTime += this.stepDuration;
         this._nextStepIndex++;
-        if (this._nextStepIndex >= 16) {
+        if (this._nextStepIndex >= this.pattern.length) {
             this._nextStepIndex = 0;
             if (this.onPatternLoop) this.onPatternLoop();
             if (this.mutateEnabled) this._applyMutations();
@@ -365,11 +366,27 @@ class Sequencer {
     setStepDirection(stepIndex, direction) { this.pattern[stepIndex].direction = direction; }
 
     clearPattern() {
-        for (let i = 0; i < 16; i++) {
+        for (let i = 0; i < this.pattern.length; i++) {
             this.pattern[i].slots = [];
             this.pattern[i].mode = 'oneshot';
             this.pattern[i].direction = 'forward';
         }
+    }
+
+    setStepCount(n) {
+        n = Math.max(16, Math.min(64, n));
+        if (n === this.stepCount && n === this.pattern.length) return;
+        const wasPlaying = this.playing;
+        if (wasPlaying) this.stop();
+        this.stepCount = n;
+        // Extend or truncate pattern
+        while (this.pattern.length < n) {
+            this.pattern.push({ slots: [], mode: 'oneshot', direction: 'forward' });
+        }
+        if (this.pattern.length > n) {
+            this.pattern.length = n;
+        }
+        if (wasPlaying) this.play();
     }
 
     // === Pattern Manipulation ===
@@ -378,7 +395,7 @@ class Sequencer {
         density = density !== undefined ? density : 0.75;
         const loaded = this.getLoadedSlots ? this.getLoadedSlots() : [];
         if (loaded.length === 0) return;
-        for (let i = 0; i < 16; i++) {
+        for (let i = 0; i < this.pattern.length; i++) {
             if (Math.random() < density) {
                 const count = Math.random() < 0.8 ? 1 : 2;
                 const picked = [];
@@ -413,7 +430,7 @@ class Sequencer {
             : loaded;
         if (mutatable.length === 0) return;
         const prob = 0.03 + this.mutateAmount * 0.27; // range: 0.03 (subtle) to 0.30 (frantic)
-        for (let i = 0; i < 16; i++) {
+        for (let i = 0; i < this.pattern.length; i++) {
             if (Math.random() < prob) {
                 const step = this.pattern[i];
                 // Only mutate entries belonging to mutatable slots
@@ -460,11 +477,11 @@ class Sequencer {
     async bounce(numLoops) {
         numLoops = numLoops || 1;
         const stepDur = this.stepDuration;
-        const totalDuration = stepDur * 16 * numLoops;
+        const totalDuration = stepDur * this.pattern.length * numLoops;
         const sampleRate = this.audioContext.sampleRate;
 
         let maxTail = 0;
-        for (let i = 0; i < 16; i++) {
+        for (let i = 0; i < this.pattern.length; i++) {
             const step = this.pattern[i];
             if (step.slots.length > 0 && step.mode === 'oneshot') {
                 for (const entry of step.slots) {
@@ -480,10 +497,10 @@ class Sequencer {
         const offline = new OfflineAudioContext(2, totalWithTail, sampleRate);
 
         for (let loop = 0; loop < numLoops; loop++) {
-            const loopOffset = loop * stepDur * 16;
+            const loopOffset = loop * stepDur * this.pattern.length;
             if (loop > 0 && this.mutateEnabled) this._applyMutations();
 
-            for (let i = 0; i < 16; i++) {
+            for (let i = 0; i < this.pattern.length; i++) {
                 const step = this.pattern[i];
                 if (step.slots.length === 0) continue;
                 const startTime = loopOffset + i * stepDur;
@@ -516,6 +533,7 @@ class Sequencer {
     toJSON() {
         return {
             bpm: this.bpm,
+            stepCount: this.stepCount,
             mutateEnabled: this.mutateEnabled,
             mutateAmount: this.mutateAmount,
             stutterAmount: this.stutterAmount,
@@ -529,12 +547,15 @@ class Sequencer {
 
     fromJSON(data) {
         if (!data) return;
+        // Restore step count first so pattern array is correctly sized
+        const sc = data.stepCount || 16;
+        this.setStepCount(sc);
         if (data.bpm !== undefined) this.bpm = data.bpm;
         if (data.mutateEnabled !== undefined) this.mutateEnabled = data.mutateEnabled;
         if (data.mutateAmount !== undefined) this.mutateAmount = data.mutateAmount;
         if (data.stutterAmount !== undefined) this.stutterAmount = data.stutterAmount;
         if (data.pattern && Array.isArray(data.pattern)) {
-            for (let i = 0; i < 16 && i < data.pattern.length; i++) {
+            for (let i = 0; i < this.pattern.length && i < data.pattern.length; i++) {
                 const s = data.pattern[i];
                 if (s) {
                     if (s.slots && Array.isArray(s.slots)) {

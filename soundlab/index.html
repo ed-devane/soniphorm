@@ -111,6 +111,7 @@
                 <span class="tb-sep rec-only"></span>
                 <!-- Cross-slot -->
                 <button id="cross-btn" class="tb rec-only" title="Cross-slot processing">CROSS</button>
+                <button id="layer-btn" class="tb rec-only" title="Layer & bounce samples">LAYER</button>
                 <span class="tb-sep"></span>
                 <button id="bounce-btn" class="tb" title="Bounce to slot">BOUNCE</button>
                 <button id="export-all-btn" class="tb" title="Export all slots">EXPORT ALL</button>
@@ -176,6 +177,14 @@
             <div class="seq-sep"></div>
             <button id="seq-bounce-btn" class="tb" title="Bounce sequence to slot">BOUNCE</button>
             <button id="seq-clear-btn" class="tb" title="Clear pattern">CLEAR</button>
+            <div class="seq-sep"></div>
+            <span class="seq-steps-label">STEPS</span>
+            <select id="seq-step-count" class="seq-step-select">
+                <option value="16">16</option>
+                <option value="32">32</option>
+                <option value="48">48</option>
+                <option value="64">64</option>
+            </select>
         </div>
 
         <!-- Sampler Transport -->
@@ -396,6 +405,19 @@
                 <button id="cross-preview" class="dialog-btn">Preview</button>
                 <button id="cross-apply" class="dialog-btn primary">Apply</button>
                 <button id="cross-cancel" class="dialog-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Layer & Bounce Dialog -->
+    <div class="dialog-overlay" id="layer-dialog" hidden>
+        <div class="dialog fx-dialog">
+            <h3>Layer &amp; Bounce</h3>
+            <div id="layer-slot-list" class="layer-slot-list"></div>
+            <div class="fx-actions">
+                <button id="layer-preview" class="dialog-btn">Preview</button>
+                <button id="layer-bounce" class="dialog-btn primary">Bounce</button>
+                <button id="layer-cancel" class="dialog-btn">Cancel</button>
             </div>
         </div>
     </div>
