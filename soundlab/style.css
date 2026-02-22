@@ -830,6 +830,12 @@ main {
     margin: 0 4px;
 }
 .tb.mutate-on { background: var(--yellow); color: #000; }
+.seq-steps-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex-shrink: 0;
+}
 .seq-steps-label {
     font-family: var(--mono);
     font-size: 9px;
