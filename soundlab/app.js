@@ -2473,8 +2473,8 @@ class App {
                 nameEl.innerHTML = `<span class="step-slot-label">${labels.join('+')}</span>`;
                 nameEl.className = 'slot-name';
 
-                // Bank color based on first slot
-                const bank = Math.floor(step.slots[0].slot / 4);
+                // Bank color based on step position (cycling 0-3)
+                const bank = Math.floor(i / 4) % 4;
                 el.className = 'slot step-bank-' + bank;
                 el.dataset.bank = bank;
 
@@ -2493,7 +2493,7 @@ class App {
                 nameEl.innerHTML = '--';
                 nameEl.className = 'slot-name empty';
                 el.className = 'slot step-empty';
-                el.dataset.bank = Math.floor(i / 4);
+                el.dataset.bank = Math.floor(i / 4) % 4;
 
                 const iconsEl = el.querySelector('.step-mode-icons');
                 if (iconsEl) iconsEl.textContent = '';
