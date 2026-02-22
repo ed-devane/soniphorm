@@ -203,6 +203,24 @@ class App {
                 this.onSlotTap(i, e);
             });
             el.addEventListener('contextmenu', (e) => this.onSlotContext(i, e));
+            el.addEventListener('dblclick', async (e) => {
+                if (this._sampleMode && this.slots.slots[i].hasAudio) {
+                    this.sampler.stopAll();
+                    this.slots.selectSlot(i);
+                    const data = await this.slots.getSlotAudio(i);
+                    if (data) {
+                        this.channels = data.channels;
+                        this.bufferSampleRate = data.sampleRate;
+                    }
+                    await this.switchMode('rec');
+                    if (this.channels) {
+                        this.waveform.setAudio(this.channels, this.bufferSampleRate);
+                        document.getElementById('waveform-empty').hidden = true;
+                    }
+                    this.updateTransportInfo();
+                    this.updateToolbarState();
+                }
+            });
 
             // Sample mode: trigger on press, release on lift
             let usedTouch = false;
