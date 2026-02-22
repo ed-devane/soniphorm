@@ -841,6 +841,18 @@ class App {
         $('bpm-up').addEventListener('click', () => this.seqAdjustBpm(1));
         $('bpm-display').addEventListener('click', () => this.seqEditBpm());
         $('tap-tempo-btn').addEventListener('click', () => this.seqTapTempo());
+        $('seq-rev-btn').addEventListener('click', () => {
+            this.sequencer.reverse = !this.sequencer.reverse;
+            document.getElementById('seq-rev-btn').classList.toggle('rev-on', this.sequencer.reverse);
+            this._saveSeqPattern();
+        });
+        $('seq-speed-btn').addEventListener('click', () => {
+            const speeds = [0.5, 1, 2, 4];
+            const idx = speeds.indexOf(this.sequencer.speed);
+            this.sequencer.speed = speeds[(idx + 1) % speeds.length];
+            document.getElementById('seq-speed-btn').textContent = this.sequencer.speed + 'x';
+            this._saveSeqPattern();
+        });
         $('seq-random-btn').addEventListener('click', () => this.seqRandomise());
         $('seq-stutter-btn').addEventListener('click', () => this.seqStutter());
         $('seq-stutter-amount').addEventListener('input', (e) => {
@@ -3303,6 +3315,8 @@ class App {
         this._seqMutateSlots.clear();
         document.getElementById('seq-stutter-btn').classList.remove('stutter-on');
         document.getElementById('seq-mutate-btn').classList.remove('mutate-on');
+        document.getElementById('seq-rev-btn').classList.toggle('rev-on', this.sequencer.reverse);
+        document.getElementById('seq-speed-btn').textContent = this.sequencer.speed + 'x';
 
         // Sync step count dropdown and rebuild grid for new bank's step count
         const stepSelect = document.getElementById('seq-step-count');
@@ -3521,6 +3535,8 @@ class App {
             this._updateBpmDisplay();
             document.getElementById('seq-mutate-btn').classList.toggle('mutate-on', this.sequencer.mutateEnabled);
             document.getElementById('seq-stutter-btn').classList.toggle('stutter-on', this.sequencer.stutterEnabled);
+            document.getElementById('seq-rev-btn').classList.toggle('rev-on', this.sequencer.reverse);
+            document.getElementById('seq-speed-btn').textContent = this.sequencer.speed + 'x';
             document.getElementById('seq-mutate-amount').value = Math.round(this.sequencer.mutateAmount * 100);
             document.getElementById('seq-stutter-amount').value = Math.round(this.sequencer.stutterAmount * 100);
             // Show sample list in waveform area

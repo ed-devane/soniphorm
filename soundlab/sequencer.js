@@ -39,6 +39,10 @@ class Sequencer {
         this._scheduleInterval = 25;
         this._activeSources = [];
 
+        // Transport modifiers
+        this.reverse = false;
+        this.speed = 1;  // 0.5, 1, 2, 4
+
         // Tap tempo
         this._tapTimes = [];
 
@@ -58,7 +62,7 @@ class Sequencer {
     }
 
     get stepDuration() {
-        return 60 / this.bpm / 4;
+        return 60 / this.bpm / 4 / this.speed;
     }
 
     // === Transport ===
@@ -67,7 +71,7 @@ class Sequencer {
         if (this.playing) return;
         if (!this.audioContext) return;
         this.playing = true;
-        this._nextStepIndex = 0;
+        this._nextStepIndex = this.reverse ? this.pattern.length - 1 : 0;
         this._nextStepTime = this.audioContext.currentTime + 0.05;
         this._schedulerTimer = setInterval(() => this._scheduler(), this._scheduleInterval);
     }
@@ -274,11 +278,20 @@ class Sequencer {
 
     _advanceStep() {
         this._nextStepTime += this.stepDuration;
-        this._nextStepIndex++;
-        if (this._nextStepIndex >= this.pattern.length) {
-            this._nextStepIndex = 0;
-            if (this.onPatternLoop) this.onPatternLoop();
-            if (this.mutateEnabled) this._applyMutations();
+        if (this.reverse) {
+            this._nextStepIndex--;
+            if (this._nextStepIndex < 0) {
+                this._nextStepIndex = this.pattern.length - 1;
+                if (this.onPatternLoop) this.onPatternLoop();
+                if (this.mutateEnabled) this._applyMutations();
+            }
+        } else {
+            this._nextStepIndex++;
+            if (this._nextStepIndex >= this.pattern.length) {
+                this._nextStepIndex = 0;
+                if (this.onPatternLoop) this.onPatternLoop();
+                if (this.mutateEnabled) this._applyMutations();
+            }
         }
     }
 
@@ -534,6 +547,8 @@ class Sequencer {
         return {
             bpm: this.bpm,
             stepCount: this.stepCount,
+            reverse: this.reverse,
+            speed: this.speed,
             mutateEnabled: this.mutateEnabled,
             mutateAmount: this.mutateAmount,
             stutterAmount: this.stutterAmount,
@@ -551,6 +566,8 @@ class Sequencer {
         const sc = data.stepCount || 16;
         this.setStepCount(sc);
         if (data.bpm !== undefined) this.bpm = data.bpm;
+        this.reverse = data.reverse || false;
+        this.speed = data.speed || 1;
         if (data.mutateEnabled !== undefined) this.mutateEnabled = data.mutateEnabled;
         if (data.mutateAmount !== undefined) this.mutateAmount = data.mutateAmount;
         if (data.stutterAmount !== undefined) this.stutterAmount = data.stutterAmount;
