@@ -2074,6 +2074,7 @@ class App {
         this.sequencer.onStepChange = (step) => {
             this._seqHighlightStep(step);
             this._seqFlashSampleRows(step);
+            this._seqFlashPads(step);
         };
         this.sequencer.onMutate = (step) => {
             this._seqFlashMutate(step);
@@ -2603,6 +2604,19 @@ class App {
                     row.classList.add('seq-triggered');
                 }
             }
+        }
+    }
+
+    _seqFlashPads(stepIndex) {
+        if (!this._sampleMode) return;
+        const step = this.sequencer.pattern[stepIndex];
+        if (!step || step.slots.length === 0) return;
+        const slotEls = document.querySelectorAll('#slot-grid .slot');
+        for (const entry of step.slots) {
+            const el = slotEls[entry.slot];
+            if (!el) continue;
+            el.classList.add('pad-active');
+            setTimeout(() => el.classList.remove('pad-active'), 150);
         }
     }
 
@@ -3914,8 +3928,9 @@ class App {
                 const x = whiteIdx * whiteKeyWidth;
                 const midiNote = startNote + n;
                 const isHome = (midiNote === homePitch);
-                // White key rect — home pitch gets a distinct grey
-                ctx.fillStyle = isHome ? '#b0b8c0' : '#e8e8e8';
+                const isHeld = (n === this._chromaticHeldNote);
+                // White key rect — held gets light blue, home pitch gets a distinct grey
+                ctx.fillStyle = isHeld ? '#38bdf8' : isHome ? '#b0b8c0' : '#e8e8e8';
                 ctx.fillRect(x + 1, 0, whiteKeyWidth - 2, h - 2);
                 ctx.strokeStyle = '#999';
                 ctx.lineWidth = 1;
@@ -3941,7 +3956,8 @@ class App {
                 // If next note is black, draw it
                 if (n + 1 < totalNotes && isBlack[(n + 1) % 12]) {
                     const x = (whiteIdx + 1) * whiteKeyWidth - blackKeyWidth / 2;
-                    ctx.fillStyle = '#1a1a1a';
+                    const isHeldBlack = (n + 1 === this._chromaticHeldNote);
+                    ctx.fillStyle = isHeldBlack ? '#0ea5e9' : '#1a1a1a';
                     ctx.fillRect(x, 0, blackKeyWidth, blackKeyHeight);
                     ctx.strokeStyle = '#333';
                     ctx.lineWidth = 1;
@@ -3990,6 +4006,7 @@ class App {
         }
 
         this._chromaticHeldNote = noteIdx;
+        this._renderPianoKeyboard();
 
         // Temporarily set pitch and trigger with loop for sustain
         const pad = this.sampler.pads[padIdx];
@@ -4025,6 +4042,7 @@ class App {
             this.sampler._fadeOutVoice(padIdx, pad.release);
             if (this.sampler.onRelease) this.sampler.onRelease(padIdx);
             this._chromaticHeldNote = null;
+            this._renderPianoKeyboard();
         }
     }
 
