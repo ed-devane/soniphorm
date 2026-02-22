@@ -33,6 +33,7 @@ class App {
         // (stutter is now a real-time toggle on sequencer)
         this._seqPreMutatePattern = null; // saved pattern for mutate revert
         this._seqBankIndex = 0;
+        this._seqPreviewBankIndex = null; // non-null when browsing a different pattern
         this._seqBanks = null; // array of 16 pattern JSONs, lazily initialized
         this._seqRecording = false;
         this._seqShowTransportInSample = false;
@@ -828,7 +829,7 @@ class App {
         // Zoom
         $('zoom-in').addEventListener('click', () => {
             if (this._seqMode) {
-                this.seqSwitchBank(this._seqBankIndex + 1);
+                this._seqPreviewBank(1);
                 return;
             }
             if (this._sampleMode && this._chromaticMode) {
@@ -841,7 +842,7 @@ class App {
         });
         $('zoom-out').addEventListener('click', () => {
             if (this._seqMode) {
-                this.seqSwitchBank(this._seqBankIndex - 1);
+                this._seqPreviewBank(-1);
                 return;
             }
             if (this._sampleMode && this._chromaticMode) {
@@ -853,7 +854,10 @@ class App {
             this.waveform.render();
         });
         $('zoom-fit').addEventListener('click', () => {
-            if (this._seqMode) return; // In SEQ mode, shows bank label
+            if (this._seqMode) {
+                this._seqConfirmBank();
+                return;
+            }
             this.waveform.setZoom(1);
             this.waveform.setScrollOffset(0);
             this.waveform.render();
@@ -2950,12 +2954,67 @@ class App {
         if (this._seqModeMenuStep >= 0) this._renderSeqSampleList();
     }
 
+    _seqPreviewBank(delta) {
+        const current = this._seqPreviewBankIndex !== null ? this._seqPreviewBankIndex : this._seqBankIndex;
+        const newIndex = Math.max(0, Math.min(15, current + delta));
+        if (newIndex === this._seqBankIndex && this._seqPreviewBankIndex === null) {
+            // Already on active bank, try to move
+            const next = Math.max(0, Math.min(15, newIndex + delta));
+            if (next === this._seqBankIndex) return;
+            this._seqPreviewBankIndex = next;
+        } else if (newIndex === this._seqBankIndex) {
+            // Returned to active bank — cancel preview
+            this._seqPreviewBankIndex = null;
+        } else {
+            this._seqPreviewBankIndex = newIndex;
+        }
+        this._updateBankDisplay();
+        // Show previewed pattern in grid
+        if (this._seqPreviewBankIndex !== null) {
+            if (!this._seqBanks) this._seqBanks = new Array(16).fill(null);
+            // Save current first
+            this._seqBanks[this._seqBankIndex] = this.sequencer.toJSON();
+            const bankData = this._seqBanks[this._seqPreviewBankIndex];
+            if (bankData) {
+                this.sequencer.fromJSON(bankData);
+            } else {
+                this.sequencer.clearPattern();
+            }
+            this.renderSeqGrid();
+            this._renderSeqSampleList();
+            // Restore active pattern back (preview is visual only)
+            const activeData = this._seqBanks[this._seqBankIndex];
+            if (activeData) {
+                this.sequencer.fromJSON(activeData);
+            } else {
+                this.sequencer.clearPattern();
+            }
+        } else {
+            this.renderSeqGrid();
+            this._renderSeqSampleList();
+        }
+    }
+
+    _seqConfirmBank() {
+        if (this._seqPreviewBankIndex === null) return;
+        this.seqSwitchBank(this._seqPreviewBankIndex);
+        this._seqPreviewBankIndex = null;
+        this._updateBankDisplay();
+    }
+
     _updateBankDisplay() {
         const label = document.getElementById('zoom-fit');
         if (this._seqMode) {
-            label.textContent = 'PAT ' + String(this._seqBankIndex + 1).padStart(2, '0');
+            if (this._seqPreviewBankIndex !== null) {
+                label.textContent = '>' + String(this._seqPreviewBankIndex + 1).padStart(2, '0') + '<';
+                label.style.color = '#eab308';
+            } else {
+                label.textContent = 'PAT ' + String(this._seqBankIndex + 1).padStart(2, '0');
+                label.style.color = '';
+            }
         } else {
             label.textContent = '[ ]';
+            label.style.color = '';
         }
     }
 
