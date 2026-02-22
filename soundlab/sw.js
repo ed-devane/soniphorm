@@ -1,4 +1,4 @@
-const CACHE_NAME = 'soniphorm-soundlab-v68';
+const CACHE_NAME = 'soniphorm-soundlab-v69';
 const ASSETS = [
   './',
   './index.html',

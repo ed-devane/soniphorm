@@ -6,8 +6,9 @@ const COLORS = {
     deadZoneBorder: 'rgba(255, 255, 255, 0.12)',
     waveform: '#0ea5e9',
     centerLine: '#1e293b',
-    selectionFill: 'rgba(14, 165, 233, 0.15)',
-    selectionEdge: 'rgba(14, 165, 233, 0.6)',
+    selectionFill: 'rgba(14, 165, 233, 0.12)',
+    selectionDim: 'rgba(0, 0, 0, 0.45)',
+    selectionEdge: 'rgba(14, 165, 233, 0.7)',
     cursor: '#ffffff',
     miniWaveform: 'rgba(14, 165, 233, 0.6)',
     emptyText: 'rgba(255, 255, 255, 0.25)',
@@ -512,7 +513,12 @@ class WaveformRenderer {
 
         if (right < 0 || left > w) return;
 
-        // Filled overlay
+        // Dim unselected regions
+        ctx.fillStyle = COLORS.selectionDim;
+        if (left > 0) ctx.fillRect(0, 0, left, h);
+        if (right < w) ctx.fillRect(right, 0, w - right, h);
+
+        // Light tint on selected region
         ctx.fillStyle = COLORS.selectionFill;
         ctx.fillRect(left, 0, right - left, h);
 
