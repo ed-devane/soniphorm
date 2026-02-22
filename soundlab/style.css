@@ -167,6 +167,7 @@ main {
     position: absolute;
     top: 6px; right: 6px;
     display: flex; gap: 2px;
+    z-index: 10;
 }
 .zoom-btn {
     width: 28px; height: 28px;
