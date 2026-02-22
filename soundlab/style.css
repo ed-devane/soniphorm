@@ -418,7 +418,8 @@ main {
 
 .slot-grid.seq-extended {
     overflow-y: auto;
-    grid-template-rows: none;
+    grid-template-rows: repeat(auto-fill, 1fr);
+    grid-auto-rows: 1fr;
     scrollbar-width: thin;
     scrollbar-color: var(--border-lt) var(--bg2);
 }

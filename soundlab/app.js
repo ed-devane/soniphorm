@@ -192,14 +192,12 @@ class App {
         // In seq mode, use sequencer step count; otherwise 16 sample slots
         const count = this._seqMode ? this.sequencer.pattern.length : 16;
 
-        // Adjust grid columns for extended sequences
+        // Extended sequences: keep 4-column layout, scroll vertically
+        grid.style.gridTemplateColumns = '';
+        grid.style.gridTemplateRows = '';
         if (this._seqMode && count > 16) {
-            grid.style.gridTemplateColumns = 'repeat(8, 1fr)';
-            grid.style.gridTemplateRows = '';
             grid.classList.add('seq-extended');
         } else {
-            grid.style.gridTemplateColumns = '';
-            grid.style.gridTemplateRows = '';
             grid.classList.remove('seq-extended');
         }
 
