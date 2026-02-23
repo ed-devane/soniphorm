@@ -141,17 +141,48 @@ class AudioEngine {
             this._mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
         }
 
+        // === Audio input diagnostics ===
+        const track = this._mediaStream.getAudioTracks()[0];
+        if (track) {
+            const s = track.getSettings();
+            const c = track.getCapabilities ? track.getCapabilities() : {};
+            console.log('%c[Audio Input Diagnostics]', 'color: #0ea5e9; font-weight: bold');
+            console.log('  Device:', track.label);
+            console.log('  Track state:', track.readyState, '| muted:', track.muted);
+            console.log('  Settings:', JSON.stringify(s, null, 2));
+            console.log('  Capabilities:', JSON.stringify(c, null, 2));
+            console.log('  AudioContext sampleRate:', this.audioContext.sampleRate);
+            if (s.sampleRate && s.sampleRate !== this.audioContext.sampleRate) {
+                console.warn('  ⚠ Sample rate mismatch: device=' + s.sampleRate + ' context=' + this.audioContext.sampleRate);
+            }
+        } else {
+            console.warn('[Audio Input] No audio tracks in stream!');
+        }
+
         this._mediaStreamSource = this.audioContext.createMediaStreamSource(this._mediaStream);
 
         if (this._workletReady) {
             // Modern path: AudioWorkletNode
             this._workletNode = new AudioWorkletNode(this.audioContext, 'recorder-processor');
+            this._diagChunkCount = 0;
+            this._diagSilentChunks = 0;
             this._workletNode.port.onmessage = (e) => {
                 const { chunk, peak, gateOpen } = e.data;
                 this._recordedChunks.push(chunk);
                 this._inputLevel = peak;
                 if (gateOpen !== undefined) this._gateOpen = gateOpen;
                 if (this.onRecordChunk) this.onRecordChunk(chunk);
+                // Diagnostic: report after first few chunks
+                this._diagChunkCount++;
+                if (peak === 0) this._diagSilentChunks++;
+                if (this._diagChunkCount === 10) {
+                    if (this._diagSilentChunks === 10) {
+                        console.warn('[Audio Input] First 10 chunks all silent — device may not be sending data');
+                    } else {
+                        console.log('[Audio Input] Receiving audio: peak so far =', peak.toFixed(4),
+                            '(' + this._diagSilentChunks + '/10 silent chunks)');
+                    }
+                }
             };
             this._mediaStreamSource.connect(this._workletNode);
             this._workletNode.connect(this.audioContext.destination);
