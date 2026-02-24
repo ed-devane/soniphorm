@@ -7,8 +7,8 @@ class AudioEngine {
         this._inputLevel = 0;
         this._recordedChunks = [];
         this._mediaStream = null;
+        this._inputSource = null;     // shared MediaStreamSourceNode
         this._scriptProcessor = null;
-        this._mediaStreamSource = null;
         this._sourceNode = null;
         this._playbackStartTime = 0;
         this._playbackStartSample = 0;
@@ -30,7 +30,6 @@ class AudioEngine {
 
         // Input monitoring
         this._monitorNode = null;
-        this._monitorSource = null;
         this._monitoring = false;
 
         // Persistent master bus (created in init)
@@ -116,47 +115,55 @@ class AudioEngine {
         return this._gateOpen;
     }
 
-    // === Recording ===
+    // === Shared Input Stream ===
+    // One getUserMedia stream shared by both recording and monitoring.
+    // Avoids multiple stream open/close cycles that disrupt Android audio routing.
 
-    async startRecording(deviceId) {
+    async _ensureInputStream(deviceId) {
         if (!this.audioContext) await this.init();
+        const devId = deviceId || null;
+        const deviceChanged = devId !== (this._selectedDeviceId || null);
 
-        this._recordedChunks = [];
-        this._inputLevel = 0;
-
-        // If device changed, close existing stream so we open a new one
-        const deviceChanged = (deviceId || null) !== (this._selectedDeviceId || null);
-        if (deviceChanged && this._mediaStream) {
-            this._mediaStream.getTracks().forEach(t => t.stop());
-            this._mediaStream = null;
-        }
-        this._selectedDeviceId = deviceId || null;
-
-        // Reuse existing mic stream if still active, otherwise request a new one
-        if (!this._mediaStream || this._mediaStream.getTracks().every(t => t.readyState === 'ended')) {
+        // Only reopen if device changed or stream is dead
+        if (deviceChanged || !this._mediaStream || this._mediaStream.getTracks().every(t => t.readyState === 'ended')) {
+            // Kill old stream
+            if (this._mediaStream) {
+                this._mediaStream.getTracks().forEach(t => t.stop());
+            }
+            // Disconnect old source (both monitor and recorder will reconnect)
+            if (this._inputSource) {
+                this._inputSource.disconnect();
+                this._inputSource = null;
+            }
+            this._selectedDeviceId = devId;
             const constraints = {
                 audio: {
                     echoCancellation: false,
                     noiseSuppression: false,
                     autoGainControl: false,
                     sampleRate: 48000,
-                    ...(deviceId ? { deviceId: { exact: deviceId } } : {})
+                    ...(devId ? { deviceId: { exact: devId } } : {})
                 }
             };
             this._mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
         }
 
-        this._mediaStreamSource = this.audioContext.createMediaStreamSource(this._mediaStream);
-
-        // If monitoring was active, reconnect monitor to new source
-        if (this._monitoring && this._monitorNode) {
-            if (this._monitorSource) this._monitorSource.disconnect();
-            this._monitorSource = null;
-            this._mediaStreamSource.connect(this._monitorNode);
+        // One shared MediaStreamSourceNode
+        if (!this._inputSource) {
+            this._inputSource = this.audioContext.createMediaStreamSource(this._mediaStream);
         }
+        return this._inputSource;
+    }
+
+    // === Recording ===
+
+    async startRecording(deviceId) {
+        this._recordedChunks = [];
+        this._inputLevel = 0;
+
+        const source = await this._ensureInputStream(deviceId);
 
         if (this._workletReady) {
-            // Modern path: AudioWorkletNode
             this._workletNode = new AudioWorkletNode(this.audioContext, 'recorder-processor');
             this._workletNode.port.onmessage = (e) => {
                 const { chunk, peak, gateOpen } = e.data;
@@ -165,16 +172,13 @@ class AudioEngine {
                 if (gateOpen !== undefined) this._gateOpen = gateOpen;
                 if (this.onRecordChunk) this.onRecordChunk(chunk);
             };
-            this._mediaStreamSource.connect(this._workletNode);
+            source.connect(this._workletNode);
             this._workletNode.connect(this.audioContext.destination);
-
-            // Send initial gate config
             this._workletNode.port.postMessage({
                 gate: this._gateEnabled,
                 gateThreshold: this._gateThreshold
             });
         } else {
-            // Fallback: ScriptProcessor (deprecated but still widely supported)
             this._scriptProcessor = this.audioContext.createScriptProcessor(4096, 1, 1);
             this._scriptProcessor.onaudioprocess = (e) => {
                 const inputData = e.inputBuffer.getChannelData(0);
@@ -187,7 +191,6 @@ class AudioEngine {
                     if (abs > peak) peak = abs;
                 }
 
-                // ScriptProcessor gate: zero the chunk if peak < threshold
                 if (this._gateEnabled) {
                     this._gateOpen = peak >= this._gateThreshold;
                     if (!this._gateOpen) {
@@ -200,7 +203,7 @@ class AudioEngine {
                 this._inputLevel = peak;
                 if (this.onRecordChunk) this.onRecordChunk(chunk);
             };
-            this._mediaStreamSource.connect(this._scriptProcessor);
+            source.connect(this._scriptProcessor);
             this._scriptProcessor.connect(this.audioContext.destination);
         }
         this._isRecording = true;
@@ -221,12 +224,8 @@ class AudioEngine {
             this._scriptProcessor = null;
         }
 
-        if (this._mediaStreamSource) {
-            this._mediaStreamSource.disconnect();
-            this._mediaStreamSource = null;
-        }
-
-        // Keep _mediaStream alive so subsequent recordings reuse the mic permission
+        // Don't disconnect _inputSource — monitor may still need it
+        // Don't kill _mediaStream — reuse for next recording / monitor
 
         const totalLength = this._recordedChunks.reduce((sum, chunk) => sum + chunk.length, 0);
         const merged = new Float32Array(totalLength);
@@ -254,42 +253,17 @@ class AudioEngine {
     async setMonitoring(enabled, deviceId) {
         this._monitoring = enabled;
         if (enabled) {
-            if (!this.audioContext) await this.init();
-            // Use provided deviceId or fall back to last selected
-            const devId = deviceId !== undefined ? deviceId : this._selectedDeviceId;
-            // Open mic stream if not already open
-            if (!this._mediaStream || this._mediaStream.getTracks().every(t => t.readyState === 'ended')) {
-                const constraints = {
-                    audio: {
-                        echoCancellation: false,
-                        noiseSuppression: false,
-                        autoGainControl: false,
-                        sampleRate: 48000,
-                        ...(devId ? { deviceId: { exact: devId } } : {})
-                    }
-                };
-                this._mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-            }
-            // Create monitor source + gain if needed
-            if (!this._monitorSource) {
-                this._monitorSource = this.audioContext.createMediaStreamSource(this._mediaStream);
-            }
+            const source = await this._ensureInputStream(deviceId);
             if (!this._monitorNode) {
                 this._monitorNode = this.audioContext.createGain();
+                this._monitorNode.gain.value = 0;
                 const output = this._masterBus || this.audioContext.destination;
                 this._monitorNode.connect(output);
             }
-            this._monitorSource.connect(this._monitorNode);
+            source.connect(this._monitorNode);
             this._monitorNode.gain.setTargetAtTime(1, this.audioContext.currentTime, 0.02);
-        } else {
-            if (this._monitorNode) {
-                this._monitorNode.gain.setTargetAtTime(0, this.audioContext.currentTime, 0.02);
-            }
-            if (this._monitorSource) {
-                this._monitorSource.disconnect();
-                this._monitorSource = null;
-            }
-            // Keep _mediaStream alive so recording can reuse it
+        } else if (this._monitorNode) {
+            this._monitorNode.gain.setTargetAtTime(0, this.audioContext.currentTime, 0.02);
         }
     }
 
