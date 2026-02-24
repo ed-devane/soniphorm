@@ -147,13 +147,21 @@ class AudioEngine {
 
         const track = this._mediaStream.getAudioTracks()[0];
         const settings = track ? track.getSettings() : {};
+        // List all available input devices
+        let deviceList = '';
+        try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const inputs = devices.filter(d => d.kind === 'audioinput');
+            deviceList = inputs.map((d, i) => '  ' + i + ': ' + (d.label || '??') + ' [' + d.deviceId.slice(0, 8) + ']').join('\n');
+        } catch (e) { deviceList = '  (enum failed)'; }
         const diagLines = [
-            'Device: ' + (track ? track.label : 'NO TRACK'),
-            'State: ' + (track ? track.readyState : '??'),
-            'Rate: ' + (settings.sampleRate || '??') + ' | Ch: ' + (settings.channelCount || '??'),
+            'ACTIVE: ' + (track ? track.label : 'NO TRACK'),
+            'State: ' + (track ? track.readyState : '??') + ' | Rate: ' + (settings.sampleRate || '??') + ' | Ch: ' + (settings.channelCount || '??'),
             'DeviceId req: ' + (deviceId || 'default'),
-            'Ctx rate: ' + this.audioContext.sampleRate + ' | State: ' + this.audioContext.state,
-            'Worklet: ' + this._workletReady
+            'Ctx: ' + this.audioContext.sampleRate + 'Hz ' + this.audioContext.state,
+            'Worklet: ' + this._workletReady,
+            '--- All inputs ---',
+            deviceList
         ];
         this._showDiagBanner(diagLines.join('\n'));
 
