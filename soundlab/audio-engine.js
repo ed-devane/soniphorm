@@ -116,6 +116,8 @@ class AudioEngine {
     async startRecording(deviceId) {
         if (!this.audioContext) await this.init();
 
+        this._showDiagBanner('Starting recording...\nDeviceId req: ' + (deviceId || 'default') + '\nCtx: ' + (this.audioContext ? this.audioContext.state : 'null'));
+
         this._recordedChunks = [];
         this._inputLevel = 0;
 
@@ -135,9 +137,14 @@ class AudioEngine {
                 ...(deviceId ? { deviceId: { exact: deviceId } } : {})
             }
         };
-        this._mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
 
-        // Diagnostic banner — shows stream info briefly
+        try {
+            this._mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+        } catch (err) {
+            this._showDiagBanner('getUserMedia FAILED!\n' + err.name + ': ' + err.message + '\nDeviceId: ' + (deviceId || 'default'));
+            throw err;
+        }
+
         const track = this._mediaStream.getAudioTracks()[0];
         const settings = track ? track.getSettings() : {};
         const diagLines = [
