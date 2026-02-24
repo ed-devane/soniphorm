@@ -767,8 +767,10 @@ class App {
             if (!action) return; // clicked the select dropdown, don't close
             if (action === 'input') {
                 const select = $('input-device-select');
+                const hint = $('input-device-hint');
                 if (!select.hidden) {
                     select.hidden = true;
+                    if (hint) hint.hidden = true;
                     return;
                 }
                 const devices = await this.audio.enumerateInputDevices();
@@ -783,6 +785,7 @@ class App {
                     select.value = this._selectedInputDeviceId;
                 }
                 select.hidden = false;
+                if (hint) hint.hidden = false;
                 return;
             }
             if (action === 'monitor') {
