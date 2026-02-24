@@ -141,23 +141,28 @@ class AudioEngine {
             this._mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
         }
 
-        // === Audio input diagnostics ===
+        // === Audio input diagnostics (on-screen + console) ===
+        this._diagInfo = {};
         const track = this._mediaStream.getAudioTracks()[0];
         if (track) {
             const s = track.getSettings();
-            const c = track.getCapabilities ? track.getCapabilities() : {};
-            console.log('%c[Audio Input Diagnostics]', 'color: #0ea5e9; font-weight: bold');
-            console.log('  Device:', track.label);
-            console.log('  Track state:', track.readyState, '| muted:', track.muted);
-            console.log('  Settings:', JSON.stringify(s, null, 2));
-            console.log('  Capabilities:', JSON.stringify(c, null, 2));
-            console.log('  AudioContext sampleRate:', this.audioContext.sampleRate);
-            if (s.sampleRate && s.sampleRate !== this.audioContext.sampleRate) {
-                console.warn('  ⚠ Sample rate mismatch: device=' + s.sampleRate + ' context=' + this.audioContext.sampleRate);
-            }
+            this._diagInfo = {
+                device: track.label || '(unnamed)',
+                state: track.readyState,
+                muted: track.muted,
+                sampleRate: s.sampleRate || '?',
+                channelCount: s.channelCount || '?',
+                echoCancellation: s.echoCancellation,
+                noiseSuppression: s.noiseSuppression,
+                autoGainControl: s.autoGainControl,
+                ctxRate: this.audioContext.sampleRate,
+                rateMismatch: s.sampleRate && s.sampleRate !== this.audioContext.sampleRate
+            };
+            console.log('[Audio Input]', this._diagInfo);
         } else {
-            console.warn('[Audio Input] No audio tracks in stream!');
+            this._diagInfo = { error: 'No audio tracks in stream!' };
         }
+        this._showDiagOverlay();
 
         this._mediaStreamSource = this.audioContext.createMediaStreamSource(this._mediaStream);
 
@@ -166,22 +171,19 @@ class AudioEngine {
             this._workletNode = new AudioWorkletNode(this.audioContext, 'recorder-processor');
             this._diagChunkCount = 0;
             this._diagSilentChunks = 0;
+            this._diagPeakMax = 0;
             this._workletNode.port.onmessage = (e) => {
                 const { chunk, peak, gateOpen } = e.data;
                 this._recordedChunks.push(chunk);
                 this._inputLevel = peak;
                 if (gateOpen !== undefined) this._gateOpen = gateOpen;
                 if (this.onRecordChunk) this.onRecordChunk(chunk);
-                // Diagnostic: report after first few chunks
+                // Diagnostic: update overlay with signal info
                 this._diagChunkCount++;
                 if (peak === 0) this._diagSilentChunks++;
+                if (peak > this._diagPeakMax) this._diagPeakMax = peak;
                 if (this._diagChunkCount === 10) {
-                    if (this._diagSilentChunks === 10) {
-                        console.warn('[Audio Input] First 10 chunks all silent — device may not be sending data');
-                    } else {
-                        console.log('[Audio Input] Receiving audio: peak so far =', peak.toFixed(4),
-                            '(' + this._diagSilentChunks + '/10 silent chunks)');
-                    }
+                    this._updateDiagSignal();
                 }
             };
             this._mediaStreamSource.connect(this._workletNode);
@@ -266,6 +268,62 @@ class AudioEngine {
 
     get isRecording() {
         return this._isRecording;
+    }
+
+    // === On-screen diagnostics overlay ===
+
+    _showDiagOverlay() {
+        let el = document.getElementById('audio-diag-overlay');
+        if (!el) {
+            el = document.createElement('div');
+            el.id = 'audio-diag-overlay';
+            el.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:rgba(0,0,0,0.92);color:#0f0;' +
+                'font:11px/1.5 monospace;padding:10px 12px;z-index:99999;max-height:45vh;overflow-y:auto;' +
+                'border-top:2px solid #0f0;';
+            const close = document.createElement('button');
+            close.textContent = 'X';
+            close.style.cssText = 'position:absolute;top:4px;right:8px;background:none;border:1px solid #0f0;' +
+                'color:#0f0;font:bold 13px monospace;cursor:pointer;padding:2px 6px;';
+            close.onclick = () => el.remove();
+            el.appendChild(close);
+            document.body.appendChild(el);
+        }
+        const d = this._diagInfo;
+        let html = '<b style="color:#0ea5e9">AUDIO INPUT DIAGNOSTICS</b><br>';
+        if (d.error) {
+            html += '<span style="color:#f00">' + d.error + '</span>';
+        } else {
+            html += 'Device: <b>' + d.device + '</b><br>';
+            html += 'State: ' + d.state + ' | Muted: ' + d.muted + '<br>';
+            html += 'Sample Rate: ' + d.sampleRate + (d.rateMismatch ? ' <span style="color:#f00">⚠ MISMATCH (ctx=' + d.ctxRate + ')</span>' : ' ✓') + '<br>';
+            html += 'Channels: ' + d.channelCount + '<br>';
+            html += 'Echo Cancel: ' + d.echoCancellation + ' | Noise Supp: ' + d.noiseSuppression + ' | AGC: ' + d.autoGainControl + '<br>';
+            if (d.echoCancellation || d.noiseSuppression || d.autoGainControl) {
+                html += '<span style="color:#ff0">⚠ Chrome is applying processing despite our constraints!</span><br>';
+            }
+            html += '<span id="audio-diag-signal" style="color:#888">Waiting for signal data...</span>';
+        }
+        // Keep close button, replace rest
+        const closeBtn = el.querySelector('button');
+        el.innerHTML = '';
+        el.appendChild(closeBtn);
+        const content = document.createElement('div');
+        content.innerHTML = html;
+        el.appendChild(content);
+    }
+
+    _updateDiagSignal() {
+        const el = document.getElementById('audio-diag-signal');
+        if (!el) return;
+        const peakDb = this._diagPeakMax > 0 ? (20 * Math.log10(this._diagPeakMax)).toFixed(1) : '-∞';
+        if (this._diagSilentChunks === 10) {
+            el.style.color = '#f00';
+            el.innerHTML = 'Signal: <b>SILENT</b> — 10/10 chunks empty. Device may not be sending audio.';
+        } else {
+            el.style.color = '#0f0';
+            el.innerHTML = 'Signal: <b>OK</b> — peak ' + this._diagPeakMax.toFixed(4) + ' (' + peakDb + ' dB) | ' +
+                this._diagSilentChunks + '/10 silent chunks';
+        }
     }
 
     get isPlaying() {
