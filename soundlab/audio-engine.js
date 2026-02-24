@@ -7,8 +7,8 @@ class AudioEngine {
         this._inputLevel = 0;
         this._recordedChunks = [];
         this._mediaStream = null;
-        this._inputSource = null;     // shared MediaStreamSourceNode
         this._scriptProcessor = null;
+        this._mediaStreamSource = null;
         this._sourceNode = null;
         this._playbackStartTime = 0;
         this._playbackStartSample = 0;
@@ -27,10 +27,6 @@ class AudioEngine {
 
         // Input device selection
         this._selectedDeviceId = null;
-
-        // Input monitoring
-        this._monitorNode = null;
-        this._monitoring = false;
 
         // Persistent master bus (created in init)
         this._masterBus = null;
@@ -115,53 +111,37 @@ class AudioEngine {
         return this._gateOpen;
     }
 
-    // === Shared Input Stream ===
-    // One getUserMedia stream shared by both recording and monitoring.
-    // Avoids multiple stream open/close cycles that disrupt Android audio routing.
+    // === Recording ===
 
-    async _ensureInputStream(deviceId) {
+    async startRecording(deviceId) {
         if (!this.audioContext) await this.init();
-        const devId = deviceId || null;
-        const deviceChanged = devId !== (this._selectedDeviceId || null);
 
-        // Only reopen if device changed or stream is dead
-        if (deviceChanged || !this._mediaStream || this._mediaStream.getTracks().every(t => t.readyState === 'ended')) {
-            // Kill old stream
-            if (this._mediaStream) {
-                this._mediaStream.getTracks().forEach(t => t.stop());
-            }
-            // Disconnect old source (both monitor and recorder will reconnect)
-            if (this._inputSource) {
-                this._inputSource.disconnect();
-                this._inputSource = null;
-            }
-            this._selectedDeviceId = devId;
+        this._recordedChunks = [];
+        this._inputLevel = 0;
+
+        // If device changed, close existing stream so we open a new one
+        const deviceChanged = (deviceId || null) !== (this._selectedDeviceId || null);
+        if (deviceChanged && this._mediaStream) {
+            this._mediaStream.getTracks().forEach(t => t.stop());
+            this._mediaStream = null;
+        }
+        this._selectedDeviceId = deviceId || null;
+
+        // Reuse existing mic stream if still active, otherwise request a new one
+        if (!this._mediaStream || this._mediaStream.getTracks().every(t => t.readyState === 'ended')) {
             const constraints = {
                 audio: {
                     echoCancellation: false,
                     noiseSuppression: false,
                     autoGainControl: false,
                     sampleRate: 48000,
-                    ...(devId ? { deviceId: { exact: devId } } : {})
+                    ...(deviceId ? { deviceId: { exact: deviceId } } : {})
                 }
             };
             this._mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
         }
 
-        // One shared MediaStreamSourceNode
-        if (!this._inputSource) {
-            this._inputSource = this.audioContext.createMediaStreamSource(this._mediaStream);
-        }
-        return this._inputSource;
-    }
-
-    // === Recording ===
-
-    async startRecording(deviceId) {
-        this._recordedChunks = [];
-        this._inputLevel = 0;
-
-        const source = await this._ensureInputStream(deviceId);
+        this._mediaStreamSource = this.audioContext.createMediaStreamSource(this._mediaStream);
 
         if (this._workletReady) {
             this._workletNode = new AudioWorkletNode(this.audioContext, 'recorder-processor');
@@ -172,7 +152,7 @@ class AudioEngine {
                 if (gateOpen !== undefined) this._gateOpen = gateOpen;
                 if (this.onRecordChunk) this.onRecordChunk(chunk);
             };
-            source.connect(this._workletNode);
+            this._mediaStreamSource.connect(this._workletNode);
             this._workletNode.connect(this.audioContext.destination);
             this._workletNode.port.postMessage({
                 gate: this._gateEnabled,
@@ -203,7 +183,7 @@ class AudioEngine {
                 this._inputLevel = peak;
                 if (this.onRecordChunk) this.onRecordChunk(chunk);
             };
-            source.connect(this._scriptProcessor);
+            this._mediaStreamSource.connect(this._scriptProcessor);
             this._scriptProcessor.connect(this.audioContext.destination);
         }
         this._isRecording = true;
@@ -224,8 +204,12 @@ class AudioEngine {
             this._scriptProcessor = null;
         }
 
-        // Don't disconnect _inputSource — monitor may still need it
-        // Don't kill _mediaStream — reuse for next recording / monitor
+        if (this._mediaStreamSource) {
+            this._mediaStreamSource.disconnect();
+            this._mediaStreamSource = null;
+        }
+
+        // Keep _mediaStream alive so subsequent recordings reuse the mic permission
 
         const totalLength = this._recordedChunks.reduce((sum, chunk) => sum + chunk.length, 0);
         const merged = new Float32Array(totalLength);
@@ -246,29 +230,6 @@ class AudioEngine {
 
     get isRecording() {
         return this._isRecording;
-    }
-
-    // === Input Monitoring ===
-
-    async setMonitoring(enabled, deviceId) {
-        this._monitoring = enabled;
-        if (enabled) {
-            const source = await this._ensureInputStream(deviceId);
-            if (!this._monitorNode) {
-                this._monitorNode = this.audioContext.createGain();
-                this._monitorNode.gain.value = 0;
-                const output = this._masterBus || this.audioContext.destination;
-                this._monitorNode.connect(output);
-            }
-            source.connect(this._monitorNode);
-            this._monitorNode.gain.setTargetAtTime(1, this.audioContext.currentTime, 0.02);
-        } else if (this._monitorNode) {
-            this._monitorNode.gain.setTargetAtTime(0, this.audioContext.currentTime, 0.02);
-        }
-    }
-
-    get isMonitoring() {
-        return this._monitoring;
     }
 
     get isPlaying() {
