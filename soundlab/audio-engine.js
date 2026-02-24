@@ -137,6 +137,19 @@ class AudioEngine {
         };
         this._mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
 
+        // Diagnostic banner — shows stream info briefly
+        const track = this._mediaStream.getAudioTracks()[0];
+        const settings = track ? track.getSettings() : {};
+        const diagLines = [
+            'Device: ' + (track ? track.label : 'NO TRACK'),
+            'State: ' + (track ? track.readyState : '??'),
+            'Rate: ' + (settings.sampleRate || '??') + ' | Ch: ' + (settings.channelCount || '??'),
+            'DeviceId req: ' + (deviceId || 'default'),
+            'Ctx rate: ' + this.audioContext.sampleRate + ' | State: ' + this.audioContext.state,
+            'Worklet: ' + this._workletReady
+        ];
+        this._showDiagBanner(diagLines.join('\n'));
+
         this._mediaStreamSource = this.audioContext.createMediaStreamSource(this._mediaStream);
 
         if (this._workletReady) {
@@ -247,6 +260,28 @@ class AudioEngine {
 
     getEffectsBus() {
         return this._masterBus;
+    }
+
+    // === Diagnostic banner (temporary) ===
+    _showDiagBanner(text) {
+        let el = document.getElementById('_diag_banner');
+        if (!el) {
+            el = document.createElement('pre');
+            el.id = '_diag_banner';
+            el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#000;color:#0f0;font:10px/1.3 monospace;padding:6px 8px;pointer-events:none;white-space:pre-wrap;opacity:0.92;';
+            document.body.appendChild(el);
+        }
+        el.textContent = text;
+        el.hidden = false;
+        // Update with peak level after 1s of recording
+        clearTimeout(this._diagPeakTimer);
+        this._diagPeakTimer = setTimeout(() => {
+            const peak = this._inputLevel;
+            el.textContent = text + '\nPeak after 1s: ' + (peak ? peak.toFixed(6) : '0 (SILENT)');
+        }, 1000);
+        // Auto-hide after 8s
+        clearTimeout(this._diagTimer);
+        this._diagTimer = setTimeout(() => { el.hidden = true; }, 8000);
     }
 
     // === Playback ===
