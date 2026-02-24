@@ -30,6 +30,7 @@ class AudioEngine {
 
         // Input monitoring
         this._monitorNode = null;
+        this._monitorSource = null;
         this._monitoring = false;
 
         // Persistent master bus (created in init)
@@ -147,15 +148,12 @@ class AudioEngine {
 
         this._mediaStreamSource = this.audioContext.createMediaStreamSource(this._mediaStream);
 
-        // Input monitoring: route mic to output via gain node
-        if (!this._monitorNode) {
-            this._monitorNode = this.audioContext.createGain();
-            this._monitorNode.gain.value = 0;
-            const output = this._masterBus || this.audioContext.destination;
-            this._monitorNode.connect(output);
+        // If monitoring was active, reconnect monitor to new source
+        if (this._monitoring && this._monitorNode) {
+            if (this._monitorSource) this._monitorSource.disconnect();
+            this._monitorSource = null;
+            this._mediaStreamSource.connect(this._monitorNode);
         }
-        this._mediaStreamSource.connect(this._monitorNode);
-        this._monitorNode.gain.value = this._monitoring ? 1 : 0;
 
         if (this._workletReady) {
             // Modern path: AudioWorkletNode
@@ -251,14 +249,49 @@ class AudioEngine {
         return this._isRecording;
     }
 
-    // === On-screen diagnostics overlay ===
-
     // === Input Monitoring ===
 
-    setMonitoring(enabled) {
+    async setMonitoring(enabled) {
         this._monitoring = enabled;
-        if (this._monitorNode) {
-            this._monitorNode.gain.setTargetAtTime(enabled ? 1 : 0, this.audioContext.currentTime, 0.02);
+        if (enabled) {
+            if (!this.audioContext) await this.init();
+            // Open mic stream if not already open
+            if (!this._mediaStream || this._mediaStream.getTracks().every(t => t.readyState === 'ended')) {
+                const constraints = {
+                    audio: {
+                        echoCancellation: false,
+                        noiseSuppression: false,
+                        autoGainControl: false,
+                        sampleRate: 48000,
+                        ...(this._selectedDeviceId ? { deviceId: { exact: this._selectedDeviceId } } : {})
+                    }
+                };
+                this._mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+            }
+            // Create monitor source + gain if needed
+            if (!this._monitorSource) {
+                this._monitorSource = this.audioContext.createMediaStreamSource(this._mediaStream);
+            }
+            if (!this._monitorNode) {
+                this._monitorNode = this.audioContext.createGain();
+                const output = this._masterBus || this.audioContext.destination;
+                this._monitorNode.connect(output);
+            }
+            this._monitorSource.connect(this._monitorNode);
+            this._monitorNode.gain.setTargetAtTime(1, this.audioContext.currentTime, 0.02);
+        } else {
+            if (this._monitorNode) {
+                this._monitorNode.gain.setTargetAtTime(0, this.audioContext.currentTime, 0.02);
+            }
+            if (this._monitorSource) {
+                this._monitorSource.disconnect();
+                this._monitorSource = null;
+            }
+            // Stop mic stream if not recording
+            if (!this._isRecording && this._mediaStream) {
+                this._mediaStream.getTracks().forEach(t => t.stop());
+                this._mediaStream = null;
+            }
         }
     }
 
