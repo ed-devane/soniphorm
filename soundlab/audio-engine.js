@@ -286,9 +286,9 @@ class AudioEngine {
         if (!el) {
             el = document.createElement('div');
             el.id = 'audio-diag-overlay';
-            el.style.cssText = 'position:fixed;bottom:0;left:0;right:0;background:rgba(0,0,0,0.92);color:#0f0;' +
-                'font:11px/1.5 monospace;padding:10px 12px;z-index:99999;max-height:45vh;overflow-y:auto;' +
-                'border-top:2px solid #0f0;';
+            el.style.cssText = 'position:fixed;top:0;left:0;right:0;background:rgba(0,0,0,0.95);color:#0f0;' +
+                'font:12px/1.6 monospace;padding:12px 14px;z-index:99999;max-height:50vh;overflow-y:auto;' +
+                'border-bottom:2px solid #0f0;';
             const close = document.createElement('button');
             close.textContent = 'X';
             close.style.cssText = 'position:absolute;top:4px;right:8px;background:none;border:1px solid #0f0;' +

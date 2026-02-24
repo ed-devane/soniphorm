@@ -450,11 +450,14 @@ main {
 
 .slot.recording {
     animation: pulse-slot 1s ease-in-out infinite;
+    background: var(--red) !important;
+    border-color: var(--red) !important;
+    box-shadow: 0 0 12px rgba(239,68,68,0.4) !important;
 }
-.slot.recording[data-bank="0"] { border-color: var(--red); box-shadow: 0 0 12px rgba(239,68,68,0.3); }
-.slot.recording[data-bank="1"] { border-color: var(--red); box-shadow: 0 0 12px rgba(239,68,68,0.3); }
-.slot.recording[data-bank="2"] { border-color: var(--red); box-shadow: 0 0 12px rgba(239,68,68,0.3); }
-.slot.recording[data-bank="3"] { border-color: var(--red); box-shadow: 0 0 12px rgba(239,68,68,0.3); }
+.slot.recording .slot-name,
+.slot.recording .slot-number {
+    color: #fff !important;
+}
 
 @keyframes pulse-slot {
     0%, 100% { opacity: 1; }
