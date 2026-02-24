@@ -787,10 +787,16 @@ class App {
             }
             if (action === 'monitor') {
                 const on = !this.audio.isMonitoring;
-                this.audio.setMonitoring(on);
                 const btn = document.getElementById('monitor-menu-btn');
-                btn.textContent = 'Monitor input: ' + (on ? 'ON' : 'OFF');
-                btn.classList.toggle('menu-active', on);
+                try {
+                    await this.ensureAudioInit();
+                    await this.audio.setMonitoring(on);
+                    btn.textContent = 'Monitor input: ' + (on ? 'ON' : 'OFF');
+                    btn.classList.toggle('menu-active', on);
+                } catch (e) {
+                    btn.textContent = 'Monitor input: FAILED';
+                    console.warn('Monitor failed:', e);
+                }
                 return;
             }
             document.getElementById('main-menu').hidden = true;
