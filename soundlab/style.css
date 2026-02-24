@@ -236,6 +236,7 @@ main {
 .tb:disabled { opacity: 0.3; cursor: default; }
 .tb.rec { color: var(--red); border-color: var(--red); background: rgba(239,68,68,0.08); }
 .tb.rec:hover { background: rgba(239,68,68,0.15); }
+.tb.mon-on { background: var(--green); color: #000; border-color: var(--green); }
 .tb.rec.recording {
     background: var(--red);
     color: #fff;

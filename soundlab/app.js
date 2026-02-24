@@ -651,6 +651,11 @@ class App {
             }
         });
 
+        $('mon-btn').addEventListener('click', () => {
+            const on = !this.audio.isMonitoring;
+            this.audio.setMonitoring(on);
+            document.getElementById('mon-btn').classList.toggle('mon-on', on);
+        });
         $('play-btn').addEventListener('click', () => this.playAudio());
         $('stop-btn').addEventListener('click', () => this.stopAudio());
         $('loop-btn').addEventListener('click', () => this.toggleLoop());

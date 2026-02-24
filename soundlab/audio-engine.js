@@ -28,6 +28,10 @@ class AudioEngine {
         // Input device selection
         this._selectedDeviceId = null;
 
+        // Input monitoring
+        this._monitorNode = null;
+        this._monitoring = false;
+
         // Persistent master bus (created in init)
         this._masterBus = null;
 
@@ -127,10 +131,6 @@ class AudioEngine {
         }
         this._selectedDeviceId = deviceId || null;
 
-        // Show diagnostics immediately so errors are visible
-        this._diagInfo = { status: 'Requesting audio stream...', deviceId: deviceId || '(default)' };
-        this._showDiagOverlay();
-
         // Reuse existing mic stream if still active, otherwise request a new one
         if (!this._mediaStream || this._mediaStream.getTracks().every(t => t.readyState === 'ended')) {
             const constraints = {
@@ -142,58 +142,30 @@ class AudioEngine {
                     ...(deviceId ? { deviceId: { exact: deviceId } } : {})
                 }
             };
-            try {
-                this._mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-            } catch (err) {
-                this._diagInfo = { error: 'getUserMedia FAILED: ' + err.name + ' — ' + err.message };
-                this._showDiagOverlay();
-                throw err;
-            }
+            this._mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
         }
-
-        // === Audio input diagnostics (on-screen + console) ===
-        const track = this._mediaStream.getAudioTracks()[0];
-        if (track) {
-            const s = track.getSettings();
-            this._diagInfo = {
-                device: track.label || '(unnamed)',
-                state: track.readyState,
-                muted: track.muted,
-                sampleRate: s.sampleRate || '?',
-                channelCount: s.channelCount || '?',
-                echoCancellation: s.echoCancellation,
-                noiseSuppression: s.noiseSuppression,
-                autoGainControl: s.autoGainControl,
-                ctxRate: this.audioContext.sampleRate,
-                rateMismatch: s.sampleRate && s.sampleRate !== this.audioContext.sampleRate
-            };
-            console.log('[Audio Input]', this._diagInfo);
-        } else {
-            this._diagInfo = { error: 'No audio tracks in stream!' };
-        }
-        this._showDiagOverlay();
 
         this._mediaStreamSource = this.audioContext.createMediaStreamSource(this._mediaStream);
+
+        // Input monitoring: route mic to output via gain node
+        if (!this._monitorNode) {
+            this._monitorNode = this.audioContext.createGain();
+            this._monitorNode.gain.value = 0;
+            const output = this._masterBus || this.audioContext.destination;
+            this._monitorNode.connect(output);
+        }
+        this._mediaStreamSource.connect(this._monitorNode);
+        this._monitorNode.gain.value = this._monitoring ? 1 : 0;
 
         if (this._workletReady) {
             // Modern path: AudioWorkletNode
             this._workletNode = new AudioWorkletNode(this.audioContext, 'recorder-processor');
-            this._diagChunkCount = 0;
-            this._diagSilentChunks = 0;
-            this._diagPeakMax = 0;
             this._workletNode.port.onmessage = (e) => {
                 const { chunk, peak, gateOpen } = e.data;
                 this._recordedChunks.push(chunk);
                 this._inputLevel = peak;
                 if (gateOpen !== undefined) this._gateOpen = gateOpen;
                 if (this.onRecordChunk) this.onRecordChunk(chunk);
-                // Diagnostic: update overlay with signal info
-                this._diagChunkCount++;
-                if (peak === 0) this._diagSilentChunks++;
-                if (peak > this._diagPeakMax) this._diagPeakMax = peak;
-                if (this._diagChunkCount === 10) {
-                    this._updateDiagSignal();
-                }
             };
             this._mediaStreamSource.connect(this._workletNode);
             this._workletNode.connect(this.audioContext.destination);
@@ -281,60 +253,17 @@ class AudioEngine {
 
     // === On-screen diagnostics overlay ===
 
-    _showDiagOverlay() {
-        let el = document.getElementById('audio-diag-overlay');
-        if (!el) {
-            el = document.createElement('div');
-            el.id = 'audio-diag-overlay';
-            el.style.cssText = 'position:fixed;top:0;left:0;right:0;background:rgba(0,0,0,0.95);color:#0f0;' +
-                'font:12px/1.6 monospace;padding:12px 14px;z-index:99999;max-height:50vh;overflow-y:auto;' +
-                'border-bottom:2px solid #0f0;';
-            const close = document.createElement('button');
-            close.textContent = 'X';
-            close.style.cssText = 'position:absolute;top:4px;right:8px;background:none;border:1px solid #0f0;' +
-                'color:#0f0;font:bold 13px monospace;cursor:pointer;padding:2px 6px;';
-            close.onclick = () => el.remove();
-            el.appendChild(close);
-            document.body.appendChild(el);
+    // === Input Monitoring ===
+
+    setMonitoring(enabled) {
+        this._monitoring = enabled;
+        if (this._monitorNode) {
+            this._monitorNode.gain.setTargetAtTime(enabled ? 1 : 0, this.audioContext.currentTime, 0.02);
         }
-        const d = this._diagInfo;
-        let html = '<b style="color:#0ea5e9">AUDIO INPUT DIAGNOSTICS</b><br>';
-        if (d.status) {
-            html += d.status + '<br>deviceId: ' + (d.deviceId || '?');
-        } else if (d.error) {
-            html += '<span style="color:#f00">' + d.error + '</span>';
-        } else {
-            html += 'Device: <b>' + d.device + '</b><br>';
-            html += 'State: ' + d.state + ' | Muted: ' + d.muted + '<br>';
-            html += 'Sample Rate: ' + d.sampleRate + (d.rateMismatch ? ' <span style="color:#f00">⚠ MISMATCH (ctx=' + d.ctxRate + ')</span>' : ' ✓') + '<br>';
-            html += 'Channels: ' + d.channelCount + '<br>';
-            html += 'Echo Cancel: ' + d.echoCancellation + ' | Noise Supp: ' + d.noiseSuppression + ' | AGC: ' + d.autoGainControl + '<br>';
-            if (d.echoCancellation || d.noiseSuppression || d.autoGainControl) {
-                html += '<span style="color:#ff0">⚠ Chrome is applying processing despite our constraints!</span><br>';
-            }
-            html += '<span id="audio-diag-signal" style="color:#888">Waiting for signal data...</span>';
-        }
-        // Keep close button, replace rest
-        const closeBtn = el.querySelector('button');
-        el.innerHTML = '';
-        el.appendChild(closeBtn);
-        const content = document.createElement('div');
-        content.innerHTML = html;
-        el.appendChild(content);
     }
 
-    _updateDiagSignal() {
-        const el = document.getElementById('audio-diag-signal');
-        if (!el) return;
-        const peakDb = this._diagPeakMax > 0 ? (20 * Math.log10(this._diagPeakMax)).toFixed(1) : '-∞';
-        if (this._diagSilentChunks === 10) {
-            el.style.color = '#f00';
-            el.innerHTML = 'Signal: <b>SILENT</b> — 10/10 chunks empty. Device may not be sending audio.';
-        } else {
-            el.style.color = '#0f0';
-            el.innerHTML = 'Signal: <b>OK</b> — peak ' + this._diagPeakMax.toFixed(4) + ' (' + peakDb + ' dB) | ' +
-                this._diagSilentChunks + '/10 silent chunks';
-        }
+    get isMonitoring() {
+        return this._monitoring;
     }
 
     get isPlaying() {
