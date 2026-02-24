@@ -269,26 +269,36 @@ class AudioEngine {
         return this._masterBus;
     }
 
-    // === Diagnostic banner (temporary) ===
+    // === Diagnostic overlay (temporary) ===
     _showDiagBanner(text) {
         let el = document.getElementById('_diag_banner');
         if (!el) {
-            el = document.createElement('pre');
+            el = document.createElement('div');
             el.id = '_diag_banner';
-            el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#000;color:#0f0;font:10px/1.3 monospace;padding:6px 8px;pointer-events:none;white-space:pre-wrap;opacity:0.92;';
+            el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#000;color:#0f0;font:10px/1.3 monospace;padding:6px 8px;white-space:pre-wrap;opacity:0.95;';
+            const pre = document.createElement('pre');
+            pre.id = '_diag_text';
+            pre.style.cssText = 'margin:0;font:inherit;';
+            el.appendChild(pre);
+            const closeBtn = document.createElement('button');
+            closeBtn.textContent = 'CLOSE';
+            closeBtn.style.cssText = 'display:block;margin:6px 0 2px;padding:4px 12px;background:#333;color:#0f0;border:1px solid #0f0;font:11px monospace;cursor:pointer;';
+            closeBtn.onclick = () => { el.hidden = true; };
+            el.appendChild(closeBtn);
             document.body.appendChild(el);
         }
-        el.textContent = text;
+        const pre = document.getElementById('_diag_text');
+        pre.textContent = text;
         el.hidden = false;
         // Update with peak level after 1s of recording
         clearTimeout(this._diagPeakTimer);
         this._diagPeakTimer = setTimeout(() => {
             const peak = this._inputLevel;
-            el.textContent = text + '\nPeak after 1s: ' + (peak ? peak.toFixed(6) : '0 (SILENT)');
+            const chunks = this._recordedChunks ? this._recordedChunks.length : 0;
+            pre.textContent = text + '\n--- after 1s ---\nPeak: ' + (peak ? peak.toFixed(6) : '0 (SILENT)') + '\nChunks: ' + chunks;
         }, 1000);
-        // Auto-hide after 8s
+        // No auto-hide — user closes manually
         clearTimeout(this._diagTimer);
-        this._diagTimer = setTimeout(() => { el.hidden = true; }, 8000);
     }
 
     // === Playback ===
