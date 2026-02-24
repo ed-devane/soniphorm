@@ -651,11 +651,6 @@ class App {
             }
         });
 
-        $('mon-btn').addEventListener('click', () => {
-            const on = !this.audio.isMonitoring;
-            this.audio.setMonitoring(on);
-            document.getElementById('mon-btn').classList.toggle('mon-on', on);
-        });
         $('play-btn').addEventListener('click', () => this.playAudio());
         $('stop-btn').addEventListener('click', () => this.stopAudio());
         $('loop-btn').addEventListener('click', () => this.toggleLoop());
@@ -788,6 +783,14 @@ class App {
                     select.value = this._selectedInputDeviceId;
                 }
                 select.hidden = false;
+                return;
+            }
+            if (action === 'monitor') {
+                const on = !this.audio.isMonitoring;
+                this.audio.setMonitoring(on);
+                const btn = document.getElementById('monitor-menu-btn');
+                btn.textContent = 'Monitor input: ' + (on ? 'ON' : 'OFF');
+                btn.classList.toggle('menu-active', on);
                 return;
             }
             document.getElementById('main-menu').hidden = true;
