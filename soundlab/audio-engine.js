@@ -127,6 +127,10 @@ class AudioEngine {
         }
         this._selectedDeviceId = deviceId || null;
 
+        // Show diagnostics immediately so errors are visible
+        this._diagInfo = { status: 'Requesting audio stream...', deviceId: deviceId || '(default)' };
+        this._showDiagOverlay();
+
         // Reuse existing mic stream if still active, otherwise request a new one
         if (!this._mediaStream || this._mediaStream.getTracks().every(t => t.readyState === 'ended')) {
             const constraints = {
@@ -138,11 +142,16 @@ class AudioEngine {
                     ...(deviceId ? { deviceId: { exact: deviceId } } : {})
                 }
             };
-            this._mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+            try {
+                this._mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+            } catch (err) {
+                this._diagInfo = { error: 'getUserMedia FAILED: ' + err.name + ' — ' + err.message };
+                this._showDiagOverlay();
+                throw err;
+            }
         }
 
         // === Audio input diagnostics (on-screen + console) ===
-        this._diagInfo = {};
         const track = this._mediaStream.getAudioTracks()[0];
         if (track) {
             const s = track.getSettings();
@@ -290,7 +299,9 @@ class AudioEngine {
         }
         const d = this._diagInfo;
         let html = '<b style="color:#0ea5e9">AUDIO INPUT DIAGNOSTICS</b><br>';
-        if (d.error) {
+        if (d.status) {
+            html += d.status + '<br>deviceId: ' + (d.deviceId || '?');
+        } else if (d.error) {
             html += '<span style="color:#f00">' + d.error + '</span>';
         } else {
             html += 'Device: <b>' + d.device + '</b><br>';
