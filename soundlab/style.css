@@ -458,6 +458,9 @@ main {
 .slot.recording .slot-number {
     color: #fff !important;
 }
+.slot.recording .slot-mini canvas {
+    opacity: 0;
+}
 
 @keyframes pulse-slot {
     0%, 100% { opacity: 1; }
