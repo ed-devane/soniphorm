@@ -119,27 +119,23 @@ class AudioEngine {
         this._recordedChunks = [];
         this._inputLevel = 0;
 
-        // If device changed, close existing stream so we open a new one
-        const deviceChanged = (deviceId || null) !== (this._selectedDeviceId || null);
-        if (deviceChanged && this._mediaStream) {
+        // Always close previous stream for a clean start
+        if (this._mediaStream) {
             this._mediaStream.getTracks().forEach(t => t.stop());
             this._mediaStream = null;
         }
         this._selectedDeviceId = deviceId || null;
 
-        // Reuse existing mic stream if still active, otherwise request a new one
-        if (!this._mediaStream || this._mediaStream.getTracks().every(t => t.readyState === 'ended')) {
-            const constraints = {
-                audio: {
-                    echoCancellation: false,
-                    noiseSuppression: false,
-                    autoGainControl: false,
-                    sampleRate: 48000,
-                    ...(deviceId ? { deviceId: { exact: deviceId } } : {})
-                }
-            };
-            this._mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-        }
+        const constraints = {
+            audio: {
+                echoCancellation: false,
+                noiseSuppression: false,
+                autoGainControl: false,
+                sampleRate: 48000,
+                ...(deviceId ? { deviceId: { exact: deviceId } } : {})
+            }
+        };
+        this._mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
 
         this._mediaStreamSource = this.audioContext.createMediaStreamSource(this._mediaStream);
 
@@ -209,7 +205,10 @@ class AudioEngine {
             this._mediaStreamSource = null;
         }
 
-        // Keep _mediaStream alive so subsequent recordings reuse the mic permission
+        if (this._mediaStream) {
+            this._mediaStream.getTracks().forEach(t => t.stop());
+            this._mediaStream = null;
+        }
 
         const totalLength = this._recordedChunks.reduce((sum, chunk) => sum + chunk.length, 0);
         const merged = new Float32Array(totalLength);
