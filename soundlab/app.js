@@ -790,7 +790,7 @@ class App {
                 const btn = document.getElementById('monitor-menu-btn');
                 try {
                     await this.ensureAudioInit();
-                    await this.audio.setMonitoring(on);
+                    await this.audio.setMonitoring(on, this._selectedInputDeviceId);
                     btn.textContent = 'Monitor input: ' + (on ? 'ON' : 'OFF');
                     btn.classList.toggle('menu-active', on);
                 } catch (e) {

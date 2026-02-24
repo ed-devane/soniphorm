@@ -251,10 +251,12 @@ class AudioEngine {
 
     // === Input Monitoring ===
 
-    async setMonitoring(enabled) {
+    async setMonitoring(enabled, deviceId) {
         this._monitoring = enabled;
         if (enabled) {
             if (!this.audioContext) await this.init();
+            // Use provided deviceId or fall back to last selected
+            const devId = deviceId !== undefined ? deviceId : this._selectedDeviceId;
             // Open mic stream if not already open
             if (!this._mediaStream || this._mediaStream.getTracks().every(t => t.readyState === 'ended')) {
                 const constraints = {
@@ -263,7 +265,7 @@ class AudioEngine {
                         noiseSuppression: false,
                         autoGainControl: false,
                         sampleRate: 48000,
-                        ...(this._selectedDeviceId ? { deviceId: { exact: this._selectedDeviceId } } : {})
+                        ...(devId ? { deviceId: { exact: devId } } : {})
                     }
                 };
                 this._mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -287,11 +289,7 @@ class AudioEngine {
                 this._monitorSource.disconnect();
                 this._monitorSource = null;
             }
-            // Stop mic stream if not recording
-            if (!this._isRecording && this._mediaStream) {
-                this._mediaStream.getTracks().forEach(t => t.stop());
-                this._mediaStream = null;
-            }
+            // Keep _mediaStream alive so recording can reuse it
         }
     }
 
