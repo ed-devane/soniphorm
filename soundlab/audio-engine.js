@@ -116,58 +116,35 @@ class AudioEngine {
     async startRecording(deviceId) {
         if (!this.audioContext) await this.init();
 
-        this._showDiagBanner('Starting recording...\nDeviceId req: ' + (deviceId || 'default') + '\nCtx: ' + (this.audioContext ? this.audioContext.state : 'null'));
-
         this._recordedChunks = [];
         this._inputLevel = 0;
 
-        // Always close previous stream for a clean start
-        if (this._mediaStream) {
+        // If device changed, close existing stream so we open a new one
+        const deviceChanged = (deviceId || null) !== (this._selectedDeviceId || null);
+        if (deviceChanged && this._mediaStream) {
             this._mediaStream.getTracks().forEach(t => t.stop());
             this._mediaStream = null;
         }
         this._selectedDeviceId = deviceId || null;
 
-        const constraints = {
-            audio: {
-                echoCancellation: false,
-                noiseSuppression: false,
-                autoGainControl: false,
-                sampleRate: 48000,
-                ...(deviceId ? { deviceId: { exact: deviceId } } : {})
-            }
-        };
-
-        try {
+        // Reuse existing mic stream if still active, otherwise request a new one
+        if (!this._mediaStream || this._mediaStream.getTracks().every(t => t.readyState === 'ended')) {
+            const constraints = {
+                audio: {
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false,
+                    sampleRate: 48000,
+                    ...(deviceId ? { deviceId: { exact: deviceId } } : {})
+                }
+            };
             this._mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
-        } catch (err) {
-            this._showDiagBanner('getUserMedia FAILED!\n' + err.name + ': ' + err.message + '\nDeviceId: ' + (deviceId || 'default'));
-            throw err;
         }
-
-        const track = this._mediaStream.getAudioTracks()[0];
-        const settings = track ? track.getSettings() : {};
-        // List all available input devices
-        let deviceList = '';
-        try {
-            const devices = await navigator.mediaDevices.enumerateDevices();
-            const inputs = devices.filter(d => d.kind === 'audioinput');
-            deviceList = inputs.map((d, i) => '  ' + i + ': ' + (d.label || '??') + ' [' + d.deviceId.slice(0, 8) + ']').join('\n');
-        } catch (e) { deviceList = '  (enum failed)'; }
-        const diagLines = [
-            'ACTIVE: ' + (track ? track.label : 'NO TRACK'),
-            'State: ' + (track ? track.readyState : '??') + ' | Rate: ' + (settings.sampleRate || '??') + ' | Ch: ' + (settings.channelCount || '??'),
-            'DeviceId req: ' + (deviceId || 'default'),
-            'Ctx: ' + this.audioContext.sampleRate + 'Hz ' + this.audioContext.state,
-            'Worklet: ' + this._workletReady,
-            '--- All inputs ---',
-            deviceList
-        ];
-        this._showDiagBanner(diagLines.join('\n'));
 
         this._mediaStreamSource = this.audioContext.createMediaStreamSource(this._mediaStream);
 
         if (this._workletReady) {
+            // Modern path: AudioWorkletNode
             this._workletNode = new AudioWorkletNode(this.audioContext, 'recorder-processor');
             this._workletNode.port.onmessage = (e) => {
                 const { chunk, peak, gateOpen } = e.data;
@@ -178,11 +155,14 @@ class AudioEngine {
             };
             this._mediaStreamSource.connect(this._workletNode);
             this._workletNode.connect(this.audioContext.destination);
+
+            // Send initial gate config
             this._workletNode.port.postMessage({
                 gate: this._gateEnabled,
                 gateThreshold: this._gateThreshold
             });
         } else {
+            // Fallback: ScriptProcessor (deprecated but still widely supported)
             this._scriptProcessor = this.audioContext.createScriptProcessor(4096, 1, 1);
             this._scriptProcessor.onaudioprocess = (e) => {
                 const inputData = e.inputBuffer.getChannelData(0);
@@ -195,6 +175,7 @@ class AudioEngine {
                     if (abs > peak) peak = abs;
                 }
 
+                // ScriptProcessor gate: zero the chunk if peak < threshold
                 if (this._gateEnabled) {
                     this._gateOpen = peak >= this._gateThreshold;
                     if (!this._gateOpen) {
@@ -233,10 +214,7 @@ class AudioEngine {
             this._mediaStreamSource = null;
         }
 
-        if (this._mediaStream) {
-            this._mediaStream.getTracks().forEach(t => t.stop());
-            this._mediaStream = null;
-        }
+        // Keep _mediaStream alive so subsequent recordings reuse the mic permission
 
         const totalLength = this._recordedChunks.reduce((sum, chunk) => sum + chunk.length, 0);
         const merged = new Float32Array(totalLength);
@@ -275,38 +253,6 @@ class AudioEngine {
 
     getEffectsBus() {
         return this._masterBus;
-    }
-
-    // === Diagnostic overlay (temporary) ===
-    _showDiagBanner(text) {
-        let el = document.getElementById('_diag_banner');
-        if (!el) {
-            el = document.createElement('div');
-            el.id = '_diag_banner';
-            el.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#000;color:#0f0;font:10px/1.3 monospace;padding:6px 8px;white-space:pre-wrap;opacity:0.95;';
-            const pre = document.createElement('pre');
-            pre.id = '_diag_text';
-            pre.style.cssText = 'margin:0;font:inherit;';
-            el.appendChild(pre);
-            const closeBtn = document.createElement('button');
-            closeBtn.textContent = 'CLOSE';
-            closeBtn.style.cssText = 'display:block;margin:6px 0 2px;padding:4px 12px;background:#333;color:#0f0;border:1px solid #0f0;font:11px monospace;cursor:pointer;';
-            closeBtn.onclick = () => { el.hidden = true; };
-            el.appendChild(closeBtn);
-            document.body.appendChild(el);
-        }
-        const pre = document.getElementById('_diag_text');
-        pre.textContent = text;
-        el.hidden = false;
-        // Update with peak level after 1s of recording
-        clearTimeout(this._diagPeakTimer);
-        this._diagPeakTimer = setTimeout(() => {
-            const peak = this._inputLevel;
-            const chunks = this._recordedChunks ? this._recordedChunks.length : 0;
-            pre.textContent = text + '\n--- after 1s ---\nPeak: ' + (peak ? peak.toFixed(6) : '0 (SILENT)') + '\nChunks: ' + chunks;
-        }, 1000);
-        // No auto-hide — user closes manually
-        clearTimeout(this._diagTimer);
     }
 
     // === Playback ===
