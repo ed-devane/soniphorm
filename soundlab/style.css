@@ -1815,7 +1815,7 @@ main {
 /* === Kit Mode === */
 
 /* Kit slot badge in normal view */
-.slot-kit { position: relative; }
+.slot-kit { position: relative; background: #151b2f; border-color: #2a3550; }
 .slot-kit::after {
     content: 'KIT';
     position: absolute;

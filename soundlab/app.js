@@ -5085,8 +5085,37 @@ class App {
 
     async _onKitSlotTap(subIndex) {
         await this.ensureAudioInit();
-        this._kitSelectedSub = subIndex;
+
+        // If a waveform selection exists and target sub-slot is empty, copy region
         const meta = this.slots.getKitSlotMeta(this._kitParentSlot, subIndex);
+        if (!meta?.hasAudio && this.channels && this.waveform.getSelection()) {
+            const sel = this.waveform.getSelection();
+            if (sel && confirm(`Copy selection to kit pad ${subIndex + 1}?`)) {
+                const copied = this.channels.map(ch => ch.slice(sel.start, sel.end));
+                await this.slots.saveKitSlotAudio(this._kitParentSlot, subIndex, copied, this.bufferSampleRate);
+
+                // Decode buffer for sampler
+                const ctx = this.audio.audioContext;
+                const buf = ctx.createBuffer(copied.length, copied[0].length, this.bufferSampleRate);
+                for (let ch = 0; ch < copied.length; ch++) {
+                    buf.getChannelData(ch).set(copied[ch]);
+                }
+                this._kitSlotBuffers[subIndex] = buf;
+
+                // Show the copied audio in waveform & prompt rename
+                this._kitSelectedSub = subIndex;
+                this.channels = copied;
+                this.waveform.setAudio(this.channels, this.bufferSampleRate);
+                document.getElementById('waveform-empty').hidden = true;
+                this._showKitSlotRenameDialog(this._kitParentSlot, subIndex);
+                this._renderKitGrid();
+                this.updateTransportInfo();
+                this.updateToolbarState();
+                return;
+            }
+        }
+
+        this._kitSelectedSub = subIndex;
 
         if (meta && meta.hasAudio) {
             const data = await this.slots.getKitSlotAudio(this._kitParentSlot, subIndex);
