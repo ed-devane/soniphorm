@@ -5115,9 +5115,21 @@ class App {
             }
         }
 
+        // If already selected and has audio, toggle play/stop
+        if (subIndex === this._kitSelectedSub && meta?.hasAudio && this.channels) {
+            if (this.audio.isPlaying) {
+                this.stopAudio();
+            } else {
+                this.playAudio(true);
+            }
+            return;
+        }
+
         this._kitSelectedSub = subIndex;
 
         if (meta && meta.hasAudio) {
+            this.audio.stop();
+            this.cancelAnimationLoop();
             const data = await this.slots.getKitSlotAudio(this._kitParentSlot, subIndex);
             if (data) {
                 this.channels = data.channels;
