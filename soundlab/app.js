@@ -4827,16 +4827,16 @@ class App {
         const padIdx = this._sampleSelectedPad;
 
         if (this._sampleMode && this._chromaticMode) {
-            // Chromatic mode: play at MIDI pitch, polyphonic
-            const semitones = midiNote - 60;
+            // Chromatic mode: play at MIDI pitch + pad pitch as transpose
+            const pad = this.sampler.pads[padIdx];
+            const semitones = (midiNote - 60) + pad.pitch;
             const voiceKey = 'midi-' + midiNote;
             if (!this.slots.slots[padIdx].hasAudio) return;
             this.sampler.triggerPoly(padIdx, semitones, voiceKey);
             this._midiHeldNotes.set(midiNote, voiceKey);
-            // Record to sequencer
-            const pad = this.sampler.pads[padIdx];
+            // Record to sequencer (store pitch without pad transpose, sequencer adds it on playback)
             if (this._seqRecording && this.sequencer.playing) {
-                this._recordPadToStep(padIdx, semitones - pad.pitch, voiceKey);
+                this._recordPadToStep(padIdx, midiNote - 60, voiceKey);
             }
         } else if (this._sampleMode || (this._seqMode && this._seqRecording)) {
             // Pad mode: notes 36-51 map to pads 0-15 (GM drum)
@@ -4916,8 +4916,9 @@ class App {
             const durSteps = (entry.duration > 0) ? entry.duration : 1;
             const durMs = durSteps * this.sequencer.stepDuration * 1000;
 
-            setTimeout(() => this.midi.sendNoteOn(note, vel), delayMs);
-            setTimeout(() => this.midi.sendNoteOff(note), delayMs + durMs - 5);
+            const ch = entry.slot & 0x0F; // slot 0-15 → MIDI channel 1-16
+            setTimeout(() => this.midi.sendNoteOn(note, vel, ch), delayMs);
+            setTimeout(() => this.midi.sendNoteOff(note, ch), delayMs + durMs - 5);
         }
     }
 

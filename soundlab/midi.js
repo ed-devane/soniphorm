@@ -223,18 +223,18 @@ class MidiManager {
         this.activeOutput.port.send(bytes);
     }
 
-    sendNoteOn(note, velocity) {
-        const ch = this.outChannel > 0 ? (this.outChannel - 1) : 0;
+    sendNoteOn(note, velocity, channel) {
+        const ch = channel !== undefined ? (channel & 0x0F) : (this.outChannel > 0 ? (this.outChannel - 1) : 0);
         this._send([0x90 | ch, note & 0x7F, velocity & 0x7F]);
     }
 
-    sendNoteOff(note) {
-        const ch = this.outChannel > 0 ? (this.outChannel - 1) : 0;
+    sendNoteOff(note, channel) {
+        const ch = channel !== undefined ? (channel & 0x0F) : (this.outChannel > 0 ? (this.outChannel - 1) : 0);
         this._send([0x80 | ch, note & 0x7F, 0]);
     }
 
-    sendCC(cc, value) {
-        const ch = this.outChannel > 0 ? (this.outChannel - 1) : 0;
+    sendCC(cc, value, channel) {
+        const ch = channel !== undefined ? (channel & 0x0F) : (this.outChannel > 0 ? (this.outChannel - 1) : 0);
         this._send([0xB0 | ch, cc & 0x7F, value & 0x7F]);
     }
 
