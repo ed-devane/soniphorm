@@ -22,10 +22,6 @@ class App {
         this._recChunks = null;    // Array of Float32Array chunks for live recording
         this._recTotalLen = 0;    // Total sample count across all chunks
 
-        // Macros: 4 per slot, stored on slot objects as slot._macros
-        // Each macro: { value: 0-1, mapping: null | { fx, param, min, max, unit, label } }
-        this._pendingMapParam = null; // { fx, param definition } for mapping context menu
-
         // Sequencer
         this.sequencer = null;
         this._seqMode = false;
@@ -83,8 +79,6 @@ class App {
         this.bindDialogs();
         this.updateToolbarState();
         this.updateTransportInfo();
-        this.restoreMacroUI();
-
         // Waveform
         try {
             const canvas = document.getElementById('waveform');
@@ -460,9 +454,7 @@ class App {
         this.renderSlotGrid();
         this.updateTransportInfo();
         this.updateToolbarState();
-        this.restoreMacroUI();
         this._applySlotLiveEffects();
-        this._updateLiveEffectFromMacros();
     }
 
     async startRecording(index) {
@@ -620,9 +612,8 @@ class App {
             return;
         }
 
-        // Normal mode: require audio or allow kit conversion of empty slot
+        // Empty slot with no audio and not a kit — only show "Make Drum Kit"
         if (!slot.hasAudio && slot.type !== 'kit') {
-            // Show make-kit option for empty slots
             const menu = document.getElementById('context-menu');
             menu.querySelector('[data-action="rename"]').hidden = true;
             menu.querySelector('[data-action="duplicate"]').hidden = true;
@@ -649,11 +640,11 @@ class App {
 
         const menu = document.getElementById('context-menu');
         const isKit = slot.type === 'kit';
-        menu.querySelector('[data-action="rename"]').hidden = isKit ? false : false;
+        menu.querySelector('[data-action="rename"]').hidden = false;
         menu.querySelector('[data-action="duplicate"]').hidden = isKit;
         menu.querySelector('[data-action="save"]').hidden = isKit;
-        menu.querySelector('[data-action="clear"]').hidden = isKit;
-        menu.querySelector('[data-action="make-kit"]').hidden = true;
+        menu.querySelector('[data-action="clear"]').hidden = false;
+        menu.querySelector('[data-action="make-kit"]').hidden = isKit;
         menu.querySelector('[data-action="unmake-kit"]').hidden = !isKit;
 
         const x = e.clientX || e.pageX;
@@ -889,94 +880,6 @@ class App {
         $('fx-preview').addEventListener('click', () => this.previewFx());
         $('fx-apply').addEventListener('click', () => this.applyFx());
         $('fx-cancel').addEventListener('click', () => this.closeFxDialog());
-
-        // Macros
-        for (let m = 0; m < 4; m++) {
-            $(`macro-${m}`).addEventListener('input', () => this.onMacroChange(m));
-        }
-        // Mobile macro expand/collapse
-        if (window.matchMedia('(max-width: 600px)').matches) {
-            const allSlots = document.querySelectorAll('.macro-slot');
-            const expandSlot = (activeSlot) => {
-                allSlots.forEach(s => {
-                    if (s === activeSlot) {
-                        s.classList.add('expanded');
-                        s.classList.remove('collapsed');
-                    } else {
-                        s.classList.add('collapsed');
-                        s.classList.remove('expanded');
-                    }
-                });
-            };
-            const resetSlots = () => {
-                allSlots.forEach(s => s.classList.remove('expanded', 'collapsed'));
-            };
-            allSlots.forEach(slot => {
-                const slider = slot.querySelector('.macro-slider');
-                // Use touchstart + pointerdown for reliable mobile triggering
-                slider.addEventListener('touchstart', () => expandSlot(slot));
-                slider.addEventListener('pointerdown', () => expandSlot(slot));
-                slider.addEventListener('touchend', () => setTimeout(resetSlots, 300));
-                slider.addEventListener('pointerup', () => setTimeout(resetSlots, 300));
-            });
-        }
-        // Macro mapping menu
-        document.getElementById('macro-map-menu').addEventListener('click', (e) => {
-            const macroIdx = e.target.dataset.macro;
-            document.getElementById('macro-map-menu').hidden = true;
-            if (macroIdx === undefined) return;
-            if (macroIdx === 'learn') {
-                if (this.midi) {
-                    const slotEl = e.target.closest('[data-macro]') || document.querySelector('.macro-slot.macro-menu-active');
-                    const idx = this._midiLearnMacroIndex;
-                    if (idx !== undefined) {
-                        this.midi.startLearn({ type: 'macro', index: idx });
-                        const label = document.getElementById('macro-label-' + idx);
-                        if (label) label.parentElement.classList.add('midi-learning');
-                        const indicator = document.getElementById('midi-indicator');
-                        if (indicator) indicator.classList.add('midi-learning');
-                    }
-                }
-                return;
-            }
-            if (macroIdx === 'learn-clear') {
-                if (this.midi) {
-                    const idx = this._midiLearnMacroIndex;
-                    if (idx !== undefined) {
-                        this.midi.clearMappingForTarget({ type: 'macro', index: idx });
-                        const label = document.getElementById('macro-label-' + idx);
-                        if (label) {
-                            label.textContent = 'M' + (idx + 1);
-                            label.parentElement.classList.remove('midi-learning');
-                        }
-                    }
-                }
-                return;
-            }
-            this._applyMacroMapping(macroIdx);
-        });
-
-        // Macro label right-click for MIDI Learn
-        document.querySelectorAll('.macro-label').forEach(label => {
-            label.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                const slot = label.closest('.macro-slot');
-                const idx = slot ? parseInt(slot.dataset.macro) : -1;
-                if (idx < 0) return;
-                this._midiLearnMacroIndex = idx;
-                const menu = document.getElementById('macro-map-menu');
-                menu.style.left = Math.min(e.clientX, window.innerWidth - 170) + 'px';
-                menu.style.top = Math.min(e.clientY, window.innerHeight - 200) + 'px';
-                menu.hidden = false;
-                const close = (ev) => {
-                    if (!menu.contains(ev.target)) {
-                        menu.hidden = true;
-                        document.removeEventListener('click', close);
-                    }
-                };
-                setTimeout(() => document.addEventListener('click', close), 10);
-            });
-        });
 
         // Main menu
         $('menu-btn').addEventListener('click', () => this._toggleMainMenu());
@@ -1609,25 +1512,6 @@ class App {
                     });
                 }, 0);
             }
-            // Add right-click / long-press for macro mapping (on range inputs only)
-            if (p.type !== 'select') {
-                const rangeInput = div.querySelector('input[type="range"]');
-                if (rangeInput) {
-                    rangeInput.addEventListener('contextmenu', (e) => {
-                        this.showMacroMapMenu(e, fxName, p);
-                    });
-                    // Long press for mobile
-                    let pressTimer = null;
-                    rangeInput.addEventListener('touchstart', (e) => {
-                        pressTimer = setTimeout(() => {
-                            this.showMacroMapMenu(e.touches[0], fxName, p);
-                        }, 600);
-                    });
-                    rangeInput.addEventListener('touchend', () => clearTimeout(pressTimer));
-                    rangeInput.addEventListener('touchmove', () => clearTimeout(pressTimer));
-                }
-            }
-
             container.appendChild(div);
         });
 
@@ -1660,36 +1544,12 @@ class App {
             document.getElementById('fx-apply').textContent = 'Apply';
         }
 
-        // If macros are mapped to this effect's params, set slider values from macros
-        const macros = this._getSlotMacros();
-        if (macros) {
-            for (let m = 0; m < 4; m++) {
-                const mapping = macros[m].mapping;
-                if (mapping && mapping.fx === fxName) {
-                    const paramEl = document.querySelector(`#fx-params [data-key="${mapping.paramKey}"]`);
-                    if (paramEl) {
-                        const realVal = mapping.min + macros[m].value * (mapping.max - mapping.min);
-                        if (paramEl.dataset.scale === 'log') {
-                            const logMin = Math.log(mapping.min);
-                            const logMax = Math.log(mapping.max);
-                            const logVal = Math.log(realVal);
-                            paramEl.value = Math.round(((logVal - logMin) / (logMax - logMin)) * 1000);
-                        } else {
-                            paramEl.value = realVal;
-                        }
-                        paramEl.dispatchEvent(new Event('input'));
-                    }
-                }
-            }
-        }
-
         document.getElementById('fx-dialog').hidden = false;
     }
 
     closeFxDialog() {
         document.getElementById('fx-dialog').hidden = true;
         this._currentFx = null;
-        document.getElementById('macro-map-menu').hidden = true;
     }
 
     _gatherFxParams() {
@@ -1875,238 +1735,6 @@ class App {
         await this.slots.renameSlot(emptySlot, srcName + '-b');
 
         this.renderSlotGrid();
-    }
-
-    // === Macros ===
-
-    _getSlotMacros() {
-        const slot = this.slots.getSelectedSlot();
-        if (!slot) return null;
-        if (!slot._macros) {
-            slot._macros = [];
-            for (let i = 0; i < 4; i++) {
-                slot._macros.push({ value: 0.5, mapping: null });
-            }
-        }
-        return slot._macros;
-    }
-
-    restoreMacroUI() {
-        const macros = this._getSlotMacros();
-        for (let m = 0; m < 4; m++) {
-            const slider = document.getElementById(`macro-${m}`);
-            const label = document.getElementById(`macro-label-${m}`);
-            const valueEl = document.getElementById(`macro-value-${m}`);
-            const slotEl = slider.closest('.macro-slot');
-
-            if (macros) {
-                slider.value = macros[m].value * 1000;
-                const mapping = macros[m].mapping;
-                if (mapping) {
-                    label.textContent = mapping.label.slice(0, 3).toUpperCase();
-                    label.classList.add('mapped');
-                    slotEl.classList.add('mapped');
-                    const realVal = this._macroToReal(macros[m].value, mapping);
-                    valueEl.textContent = this._formatMacroValue(realVal, mapping);
-                } else {
-                    label.textContent = `M${m + 1}`;
-                    label.classList.remove('mapped');
-                    slotEl.classList.remove('mapped');
-                    valueEl.textContent = macros[m].value.toFixed(2);
-                }
-            } else {
-                slider.value = 500;
-                label.textContent = `M${m + 1}`;
-                label.classList.remove('mapped');
-                slotEl.classList.remove('mapped');
-                valueEl.textContent = '0.50';
-            }
-        }
-    }
-
-    _formatMacroValue(val, mapping) {
-        if (mapping.step >= 1) {
-            return Math.round(val) + (mapping.unit || '');
-        }
-        return val.toFixed(mapping.step < 0.1 ? 2 : 1) + (mapping.unit || '');
-    }
-
-    _macroToReal(normalized, mapping) {
-        if (mapping.scale === 'log') {
-            const logMin = Math.log(mapping.min);
-            const logMax = Math.log(mapping.max);
-            return Math.exp(logMin + normalized * (logMax - logMin));
-        }
-        return mapping.min + normalized * (mapping.max - mapping.min);
-    }
-
-    onMacroChange(macroIdx) {
-        const macros = this._getSlotMacros();
-        if (!macros) return;
-
-        const slider = document.getElementById(`macro-${macroIdx}`);
-        const normalized = parseInt(slider.value) / 1000;
-        macros[macroIdx].value = normalized;
-
-        const mapping = macros[macroIdx].mapping;
-        const valueEl = document.getElementById(`macro-value-${macroIdx}`);
-
-        if (mapping) {
-            const realVal = this._macroToReal(normalized, mapping);
-            valueEl.textContent = this._formatMacroValue(realVal, mapping);
-
-            // Update FX dialog slider if open
-            if (this._currentFx === mapping.fx) {
-                const paramEl = document.querySelector(`#fx-params [data-key="${mapping.paramKey}"]`);
-                if (paramEl) {
-                    if (paramEl.dataset.scale === 'log') {
-                        const logMin = Math.log(mapping.min);
-                        const logMax = Math.log(mapping.max);
-                        paramEl.value = Math.round(normalized * 1000);
-                    } else {
-                        paramEl.value = realVal;
-                    }
-                    paramEl.dispatchEvent(new Event('input'));
-                }
-            }
-
-            // Update real-time audio nodes
-            this._updateLiveEffectFromMacros();
-        } else {
-            valueEl.textContent = normalized.toFixed(2);
-        }
-    }
-
-    _updateLiveEffectFromMacros() {
-        const macros = this._getSlotMacros();
-        if (!macros) return;
-
-        // Collect all mapped params by effect
-        const mapped = {};
-        for (let m = 0; m < 4; m++) {
-            const mapping = macros[m].mapping;
-            if (!mapping) continue;
-            if (!mapped[mapping.fx]) mapped[mapping.fx] = {};
-            mapped[mapping.fx][mapping.paramKey] = this._macroToReal(macros[m].value, mapping);
-        }
-
-        // Filter — real-time via BiquadFilterNode
-        if (mapped.filter) {
-            const p = mapped.filter;
-            this.audio.enableLiveFilter(
-                p.type || 'lowpass',
-                p.frequency !== undefined ? p.frequency : 1000,
-                p.q !== undefined ? p.q : 1
-            );
-        } else if (this.audio._liveFilter) {
-            this.audio.disableLiveFilter();
-        }
-
-        // Reverb — macro overrides slot live effect
-        const slot = this.slots.slots[this.slots.selectedIndex];
-        const slotFx = slot && slot._liveEffects;
-
-        if (mapped.reverb) {
-            const p = mapped.reverb;
-            this.audio.enableLiveReverb(
-                p.decay !== undefined ? p.decay : 2,
-                p.mix !== undefined ? p.mix / 100 : 0.4
-            );
-        } else if (this.audio._liveReverb && !(slotFx && slotFx.reverb)) {
-            // Only disable if no slot-level reverb is set
-            this.audio.disableLiveReverb();
-        }
-
-        // Delay — macro overrides slot live effect
-        if (mapped.delay) {
-            const p = mapped.delay;
-            this.audio.enableLiveDelay(
-                p.time !== undefined ? p.time / 1000 : 0.3,
-                p.feedback !== undefined ? p.feedback / 100 : 0.4,
-                p.mix !== undefined ? p.mix / 100 : 0.5
-            );
-        } else if (this.audio._liveDelay && !(slotFx && slotFx.delay)) {
-            // Only disable if no slot-level delay is set
-            this.audio.disableLiveDelay();
-        }
-
-        // Pitch shift — tape-style via playbackRate
-        if (mapped.pitchshift) {
-            const semitones = mapped.pitchshift.semitones !== undefined ? mapped.pitchshift.semitones : 0;
-            this.audio.setPlaybackRate(Math.pow(2, semitones / 12));
-        } else {
-            // Reset to normal speed if no pitch mapping active
-            this.audio.setPlaybackRate(1);
-        }
-    }
-
-    // Show mapping menu when right-clicking/long-pressing an FX param slider
-    showMacroMapMenu(e, fxName, paramDef) {
-        e.preventDefault();
-        this._pendingMapParam = { fx: fxName, param: paramDef };
-
-        const menu = document.getElementById('macro-map-menu');
-        const x = e.clientX || e.pageX || 0;
-        const y = e.clientY || e.pageY || 0;
-        menu.style.left = Math.min(x, window.innerWidth - 170) + 'px';
-        menu.style.top = Math.min(y, window.innerHeight - 200) + 'px';
-        menu.hidden = false;
-
-        // Update menu labels to show current mappings
-        const macros = this._getSlotMacros();
-        menu.querySelectorAll('button[data-macro]').forEach(btn => {
-            const idx = btn.dataset.macro;
-            if (idx === 'clear') return;
-            const m = macros ? macros[parseInt(idx)] : null;
-            if (m && m.mapping) {
-                btn.textContent = `M${parseInt(idx) + 1} (${m.mapping.label})`;
-            } else {
-                btn.textContent = `Map to M${parseInt(idx) + 1}`;
-            }
-        });
-
-        const close = (ev) => {
-            if (!menu.contains(ev.target)) {
-                menu.hidden = true;
-                document.removeEventListener('click', close);
-            }
-        };
-        setTimeout(() => document.addEventListener('click', close), 10);
-    }
-
-    _applyMacroMapping(macroIdx) {
-        const pending = this._pendingMapParam;
-        this._pendingMapParam = null;
-        if (!pending) return;
-
-        const macros = this._getSlotMacros();
-        if (!macros) return;
-
-        if (macroIdx === 'clear') {
-            // Find and clear any macro mapped to this param
-            for (let m = 0; m < 4; m++) {
-                if (macros[m].mapping &&
-                    macros[m].mapping.fx === pending.fx &&
-                    macros[m].mapping.paramKey === pending.param.key) {
-                    macros[m].mapping = null;
-                }
-            }
-        } else {
-            const m = parseInt(macroIdx);
-            const p = pending.param;
-            macros[m].mapping = {
-                fx: pending.fx,
-                paramKey: p.key,
-                label: p.label,
-                min: p.min,
-                max: p.max,
-                step: p.step,
-                unit: p.unit || '',
-                scale: p.scale || 'linear'
-            };
-        }
-
-        this.restoreMacroUI();
     }
 
     // === Batch Export ===
@@ -3944,7 +3572,6 @@ class App {
         document.getElementById('slot-grid').classList.toggle('sample-mode', mode === 'sample');
         document.getElementById('toolbar').classList.toggle('sample-mode', mode === 'sample');
         document.getElementById('toolbar').classList.toggle('seq-mode', mode === 'seq');
-        document.getElementById('macro-bar').hidden = (mode !== 'rec');
 
         // Header title
         if (this._kitMode) {
@@ -5044,26 +4671,10 @@ class App {
         this.midi.onLearnComplete = (target, cc) => {
             const indicator = document.getElementById('midi-indicator');
             if (indicator) indicator.classList.remove('midi-learning');
-            if (target.type === 'macro') {
-                const label = document.getElementById('macro-label-' + target.index);
-                if (label) {
-                    label.parentElement.classList.remove('midi-learning');
-                    label.textContent = 'CC' + cc;
-                    // Flash back to normal after 2s
-                    setTimeout(() => {
-                        const m = this.midi.getMappingForTarget(target);
-                        if (m) label.textContent = 'CC' + m.cc;
-                    }, 2000);
-                }
-            }
         };
         this.midi.onLearnCancel = () => {
             const indicator = document.getElementById('midi-indicator');
             if (indicator) indicator.classList.remove('midi-learning');
-            for (let i = 0; i < 4; i++) {
-                const el = document.getElementById('macro-label-' + i);
-                if (el) el.parentElement.classList.remove('midi-learning');
-            }
         };
 
         const ok = await this.midi.init();
@@ -5113,15 +4724,6 @@ class App {
         }
 
         this._refreshMidiPortUI();
-
-        // Restore MIDI CC labels on macros
-        for (let i = 0; i < 4; i++) {
-            const m = this.midi.getMappingForTarget({ type: 'macro', index: i });
-            if (m) {
-                const label = document.getElementById('macro-label-' + i);
-                if (label) label.textContent = 'CC' + m.cc;
-            }
-        }
     }
 
     _updateMidiIndicator() {
@@ -5194,16 +4796,7 @@ class App {
     }
 
     _midiCC(cc, value, mapping) {
-        if (!mapping) return;
-        const normalized = value / 127;
-        if (mapping.type === 'macro') {
-            const idx = mapping.index;
-            const slider = document.getElementById('macro-' + idx);
-            if (slider) {
-                slider.value = Math.round(normalized * 1000);
-                this.onMacroChange(idx);
-            }
-        }
+        // CC handling (macros removed)
     }
 
     _midiSendStep(stepIndex, time) {
