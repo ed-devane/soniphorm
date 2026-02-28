@@ -1,4 +1,4 @@
-const CACHE_NAME = 'soniphorm-soundlab-v99';
+const CACHE_NAME = 'soniphorm-soundlab-v100';
 const ASSETS = [
   './',
   './index.html',
@@ -11,7 +11,8 @@ const ASSETS = [
   './effects.js',
   './sampler.js',
   './sequencer.js',
-  './recorder-worklet.js'
+  './recorder-worklet.js',
+  './midi.js'
 ];
 
 self.addEventListener('install', (e) => {

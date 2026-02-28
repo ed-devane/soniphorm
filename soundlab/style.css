@@ -1835,3 +1835,44 @@ main {
     .waveform-wrap { min-height: 80px; }
     .slot { min-height: 40px; }
 }
+
+/* === MIDI === */
+.midi-indicator {
+    font-size: 9px;
+    font-weight: 700;
+    padding: 2px 6px;
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--text3);
+    border: 1px solid var(--border);
+    margin-right: 6px;
+    flex-shrink: 0;
+}
+.midi-indicator.midi-active {
+    color: var(--green);
+    border-color: var(--green);
+}
+.midi-indicator.midi-learning {
+    animation: midi-pulse 0.6s ease-in-out infinite alternate;
+}
+@keyframes midi-pulse {
+    from { color: var(--yellow); border-color: var(--yellow); opacity: 0.5; }
+    to   { color: var(--yellow); border-color: var(--yellow); opacity: 1; }
+}
+.midi-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 12px;
+    font-size: 11px;
+}
+.midi-row span {
+    min-width: 48px;
+    color: var(--text2);
+}
+.midi-row select {
+    flex: 1;
+}
+.midi-learning .macro-label {
+    animation: midi-pulse 0.6s ease-in-out infinite alternate;
+}

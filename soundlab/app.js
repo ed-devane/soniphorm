@@ -63,6 +63,10 @@ class App {
         this._envNodesPitch = [];  // computed node positions for pitch canvas
         this._envDragging = -1;    // index of node being dragged, -1 = none
         this._envDragTarget = null; // 'amp' or 'pitch' — which canvas is being dragged
+
+        // MIDI
+        this.midi = null;
+        this._midiHeldNotes = new Map(); // midiNote -> voiceKey
     }
 
     async init() {
@@ -134,6 +138,7 @@ class App {
         // Init sequencer & sampler
         this._initSequencer();
         this._initSampler();
+        this._initMidi();
 
         // Register service worker
         if ('serviceWorker' in navigator) {
@@ -757,7 +762,57 @@ class App {
             const macroIdx = e.target.dataset.macro;
             document.getElementById('macro-map-menu').hidden = true;
             if (macroIdx === undefined) return;
+            if (macroIdx === 'learn') {
+                if (this.midi) {
+                    const slotEl = e.target.closest('[data-macro]') || document.querySelector('.macro-slot.macro-menu-active');
+                    const idx = this._midiLearnMacroIndex;
+                    if (idx !== undefined) {
+                        this.midi.startLearn({ type: 'macro', index: idx });
+                        const label = document.getElementById('macro-label-' + idx);
+                        if (label) label.parentElement.classList.add('midi-learning');
+                        const indicator = document.getElementById('midi-indicator');
+                        if (indicator) indicator.classList.add('midi-learning');
+                    }
+                }
+                return;
+            }
+            if (macroIdx === 'learn-clear') {
+                if (this.midi) {
+                    const idx = this._midiLearnMacroIndex;
+                    if (idx !== undefined) {
+                        this.midi.clearMappingForTarget({ type: 'macro', index: idx });
+                        const label = document.getElementById('macro-label-' + idx);
+                        if (label) {
+                            label.textContent = 'M' + (idx + 1);
+                            label.parentElement.classList.remove('midi-learning');
+                        }
+                    }
+                }
+                return;
+            }
             this._applyMacroMapping(macroIdx);
+        });
+
+        // Macro label right-click for MIDI Learn
+        document.querySelectorAll('.macro-label').forEach(label => {
+            label.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                const slot = label.closest('.macro-slot');
+                const idx = slot ? parseInt(slot.dataset.macro) : -1;
+                if (idx < 0) return;
+                this._midiLearnMacroIndex = idx;
+                const menu = document.getElementById('macro-map-menu');
+                menu.style.left = Math.min(e.clientX, window.innerWidth - 170) + 'px';
+                menu.style.top = Math.min(e.clientY, window.innerHeight - 200) + 'px';
+                menu.hidden = false;
+                const close = (ev) => {
+                    if (!menu.contains(ev.target)) {
+                        menu.hidden = true;
+                        document.removeEventListener('click', close);
+                    }
+                };
+                setTimeout(() => document.addEventListener('click', close), 10);
+            });
         });
 
         // Main menu
@@ -786,6 +841,12 @@ class App {
                 }
                 select.hidden = false;
                 if (hint) hint.hidden = false;
+                return;
+            }
+            if (action === 'midi') {
+                const panel = document.getElementById('midi-settings');
+                panel.hidden = !panel.hidden;
+                if (!panel.hidden) this._refreshMidiPortUI();
                 return;
             }
             document.getElementById('main-menu').hidden = true;
@@ -2408,6 +2469,9 @@ class App {
             return this.sampler ? this.sampler.pads[slotIndex] : null;
         };
 
+        // MIDI output on step
+        this.sequencer.onStepSchedule = (stepIndex, time) => this._midiSendStep(stepIndex, time);
+
         // Mute/Solo state
         this._seqMutedSlots = new Set();
         this._seqSoloSlot = -1; // -1 = no solo
@@ -2916,6 +2980,11 @@ class App {
                 this._seqRecording = false;
                 document.getElementById('seq-rec-btn').classList.remove('rec-on');
             }
+            // MIDI: send stop + all notes off
+            if (this.midi && this.midi.activeOutput) {
+                this.midi.sendClockStop();
+                this.midi.sendCC(123, 0); // All notes off
+            }
         } else {
             // Stop main waveform playback if active
             this.stopAudio();
@@ -2924,6 +2993,10 @@ class App {
             this.sequencer.play();
             this._seqStartAnimation();
             document.getElementById('seq-play-btn').innerHTML = '&#9632; STOP';
+            // MIDI: send start
+            if (this.midi && this.midi.activeOutput && this.midi.clockMode === 'send') {
+                this.midi.sendClockStart();
+            }
             // Show seq transport if starting from sample mode
             if (this._sampleMode) {
                 this._seqShowTransportInSample = true;
@@ -4606,6 +4679,260 @@ class App {
         this._chromaticMouseHandler = null;
         this._chromaticPanStartX = null;
         this._chromaticHeldNote = null;
+    }
+
+    // === MIDI ===
+
+    async _initMidi() {
+        if (typeof MidiManager === 'undefined') return;
+        this.midi = new MidiManager();
+
+        this.midi.onNoteOn = (note, velocity) => this._midiNoteOn(note, velocity);
+        this.midi.onNoteOff = (note) => this._midiNoteOff(note);
+        this.midi.onCC = (cc, value, mapping) => this._midiCC(cc, value, mapping);
+        this.midi.onClockStart = () => {
+            if (!this.sequencer.playing) this.seqPlayStop();
+        };
+        this.midi.onClockStop = () => {
+            if (this.sequencer.playing) this.seqPlayStop();
+        };
+        this.midi.onBpmEstimate = (bpm) => {
+            if (this.midi.clockMode === 'receive') {
+                this.sequencer.setBpm(bpm);
+                document.getElementById('bpm-display').textContent = bpm;
+            }
+        };
+        this.midi.onPortsChanged = () => this._refreshMidiPortUI();
+        this.midi.onLearnComplete = (target, cc) => {
+            const indicator = document.getElementById('midi-indicator');
+            if (indicator) indicator.classList.remove('midi-learning');
+            if (target.type === 'macro') {
+                const label = document.getElementById('macro-label-' + target.index);
+                if (label) {
+                    label.parentElement.classList.remove('midi-learning');
+                    label.textContent = 'CC' + cc;
+                    // Flash back to normal after 2s
+                    setTimeout(() => {
+                        const m = this.midi.getMappingForTarget(target);
+                        if (m) label.textContent = 'CC' + m.cc;
+                    }, 2000);
+                }
+            }
+        };
+        this.midi.onLearnCancel = () => {
+            const indicator = document.getElementById('midi-indicator');
+            if (indicator) indicator.classList.remove('midi-learning');
+            for (let i = 0; i < 4; i++) {
+                const el = document.getElementById('macro-label-' + i);
+                if (el) el.parentElement.classList.remove('midi-learning');
+            }
+        };
+
+        const ok = await this.midi.init();
+        const indicator = document.getElementById('midi-indicator');
+        if (ok && indicator) {
+            indicator.hidden = false;
+            if (this.midi.activeInput || this.midi.activeOutput) {
+                indicator.classList.add('midi-active');
+            }
+        }
+
+        // Wire MIDI settings controls
+        const inSel = document.getElementById('midi-input-select');
+        const outSel = document.getElementById('midi-output-select');
+        const chSel = document.getElementById('midi-channel-select');
+        const outChSel = document.getElementById('midi-out-channel-select');
+        const clkSel = document.getElementById('midi-clock-select');
+
+        if (inSel) inSel.addEventListener('change', () => {
+            this.midi.selectInput(inSel.value);
+            this._updateMidiIndicator();
+        });
+        if (outSel) outSel.addEventListener('change', () => {
+            this.midi.selectOutput(outSel.value);
+            this._updateMidiIndicator();
+        });
+        if (chSel) {
+            // Populate channel options: Omni, 1-16
+            chSel.innerHTML = '<option value="0">Omni</option>';
+            for (let i = 1; i <= 16; i++) {
+                chSel.innerHTML += `<option value="${i}">${i}</option>`;
+            }
+            chSel.value = this.midi.channel;
+            chSel.addEventListener('change', () => {
+                this.midi.channel = parseInt(chSel.value);
+                this.midi._saveSettings();
+            });
+        }
+        if (outChSel) {
+            outChSel.innerHTML = '<option value="0">1</option>';
+            for (let i = 1; i <= 16; i++) {
+                outChSel.innerHTML += `<option value="${i}">${i}</option>`;
+            }
+            outChSel.value = this.midi.outChannel;
+            outChSel.addEventListener('change', () => {
+                this.midi.outChannel = parseInt(outChSel.value);
+                this.midi._saveSettings();
+            });
+        }
+        if (clkSel) {
+            clkSel.value = this.midi.clockMode;
+            clkSel.addEventListener('change', () => {
+                this.midi.clockMode = clkSel.value;
+                this.midi._saveSettings();
+            });
+        }
+
+        this._refreshMidiPortUI();
+
+        // Restore MIDI CC labels on macros
+        for (let i = 0; i < 4; i++) {
+            const m = this.midi.getMappingForTarget({ type: 'macro', index: i });
+            if (m) {
+                const label = document.getElementById('macro-label-' + i);
+                if (label) label.textContent = 'CC' + m.cc;
+            }
+        }
+    }
+
+    _updateMidiIndicator() {
+        const indicator = document.getElementById('midi-indicator');
+        if (!indicator || !this.midi) return;
+        indicator.classList.toggle('midi-active', !!(this.midi.activeInput || this.midi.activeOutput));
+    }
+
+    _midiNoteOn(midiNote, velocity) {
+        if (!this.sampler) return;
+        this.ensureAudioInit();
+        const padIdx = this._sampleSelectedPad;
+
+        if (this._sampleMode && this._chromaticMode) {
+            // Chromatic mode: play at MIDI pitch, polyphonic
+            const semitones = midiNote - 60;
+            const voiceKey = 'midi-' + midiNote;
+            if (!this.slots.slots[padIdx].hasAudio) return;
+            this.sampler.triggerPoly(padIdx, semitones, voiceKey);
+            this._midiHeldNotes.set(midiNote, voiceKey);
+            // Record to sequencer
+            const pad = this.sampler.pads[padIdx];
+            if (this._seqRecording && this.sequencer.playing) {
+                this._recordPadToStep(padIdx, semitones - pad.pitch, voiceKey);
+            }
+        } else if (this._sampleMode || (this._seqMode && this._seqRecording)) {
+            // Pad mode: notes 36-51 map to pads 0-15 (GM drum)
+            const padMap = midiNote - 36;
+            if (padMap < 0 || padMap > 15) return;
+            if (!this.slots.slots[padMap].hasAudio) return;
+            this.sampler.trigger(padMap);
+            if (this._seqRecording && this.sequencer.playing) {
+                this._recordPadToStep(padMap, undefined, 'midi-pad-' + padMap);
+            }
+        }
+    }
+
+    _midiNoteOff(midiNote) {
+        if (!this.sampler) return;
+        const padIdx = this._sampleSelectedPad;
+
+        if (this._sampleMode && this._chromaticMode) {
+            const voiceKey = this._midiHeldNotes.get(midiNote);
+            if (voiceKey) {
+                const pad = this.sampler.pads[padIdx];
+                this.sampler.releasePoly(voiceKey, pad.release);
+                if (this.sampler.onRelease) this.sampler.onRelease(padIdx);
+                this._midiHeldNotes.delete(midiNote);
+                if (this._seqRecording && this.sequencer.playing) {
+                    this._recordNoteOff(voiceKey);
+                }
+            }
+        } else if (this._sampleMode || (this._seqMode && this._seqRecording)) {
+            const padMap = midiNote - 36;
+            if (padMap < 0 || padMap > 15) return;
+            this.sampler.release(padMap);
+            if (this._seqRecording && this.sequencer.playing) {
+                this._recordNoteOff('midi-pad-' + padMap);
+            }
+        }
+    }
+
+    _midiCC(cc, value, mapping) {
+        if (!mapping) return;
+        const normalized = value / 127;
+        if (mapping.type === 'macro') {
+            const idx = mapping.index;
+            const slider = document.getElementById('macro-' + idx);
+            if (slider) {
+                slider.value = Math.round(normalized * 1000);
+                this.onMacroChange(idx);
+            }
+        }
+    }
+
+    _midiSendStep(stepIndex, time) {
+        if (!this.midi || !this.midi.activeOutput) return;
+        const step = this.sequencer.pattern[stepIndex];
+        if (!step) return;
+        const now = this.sequencer.audioContext.currentTime;
+        const delayMs = Math.max(0, (time - now) * 1000);
+
+        // Send clock ticks if in send mode (6 ticks per step = 24 PPQ at 1/16 resolution)
+        if (this.midi.clockMode === 'send') {
+            const stepMs = this.sequencer.stepDuration * 1000;
+            for (let t = 0; t < 6; t++) {
+                setTimeout(() => this.midi.sendClockTick(), delayMs + (t * stepMs / 6));
+            }
+        }
+
+        // Send note events for each entry in the step
+        for (const entry of step.slots) {
+            if (this.sequencer.shouldPlaySlot && !this.sequencer.shouldPlaySlot(entry.slot)) continue;
+            const pad = this.sampler ? this.sampler.pads[entry.slot] : null;
+            const baseMidi = 36 + entry.slot;
+            const pitchOffset = entry.pitch + (pad ? pad.pitch : 0);
+            const note = Math.max(0, Math.min(127, baseMidi + pitchOffset));
+            const vel = Math.max(1, Math.min(127, Math.round((pad ? pad.volume : 1) * 127)));
+
+            // Note duration: use entry.duration if set, otherwise one step
+            const durSteps = (entry.duration > 0) ? entry.duration : 1;
+            const durMs = durSteps * this.sequencer.stepDuration * 1000;
+
+            setTimeout(() => this.midi.sendNoteOn(note, vel), delayMs);
+            setTimeout(() => this.midi.sendNoteOff(note), delayMs + durMs - 5);
+        }
+    }
+
+    _refreshMidiPortUI() {
+        if (!this.midi) return;
+        const inSel = document.getElementById('midi-input-select');
+        const outSel = document.getElementById('midi-output-select');
+        if (inSel) {
+            const curVal = inSel.value;
+            inSel.innerHTML = '<option value="">None</option>';
+            for (const p of this.midi.inputs) {
+                const opt = document.createElement('option');
+                opt.value = p.id;
+                opt.textContent = p.name;
+                inSel.appendChild(opt);
+            }
+            inSel.value = (this.midi.activeInput ? this.midi.activeInput.id : '') || curVal || '';
+        }
+        if (outSel) {
+            const curVal = outSel.value;
+            outSel.innerHTML = '<option value="">None</option>';
+            for (const p of this.midi.outputs) {
+                const opt = document.createElement('option');
+                opt.value = p.id;
+                opt.textContent = p.name;
+                outSel.appendChild(opt);
+            }
+            outSel.value = (this.midi.activeOutput ? this.midi.activeOutput.id : '') || curVal || '';
+        }
+        const chSel = document.getElementById('midi-channel-select');
+        if (chSel) chSel.value = this.midi.channel;
+        const outChSel = document.getElementById('midi-out-channel-select');
+        if (outChSel) outChSel.value = this.midi.outChannel;
+        const clkSel = document.getElementById('midi-clock-select');
+        if (clkSel) clkSel.value = this.midi.clockMode;
     }
 
     // Persistence

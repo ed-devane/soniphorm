@@ -155,9 +155,35 @@ class Sampler {
     }
 
     stopAll() {
-        for (const idx of Object.keys(this._voices)) {
-            this._stopVoice(parseInt(idx));
+        for (const key of Object.keys(this._voices)) {
+            this._stopVoice(key);
         }
+    }
+
+    // === Polyphonic MIDI triggering ===
+
+    /** Trigger a voice tracked under a string key (e.g. 'midi-60') for polyphonic MIDI. */
+    triggerPoly(padIndex, semitones, voiceKey) {
+        if (!this.audioContext) return;
+        const pad = this.pads[padIndex];
+        const buffer = this._getPlayBuffer(padIndex);
+        if (!buffer) return;
+        // Stop any existing voice at this key
+        this._stopVoice(voiceKey);
+        // Temporarily override pitch and mode
+        const origPitch = pad.pitch;
+        const origMode = pad.mode;
+        pad.pitch = semitones;
+        pad.mode = 'gate';
+        this._startVoice(padIndex, buffer, true, voiceKey);
+        pad.pitch = origPitch;
+        pad.mode = origMode;
+        if (this.onTrigger) this.onTrigger(padIndex);
+    }
+
+    /** Release a polyphonic voice by its tracking key. */
+    releasePoly(voiceKey, releaseTime) {
+        this._fadeOutVoice(voiceKey, releaseTime || 0.05);
     }
 
     // === Voice Management ===
@@ -196,7 +222,8 @@ class Sampler {
         }
     }
 
-    _startVoice(slotIndex, buffer, loop) {
+    _startVoice(slotIndex, buffer, loop, voiceKey) {
+        const vk = voiceKey !== undefined ? voiceKey : slotIndex;
         const pad = this.pads[slotIndex];
         const ctx = this.audioContext;
         const now = ctx.currentTime;
@@ -355,13 +382,13 @@ class Sampler {
         }
 
         source.onended = () => {
-            if (this._voices[slotIndex] && this._voices[slotIndex].source === source) {
-                delete this._voices[slotIndex];
+            if (this._voices[vk] && this._voices[vk].source === source) {
+                delete this._voices[vk];
                 if (this.onRelease) this.onRelease(slotIndex);
             }
         };
 
-        this._voices[slotIndex] = { source, envelopeGain, volumeGain, filter, lfo, lfoGain, posLfoInterval, startTime: now };
+        this._voices[vk] = { source, envelopeGain, volumeGain, filter, lfo, lfoGain, posLfoInterval, startTime: now };
     }
 
     _stopVoice(slotIndex) {

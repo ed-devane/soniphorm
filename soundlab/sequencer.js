@@ -59,6 +59,7 @@ class Sequencer {
         this.shouldPlaySlot = null;  // (slotIndex) => bool — for mute/solo
         this.shouldStutterSlot = null; // (slotIndex) => bool — per-slot stutter
         this.shouldMutateSlot = null;  // (slotIndex) => bool — per-slot mutate
+        this.onStepSchedule = null;    // (stepIndex, time) => void — for MIDI output
     }
 
     get stepDuration() {
@@ -124,6 +125,8 @@ class Sequencer {
             this.currentStep = stepIndex;
             if (this.onStepChange) this.onStepChange(stepIndex);
         }, delay);
+
+        if (this.onStepSchedule) this.onStepSchedule(stepIndex, time);
 
         const step = this.pattern[stepIndex];
         if (!step || step.slots.length === 0) return;

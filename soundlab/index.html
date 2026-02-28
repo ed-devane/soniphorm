@@ -18,8 +18,9 @@
     <header id="header">
         <div class="header-left">
             <a href="../index.html" class="header-brand" title="Back to Soniphorm"><img src="../images/soniphormLogo.png" alt="Soniphorm"></a>
-            <span class="header-title">SOUNDLAB v99</span>
+            <span class="header-title">SOUNDLAB v100</span>
         </div>
+        <span id="midi-indicator" class="midi-indicator" hidden>MIDI</span>
         <div class="header-center" id="transport-info">
             <span id="info-rate">--</span>
             <span class="info-sep">|</span>
@@ -41,6 +42,14 @@
                 </select>
                 <span id="input-device-hint" class="menu-hint" hidden>USB devices may appear as "Headset Earpiece" or "Default"</span>
 
+                <button data-action="midi">MIDI</button>
+                <div id="midi-settings" hidden>
+                    <div class="midi-row"><span>Input</span><select id="midi-input-select" class="menu-select"><option value="">None</option></select></div>
+                    <div class="midi-row"><span>Output</span><select id="midi-output-select" class="menu-select"><option value="">None</option></select></div>
+                    <div class="midi-row"><span>In Ch</span><select id="midi-channel-select" class="menu-select"></select></div>
+                    <div class="midi-row"><span>Out Ch</span><select id="midi-out-channel-select" class="menu-select"></select></div>
+                    <div class="midi-row"><span>Clock</span><select id="midi-clock-select" class="menu-select"><option value="off">Off</option><option value="send">Send</option><option value="receive">Receive</option></select></div>
+                </div>
                 <button data-action="export-all">Export all slots</button>
                 <button data-action="delete-all" class="danger">Delete all</button>
                 <button data-action="install" id="install-btn" hidden>Install app</button>
@@ -156,6 +165,8 @@
             <button data-macro="2">Map to M3</button>
             <button data-macro="3">Map to M4</button>
             <button data-macro="clear">Clear mapping</button>
+            <button data-macro="learn">MIDI Learn</button>
+            <button data-macro="learn-clear">Clear MIDI CC</button>
         </div>
 
         <!-- Sequencer Transport -->
@@ -438,6 +449,7 @@
     <script src="effects.js"></script>
     <script src="sampler.js"></script>
     <script src="sequencer.js"></script>
+    <script src="midi.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
