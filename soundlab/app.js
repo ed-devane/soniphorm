@@ -817,6 +817,17 @@ class App {
 
         // Main menu
         $('menu-btn').addEventListener('click', () => this._toggleMainMenu());
+
+        // MIDI settings toggle (direct handler)
+        $('midi-btn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            const panel = document.getElementById('midi-settings');
+            const show = panel.hidden;
+            panel.hidden = !show;
+            e.target.classList.toggle('menu-active', show);
+            if (show) this._refreshMidiPortUI();
+        });
+
         document.getElementById('main-menu').addEventListener('click', async (e) => {
             const action = e.target.dataset.action;
             if (!action) return; // clicked the select dropdown, don't close
@@ -843,14 +854,7 @@ class App {
                 if (hint) hint.hidden = false;
                 return;
             }
-            if (action === 'midi') {
-                const panel = document.getElementById('midi-settings');
-                const show = panel.hidden;
-                panel.hidden = !show;
-                e.target.classList.toggle('menu-active', show);
-                if (show) this._refreshMidiPortUI();
-                return;
-            }
+            if (action === 'midi') return; // handled by direct listener
             document.getElementById('main-menu').hidden = true;
             if (action === 'export-all') this.exportAllSlots();
             if (action === 'delete-all') this.deleteAll();
