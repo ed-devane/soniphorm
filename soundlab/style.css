@@ -1899,3 +1899,114 @@ main {
 .midi-learning .macro-label {
     animation: midi-pulse 0.6s ease-in-out infinite alternate;
 }
+
+/* === Kit Mode === */
+
+/* Kit slot badge in normal view */
+.slot-kit { position: relative; }
+.slot-kit::after {
+    content: 'KIT';
+    position: absolute;
+    top: 2px; right: 4px;
+    font-size: 8px;
+    font-weight: 700;
+    color: #fff;
+    background: #666;
+    padding: 1px 4px;
+    border-radius: 2px;
+    letter-spacing: 0.5px;
+}
+
+/* Kit mode lighter colours (inside a kit) */
+.kit-mode .slot {
+    background: #151b2f;
+    border-color: #2a3550;
+}
+.kit-mode .slot:hover {
+    background: #1a2240;
+}
+.kit-mode .slot.pad-selected {
+    border-color: #5aafee;
+    background: rgba(90, 175, 238, 0.08);
+}
+
+/* Kit back button */
+.kit-back-btn {
+    background: none;
+    border: 1px solid var(--border-lt);
+    color: var(--text2);
+    padding: 3px 10px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    flex-shrink: 0;
+    transition: background 0.1s, color 0.1s;
+}
+.kit-back-btn:hover {
+    background: var(--surface);
+    color: var(--text);
+}
+.kit-back-btn[hidden] { display: none; }
+
+/* Context menu hidden buttons */
+.context-menu button[hidden] { display: none; }
+.context-menu .danger { color: var(--red); }
+.context-menu .danger:hover { background: rgba(239,68,68,0.15); }
+
+/* Drum grid sequencer */
+.drum-grid {
+    flex: 2 1 0;
+    display: grid;
+    gap: 1px;
+    background: var(--bg);
+    overflow-x: auto;
+    overflow-y: auto;
+    padding: 4px;
+    min-height: 240px;
+}
+.drum-grid[hidden] { display: none; }
+.drum-grid-row {
+    display: contents;
+}
+.drum-grid-label {
+    font-size: 10px;
+    font-family: var(--mono);
+    color: var(--text2);
+    padding: 2px 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: flex;
+    align-items: center;
+    background: var(--bg2);
+    border-right: 1px solid var(--border);
+    min-width: 80px;
+    max-width: 80px;
+}
+.drum-grid-cell {
+    min-width: 24px;
+    min-height: 24px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.1s;
+    border-radius: 2px;
+}
+.drum-grid-cell:hover {
+    background: var(--bg3);
+    border-color: var(--border-lt);
+}
+.drum-grid-cell.active {
+    background: #2d7a4f;
+    border-color: #3a9d62;
+}
+.drum-grid-cell.playing {
+    background: #d97706 !important;
+    border-color: #f59e0b !important;
+}
+.drum-grid-cell.beat-marker {
+    border-left: 1px solid var(--border-lt);
+}

@@ -18,9 +18,10 @@
     <header id="header">
         <div class="header-left">
             <a href="../index.html" class="header-brand" title="Back to Soniphorm"><img src="../images/soniphormLogo.png" alt="Soniphorm"></a>
-            <span class="header-title">SOUNDLAB v106</span>
+            <span class="header-title">SOUNDLAB v107</span>
         </div>
         <span id="midi-indicator" class="midi-indicator" hidden>MIDI</span>
+        <button id="kit-back-btn" class="kit-back-btn" hidden>&#9664; BACK</button>
         <div class="header-center" id="transport-info">
             <span id="info-rate">--</span>
             <span class="info-sep">|</span>
@@ -193,6 +194,7 @@
             <button id="seq-bounce-btn" class="tb" title="Bounce sequence to slot">BOUNCE</button>
             <button id="seq-clear-btn" class="tb" title="Clear pattern">CLEAR</button>
             <div class="seq-sep"></div>
+            <button id="seq-drum-grid-btn" class="tb" title="Toggle drum grid view" hidden>DRUM</button>
             <div class="seq-steps-group">
                 <span class="seq-steps-label">STEPS</span>
                 <select id="seq-step-count" class="seq-step-select">
@@ -362,6 +364,9 @@
 
         <!-- Slot Grid -->
         <div class="slot-grid" id="slot-grid"></div>
+
+        <!-- Drum Grid (kit mode sequencer view) -->
+        <div id="drum-grid" class="drum-grid" hidden></div>
     </main>
 
     <!-- Rename Dialog -->
@@ -381,6 +386,8 @@
         <button data-action="rename">Rename</button>
         <button data-action="duplicate">Duplicate</button>
         <button data-action="save">Save to device</button>
+        <button data-action="make-kit">Make Drum Kit</button>
+        <button data-action="unmake-kit" class="danger">Unmake Drum Kit</button>
         <button data-action="clear">Clear slot</button>
     </div>
 

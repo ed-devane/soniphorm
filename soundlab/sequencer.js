@@ -54,8 +54,10 @@ class Sequencer {
         this.onMutate = null;
         this.onPatternLoop = null;
         this.getSlotBuffer = null;
+        this.getKitSlotBuffer = null;  // (parentSlot, subIndex) => AudioBuffer | null
         this.getLoadedSlots = null;
         this.getPadSettings = null;  // (slotIndex) => pad object or null
+        this.getKitPadSettings = null; // (subIndex) => pad object or null
         this.shouldPlaySlot = null;  // (slotIndex) => bool — for mute/solo
         this.shouldStutterSlot = null; // (slotIndex) => bool — per-slot stutter
         this.shouldMutateSlot = null;  // (slotIndex) => bool — per-slot mutate
@@ -134,14 +136,22 @@ class Sequencer {
         for (let s = 0; s < step.slots.length; s++) {
             const entry = step.slots[s];
             if (this.shouldPlaySlot && !this.shouldPlaySlot(entry.slot)) continue;
-            const buffer = this._getBuffer(entry.slot, step.direction === 'reverse');
+
+            let buffer;
+            let pad;
+            if (entry.kitSub !== undefined && this.getKitSlotBuffer) {
+                buffer = this.getKitSlotBuffer(entry.slot, entry.kitSub);
+                pad = this.getKitPadSettings ? this.getKitPadSettings(entry.kitSub) : null;
+            } else {
+                buffer = this._getBuffer(entry.slot, step.direction === 'reverse');
+                pad = this.getPadSettings ? this.getPadSettings(entry.slot) : null;
+            }
             if (!buffer) continue;
 
             // Per-slot stutter: check if this slot has stutter enabled
             const slotStutter = this.shouldStutterSlot ? this.shouldStutterSlot(entry.slot) : this.stutterEnabled;
             const subdivs = slotStutter ? this._getStutterSubdivisions() : 1;
             const subDur = this.stepDuration / subdivs;
-            const pad = this.getPadSettings ? this.getPadSettings(entry.slot) : null;
 
             for (let sub = 0; sub < subdivs; sub++) {
                 const subTime = time + sub * subDur;
@@ -348,6 +358,22 @@ class Sequencer {
         }
     }
 
+    /** Toggle a kit sub-slot on/off for a step. */
+    toggleKitSubOnStep(stepIndex, parentSlot, subIndex) {
+        const step = this.pattern[stepIndex];
+        const pos = step.slots.findIndex(e => e.slot === parentSlot && e.kitSub === subIndex);
+        if (pos >= 0) {
+            step.slots.splice(pos, 1);
+        } else {
+            step.slots.push({ slot: parentSlot, pitch: 0, duration: 0, kitSub: subIndex });
+        }
+    }
+
+    /** Check if a kit sub-slot is active on a step. */
+    hasKitSubOnStep(stepIndex, parentSlot, subIndex) {
+        return this.pattern[stepIndex].slots.some(e => e.slot === parentSlot && e.kitSub === subIndex);
+    }
+
     /** Check if a slot is active on a step. */
     hasSlotOnStep(stepIndex, slotIdx) {
         return this.pattern[stepIndex].slots.some(e => e.slot === slotIdx);
@@ -522,7 +548,15 @@ class Sequencer {
                 const startTime = loopOffset + i * stepDur;
 
                 for (const entry of step.slots) {
-                    const buffer = this._getBuffer(entry.slot, step.direction === 'reverse');
+                    let buffer;
+                    let pad;
+                    if (entry.kitSub !== undefined && this.getKitSlotBuffer) {
+                        buffer = this.getKitSlotBuffer(entry.slot, entry.kitSub);
+                        pad = this.getKitPadSettings ? this.getKitPadSettings(entry.kitSub) : null;
+                    } else {
+                        buffer = this._getBuffer(entry.slot, step.direction === 'reverse');
+                        pad = this.getPadSettings ? this.getPadSettings(entry.slot) : null;
+                    }
                     if (!buffer) continue;
 
                     const offlineBuf = offline.createBuffer(buffer.numberOfChannels, buffer.length, buffer.sampleRate);
@@ -530,7 +564,6 @@ class Sequencer {
                         offlineBuf.getChannelData(ch).set(buffer.getChannelData(ch));
                     }
 
-                    const pad = this.getPadSettings ? this.getPadSettings(entry.slot) : null;
                     this._playBuffer(offline, offlineBuf, entry, step, startTime, pad);
                 }
             }
@@ -556,7 +589,11 @@ class Sequencer {
             mutateAmount: this.mutateAmount,
             stutterAmount: this.stutterAmount,
             pattern: this.pattern.map(step => ({
-                slots: step.slots.map(e => ({ slot: e.slot, pitch: e.pitch, duration: e.duration || 0 })),
+                slots: step.slots.map(e => {
+                    const obj = { slot: e.slot, pitch: e.pitch, duration: e.duration || 0 };
+                    if (e.kitSub !== undefined) obj.kitSub = e.kitSub;
+                    return obj;
+                }),
                 mode: step.mode,
                 direction: step.direction
             }))
@@ -583,7 +620,9 @@ class Sequencer {
                         // Also handle old plain-index format: [0, 5, ...]
                         this.pattern[i].slots = s.slots.map(e => {
                             if (typeof e === 'object' && e !== null) {
-                                return { slot: e.slot, pitch: e.pitch || 0, duration: e.duration || 0 };
+                                const obj = { slot: e.slot, pitch: e.pitch || 0, duration: e.duration || 0 };
+                                if (e.kitSub !== undefined) obj.kitSub = e.kitSub;
+                                return obj;
                             }
                             // Old format: plain number — apply step-level pitch if present
                             return { slot: e, pitch: s.pitch || 0, duration: 0 };

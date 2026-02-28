@@ -67,6 +67,13 @@ class App {
         // MIDI
         this.midi = null;
         this._midiHeldNotes = new Map(); // midiNote -> voiceKey
+
+        // Kit mode
+        this._kitMode = false;
+        this._kitParentSlot = -1;
+        this._kitSlotBuffers = {}; // subIndex -> AudioBuffer
+        this._kitSelectedSub = 0;
+        this._drumGridView = false; // true = drum grid, false = normal seq view
     }
 
     async init() {
@@ -237,6 +244,12 @@ class App {
             if (i < 16) {
                 el.addEventListener('contextmenu', (e) => this.onSlotContext(i, e));
                 el.addEventListener('dblclick', async (e) => {
+                    // Double-click kit slot -> enter kit mode
+                    if (!this._kitMode && this.slots.slots[i].type === 'kit') {
+                        await this.ensureAudioInit();
+                        await this._enterKitMode(i);
+                        return;
+                    }
                     if (this._sampleMode && this.slots.slots[i].hasAudio) {
                         this.sampler.stopAll();
                         this.slots.selectSlot(i);
@@ -305,12 +318,20 @@ class App {
         slotEls.forEach((el, i) => {
             const slot = this.slots.slots[i];
             const nameEl = el.querySelector('.slot-name');
-            nameEl.textContent = slot.hasAudio ? (slot.name || 'untitled') : 'empty';
-            nameEl.className = `slot-name ${slot.hasAudio ? '' : 'empty'}`;
+            const isKit = slot.type === 'kit';
+
+            if (isKit) {
+                nameEl.textContent = slot.name || 'Kit';
+                nameEl.className = 'slot-name';
+            } else {
+                nameEl.textContent = slot.hasAudio ? (slot.name || 'untitled') : 'empty';
+                nameEl.className = `slot-name ${slot.hasAudio ? '' : 'empty'}`;
+            }
 
             // Restore normal mode classes
             el.className = 'slot';
             el.dataset.bank = slot.bank;
+            if (isKit) el.classList.add('slot-kit');
 
             // Clean up seq/sample-mode elements
             const iconsEl = el.querySelector('.step-mode-icons');
@@ -330,7 +351,13 @@ class App {
 
             // Draw mini waveform
             const miniCanvas = el.querySelector('.slot-mini canvas');
-            if (slot.hasAudio && slot.peaks) {
+            if (isKit) {
+                // Show kit indicator instead of waveform
+                const ctx = miniCanvas.getContext('2d');
+                miniCanvas.width = miniCanvas.clientWidth;
+                miniCanvas.height = miniCanvas.clientHeight;
+                ctx.clearRect(0, 0, miniCanvas.width, miniCanvas.height);
+            } else if (slot.hasAudio && slot.peaks) {
                 const color = isSelected ? 'rgba(255,255,255,0.8)' : 'rgba(14,165,233,0.6)';
                 WaveformRenderer.drawMiniFromPeaks(miniCanvas, slot.peaks, color);
             } else if (!slot.hasAudio) {
@@ -354,6 +381,17 @@ class App {
         }
         await this.ensureAudioInit();
         const slot = this.slots.slots[index];
+
+        // Kit slots: single click selects, double-click enters kit mode
+        if (slot.type === 'kit') {
+            this.slots.selectSlot(index);
+            this.channels = null;
+            this.waveform.clear();
+            document.getElementById('waveform-empty').hidden = false;
+            this.renderSlotGrid();
+            this.updateTransportInfo();
+            return;
+        }
 
         // If we're recording into this slot, stop recording
         if (this.recordingSlotIndex === index) {
@@ -434,7 +472,7 @@ class App {
             alert('Could not access microphone. Check permissions.');
             return;
         }
-        this.recordingSlotIndex = index;
+        this.recordingSlotIndex = this._kitMode ? this._kitSelectedSub : index;
         this._recChunks = [];
         this._recTotalLen = 0;
         this._requestWakeLock();
@@ -504,18 +542,32 @@ class App {
         this.channels = result.channels;
         this.bufferSampleRate = result.sampleRate;
 
-        // Save to slot
-        await this.slots.saveSlotAudio(index, this.channels, this.bufferSampleRate);
+        // Save to slot (kit sub-slot if in kit mode)
+        if (this._kitMode) {
+            const subIndex = this._kitSelectedSub;
+            await this.slots.saveKitSlotAudio(this._kitParentSlot, subIndex, this.channels, this.bufferSampleRate);
+            // Update buffer cache
+            if (this.audio.audioContext) {
+                const buf = this.audio.audioContext.createBuffer(
+                    this.channels.length, this.channels[0].length, this.bufferSampleRate
+                );
+                for (let ch = 0; ch < this.channels.length; ch++) {
+                    buf.getChannelData(ch).set(this.channels[ch]);
+                }
+                this._kitSlotBuffers[subIndex] = buf;
+            }
+            this.waveform.setAudio(this.channels, this.bufferSampleRate);
+            document.getElementById('waveform-empty').hidden = true;
+            this._showKitSlotRenameDialog(this._kitParentSlot, subIndex);
+            this._renderKitGrid();
+        } else {
+            await this.slots.saveSlotAudio(index, this.channels, this.bufferSampleRate);
+            this.waveform.setAudio(this.channels, this.bufferSampleRate);
+            document.getElementById('waveform-empty').hidden = true;
+            this.showRenameDialog(index);
+            this.renderSlotGrid();
+        }
 
-
-        // Show waveform
-        this.waveform.setAudio(this.channels, this.bufferSampleRate);
-        document.getElementById('waveform-empty').hidden = true;
-
-        // Prompt for name
-        this.showRenameDialog(index);
-
-        this.renderSlotGrid();
         this.updateTransportInfo();
         this.updateToolbarState();
     }
@@ -537,15 +589,80 @@ class App {
             return;
         }
         const slot = this.slots.slots[index];
-        if (!slot.hasAudio) return;
+
+        // Kit mode: context menu for kit sub-slots
+        if (this._kitMode) {
+            const sub = this.slots.getKitSlotMeta(this._kitParentSlot, index);
+            if (!sub || !sub.hasAudio) return;
+            const menu = document.getElementById('context-menu');
+            // Hide kit-specific buttons, show normal ones
+            menu.querySelector('[data-action="make-kit"]').hidden = true;
+            menu.querySelector('[data-action="unmake-kit"]').hidden = true;
+            menu.querySelector('[data-action="duplicate"]').hidden = true;
+            menu.querySelector('[data-action="rename"]').hidden = false;
+            menu.querySelector('[data-action="save"]').hidden = false;
+            menu.querySelector('[data-action="clear"]').hidden = false;
+            const x = e.clientX || e.pageX;
+            const y = e.clientY || e.pageY;
+            menu.style.left = Math.min(x, window.innerWidth - 170) + 'px';
+            menu.style.top = Math.min(y, window.innerHeight - 160) + 'px';
+            menu.hidden = false;
+            menu._slotIndex = index;
+            menu._kitMode = true;
+            menu._kitParentSlot = this._kitParentSlot;
+            const close = (ev) => {
+                if (!menu.contains(ev.target)) {
+                    menu.hidden = true;
+                    document.removeEventListener('click', close);
+                }
+            };
+            setTimeout(() => document.addEventListener('click', close), 10);
+            return;
+        }
+
+        // Normal mode: require audio or allow kit conversion of empty slot
+        if (!slot.hasAudio && slot.type !== 'kit') {
+            // Show make-kit option for empty slots
+            const menu = document.getElementById('context-menu');
+            menu.querySelector('[data-action="rename"]').hidden = true;
+            menu.querySelector('[data-action="duplicate"]').hidden = true;
+            menu.querySelector('[data-action="save"]').hidden = true;
+            menu.querySelector('[data-action="clear"]').hidden = true;
+            menu.querySelector('[data-action="make-kit"]').hidden = false;
+            menu.querySelector('[data-action="unmake-kit"]').hidden = true;
+            const x = e.clientX || e.pageX;
+            const y = e.clientY || e.pageY;
+            menu.style.left = Math.min(x, window.innerWidth - 170) + 'px';
+            menu.style.top = Math.min(y, window.innerHeight - 160) + 'px';
+            menu.hidden = false;
+            menu._slotIndex = index;
+            menu._kitMode = false;
+            const close = (ev) => {
+                if (!menu.contains(ev.target)) {
+                    menu.hidden = true;
+                    document.removeEventListener('click', close);
+                }
+            };
+            setTimeout(() => document.addEventListener('click', close), 10);
+            return;
+        }
 
         const menu = document.getElementById('context-menu');
+        const isKit = slot.type === 'kit';
+        menu.querySelector('[data-action="rename"]').hidden = isKit ? false : false;
+        menu.querySelector('[data-action="duplicate"]').hidden = isKit;
+        menu.querySelector('[data-action="save"]').hidden = isKit;
+        menu.querySelector('[data-action="clear"]').hidden = isKit;
+        menu.querySelector('[data-action="make-kit"]').hidden = true;
+        menu.querySelector('[data-action="unmake-kit"]').hidden = !isKit;
+
         const x = e.clientX || e.pageX;
         const y = e.clientY || e.pageY;
         menu.style.left = Math.min(x, window.innerWidth - 170) + 'px';
         menu.style.top = Math.min(y, window.innerHeight - 160) + 'px';
         menu.hidden = false;
         menu._slotIndex = index;
+        menu._kitMode = false;
 
         const close = (ev) => {
             if (!menu.contains(ev.target)) {
@@ -562,11 +679,22 @@ class App {
         // Rename dialog
         const dialog = document.getElementById('rename-dialog');
         const input = document.getElementById('rename-input');
-        document.getElementById('rename-ok').addEventListener('click', () => {
+        document.getElementById('rename-ok').addEventListener('click', async () => {
             const name = input.value.trim() || 'untitled';
-            this.slots.renameSlot(dialog._slotIndex, name);
-            dialog.hidden = true;
-            this.renderSlotGrid();
+            if (dialog._isKitSlot) {
+                await this.slots.renameKitSlot(dialog._kitParentSlot, dialog._slotIndex, name);
+                dialog._isKitSlot = false;
+                dialog.hidden = true;
+                this._renderKitGrid();
+            } else {
+                this.slots.renameSlot(dialog._slotIndex, name);
+                dialog.hidden = true;
+                if (this._kitMode) {
+                    this._renderKitGrid();
+                } else {
+                    this.renderSlotGrid();
+                }
+            }
         });
         document.getElementById('rename-cancel').addEventListener('click', () => {
             dialog.hidden = true;
@@ -580,12 +708,18 @@ class App {
             const action = e.target.dataset.action;
             const menu = document.getElementById('context-menu');
             const index = menu._slotIndex;
+            const isKitCtx = menu._kitMode;
+            const kitParent = menu._kitParentSlot;
             menu.hidden = true;
             if (!action || index == null) return;
 
             switch (action) {
                 case 'rename':
-                    this.showRenameDialog(index);
+                    if (isKitCtx) {
+                        this._showKitSlotRenameDialog(kitParent, index);
+                    } else {
+                        this.showRenameDialog(index);
+                    }
                     break;
                 case 'duplicate': {
                     const empty = this.slots.findEmptySlot();
@@ -599,11 +733,40 @@ class App {
                     break;
                 }
                 case 'save':
-                    await this.saveSlotToDevice(index);
+                    if (isKitCtx) {
+                        await this._saveKitSlotToDevice(kitParent, index);
+                    } else {
+                        await this.saveSlotToDevice(index);
+                    }
                     break;
                 case 'clear':
-                    if (confirm(`Clear slot ${index + 1}?`)) {
-                        await this.slots.clearSlot(index);
+                    if (isKitCtx) {
+                        if (confirm(`Clear kit pad ${index + 1}?`)) {
+                            await this.slots.clearKitSlot(kitParent, index);
+                            delete this._kitSlotBuffers[index];
+                            this._renderKitGrid();
+                        }
+                    } else {
+                        if (confirm(`Clear slot ${index + 1}?`)) {
+                            await this.slots.clearSlot(index);
+                            if (index === this.slots.selectedIndex) {
+                                this.channels = null;
+                                this.waveform.clear();
+                                document.getElementById('waveform-empty').hidden = false;
+                                this.updateTransportInfo();
+                            }
+                            this.renderSlotGrid();
+                            this.updateToolbarState();
+                        }
+                    }
+                    break;
+                case 'make-kit':
+                    await this.slots.makeKit(index);
+                    this.renderSlotGrid();
+                    break;
+                case 'unmake-kit':
+                    if (confirm(`Unmake drum kit in slot ${index + 1}? All kit samples will be deleted.`)) {
+                        await this.slots.unmakeKit(index);
                         if (index === this.slots.selectedIndex) {
                             this.channels = null;
                             this.waveform.clear();
@@ -888,6 +1051,12 @@ class App {
         $('mode-rec').addEventListener('click', () => this.switchMode('rec'));
         $('mode-sample').addEventListener('click', () => this.switchMode('sample'));
         $('mode-seq').addEventListener('click', () => this.switchMode('seq'));
+
+        // Kit mode back button
+        $('kit-back-btn').addEventListener('click', () => this._exitKitMode());
+
+        // Drum grid toggle
+        $('seq-drum-grid-btn').addEventListener('click', () => this._toggleDrumGrid());
 
         // Sampler transport — mode buttons
         $('pad-mode-oneshot').addEventListener('click', () => this.setPadMode('oneshot'));
@@ -1218,8 +1387,25 @@ class App {
     }
 
     async saveCurrentSlot() {
+        if (!this.channels) return;
+        if (this._kitMode) {
+            const subIndex = this._kitSelectedSub;
+            await this.slots.saveKitSlotAudio(this._kitParentSlot, subIndex, this.channels, this.bufferSampleRate);
+            // Update buffer cache
+            if (this.audio.audioContext) {
+                const buf = this.audio.audioContext.createBuffer(
+                    this.channels.length, this.channels[0].length, this.bufferSampleRate
+                );
+                for (let ch = 0; ch < this.channels.length; ch++) {
+                    buf.getChannelData(ch).set(this.channels[ch]);
+                }
+                this._kitSlotBuffers[subIndex] = buf;
+            }
+            this._renderKitGrid();
+            return;
+        }
         const idx = this.slots.selectedIndex;
-        if (idx < 0 || !this.channels) return;
+        if (idx < 0) return;
         await this.slots.saveSlotAudio(idx, this.channels, this.bufferSampleRate);
         this.renderSlotGrid();
     }
@@ -1263,6 +1449,44 @@ class App {
         e.target.value = '';
 
         await this.ensureAudioInit();
+
+        // Kit mode: load into selected kit sub-slot
+        if (this._kitMode) {
+            try {
+                const decoded = await AudioEngine.decodeBlob(file, this.audio.audioContext);
+                const subIndex = this._kitSelectedSub;
+                this.channels = decoded.channels;
+                this.bufferSampleRate = decoded.sampleRate;
+                this.undoStack = [];
+                this.redoStack = [];
+
+                const name = file.name.replace(/\.[^.]+$/, '').slice(0, 32);
+                await this.slots.saveKitSlotAudio(this._kitParentSlot, subIndex, this.channels, this.bufferSampleRate);
+                await this.slots.renameKitSlot(this._kitParentSlot, subIndex, name);
+
+                // Update buffer cache
+                if (this.audio.audioContext) {
+                    const buf = this.audio.audioContext.createBuffer(
+                        this.channels.length, this.channels[0].length, this.bufferSampleRate
+                    );
+                    for (let ch = 0; ch < this.channels.length; ch++) {
+                        buf.getChannelData(ch).set(this.channels[ch]);
+                    }
+                    this._kitSlotBuffers[subIndex] = buf;
+                }
+
+                this.waveform.setAudio(this.channels, this.bufferSampleRate);
+                document.getElementById('waveform-empty').hidden = true;
+
+                this._renderKitGrid();
+                this.updateTransportInfo();
+                this.updateToolbarState();
+            } catch (err) {
+                alert('Could not decode audio file');
+                console.error(err);
+            }
+            return;
+        }
 
         let targetIndex = this.slots.selectedIndex;
         if (targetIndex < 0 || this.slots.slots[targetIndex].hasAudio) {
@@ -2466,6 +2690,19 @@ class App {
         this.sequencer.getSlotBuffer = (slotIndex) => {
             return this._slotBuffers[slotIndex] || null;
         };
+        this.sequencer.getKitSlotBuffer = (parentSlot, subIndex) => {
+            // If we're in kit mode viewing this parent, use the cached kit buffers
+            if (this._kitMode && this._kitParentSlot === parentSlot) {
+                return this._kitSlotBuffers[subIndex] || null;
+            }
+            return null;
+        };
+        this.sequencer.getKitPadSettings = (subIndex) => {
+            if (this._kitMode) {
+                return this.sampler ? this.sampler.pads[subIndex] : null;
+            }
+            return null;
+        };
         this.sequencer.getLoadedSlots = () => {
             const loaded = [];
             for (let i = 0; i < 16; i++) {
@@ -2473,10 +2710,21 @@ class App {
             }
             return loaded;
         };
+        // Kit-aware version for sequencer features
+        this._getLoadedKitSubs = () => {
+            if (!this._kitMode) return [];
+            const loaded = [];
+            for (let j = 0; j < 16; j++) {
+                const meta = this.slots.getKitSlotMeta(this._kitParentSlot, j);
+                if (meta && meta.hasAudio) loaded.push(j);
+            }
+            return loaded;
+        };
         this.sequencer.onStepChange = (step) => {
             this._seqHighlightStep(step);
             this._seqFlashSampleRows(step);
             this._seqFlashPads(step);
+            if (this._drumGridView) this._updateDrumGridStep(step);
         };
         this.sequencer.onMutate = (step) => {
             this._seqFlashMutate(step);
@@ -2551,6 +2799,10 @@ class App {
                     console.warn('Failed to preload slot', i, e);
                 }
             }
+        }
+        // Also preload kit buffers if in kit mode
+        if (this._kitMode) {
+            await this._preloadKitBuffers(this._kitParentSlot);
         }
     }
 
@@ -3657,13 +3909,24 @@ class App {
                 this.sampler.audioContext = this.audio.audioContext;
                 this.sampler.outputNode = this.audio.getEffectsBus();
             }
-            await this._seqPreloadBuffers(); // reuse same buffer cache
-            this.buildSlotGrid();
-            this.renderSampleGrid();
+            if (this._kitMode) {
+                await this._preloadKitBuffers(this._kitParentSlot);
+                this._buildKitGrid();
+                this._renderKitGrid();
+            } else {
+                await this._seqPreloadBuffers(); // reuse same buffer cache
+                this.buildSlotGrid();
+                this.renderSampleGrid();
+            }
         } else {
             // rec mode — rebuild grid (seq mode may have >16 slots)
-            this.buildSlotGrid();
-            this.renderSlotGrid();
+            if (this._kitMode) {
+                this._buildKitGrid();
+                this._renderKitGrid();
+            } else {
+                this.buildSlotGrid();
+                this.renderSlotGrid();
+            }
         }
 
         // Apply slot live effects so the bus has the correct chain active
@@ -3684,8 +3947,21 @@ class App {
         document.getElementById('macro-bar').hidden = (mode !== 'rec');
 
         // Header title
-        const titles = { rec: 'SOUNDLAB', sample: 'SAMPLER', seq: 'SEQUENCER' };
-        document.querySelector('.header-title').textContent = titles[mode];
+        if (this._kitMode) {
+            const kitName = this.slots.slots[this._kitParentSlot].name || 'Kit';
+            document.querySelector('.header-title').textContent = 'KIT: ' + kitName;
+        } else {
+            const titles = { rec: 'SOUNDLAB', sample: 'SAMPLER', seq: 'SEQUENCER' };
+            document.querySelector('.header-title').textContent = titles[mode];
+        }
+
+        // Show drum grid toggle button in SEQ mode when in kit mode
+        document.getElementById('seq-drum-grid-btn').hidden = !(mode === 'seq' && this._kitMode);
+
+        // Maintain kit-mode class on slot grid
+        if (this._kitMode) {
+            document.getElementById('slot-grid').classList.add('kit-mode');
+        }
 
         // Update sample transport after panel is visible (canvas needs dimensions)
         if (mode === 'sample') {
@@ -3704,6 +3980,12 @@ class App {
     // === Sample Grid ===
 
     renderSampleGrid() {
+        // Kit mode: delegate to kit-specific renderer
+        if (this._kitMode) {
+            this._renderKitGrid();
+            return;
+        }
+
         const grid = document.getElementById('slot-grid');
         const slotEls = grid.querySelectorAll('.slot');
 
@@ -3791,6 +4073,33 @@ class App {
 
     // Pad tap handling (from onSlotTap)
     async samplePadTap(index, e) {
+        // Kit mode: trigger kit sub-sample
+        if (this._kitMode) {
+            const meta = this.slots.getKitSlotMeta(this._kitParentSlot, index);
+            if (!meta || !meta.hasAudio) return;
+
+            if (index !== this._sampleSelectedPad) {
+                this._sampleSelectedPad = index;
+                this._kitSelectedSub = index;
+                const data = await this.slots.getKitSlotAudio(this._kitParentSlot, index);
+                if (data) {
+                    this.channels = data.channels;
+                    this.bufferSampleRate = data.sampleRate;
+                    this.waveform.setAudio(this.channels, this.bufferSampleRate);
+                    document.getElementById('waveform-empty').hidden = true;
+                }
+                this.updateTransportInfo();
+            }
+
+            this._updateSampleTransport();
+            this._renderKitGrid();
+            this.sampler.trigger(index);
+            if (this._seqRecording && this.sequencer.playing) {
+                this._recordPadToStep(index, undefined, 'pad-' + index);
+            }
+            return;
+        }
+
         if (!this.slots.slots[index].hasAudio) return;
 
         // Load this slot's audio into the waveform if switching pads
@@ -4831,18 +5140,27 @@ class App {
             const pad = this.sampler.pads[padIdx];
             const semitones = (midiNote - 60) + pad.pitch;
             const voiceKey = 'midi-' + midiNote;
-            if (!this.slots.slots[padIdx].hasAudio) return;
+            if (this._kitMode) {
+                const meta = this.slots.getKitSlotMeta(this._kitParentSlot, padIdx);
+                if (!meta || !meta.hasAudio) return;
+            } else {
+                if (!this.slots.slots[padIdx].hasAudio) return;
+            }
             this.sampler.triggerPoly(padIdx, semitones, voiceKey);
             this._midiHeldNotes.set(midiNote, voiceKey);
-            // Record to sequencer (store pitch without pad transpose, sequencer adds it on playback)
             if (this._seqRecording && this.sequencer.playing) {
                 this._recordPadToStep(padIdx, midiNote - 60, voiceKey);
             }
         } else if (this._sampleMode || (this._seqMode && this._seqRecording)) {
-            // Pad mode: notes 36-51 map to pads 0-15 (GM drum)
+            // Pad mode: notes 36-51 map to pads 0-15 (GM drum / kit sub-pads)
             const padMap = midiNote - 36;
             if (padMap < 0 || padMap > 15) return;
-            if (!this.slots.slots[padMap].hasAudio) return;
+            if (this._kitMode) {
+                const meta = this.slots.getKitSlotMeta(this._kitParentSlot, padMap);
+                if (!meta || !meta.hasAudio) return;
+            } else {
+                if (!this.slots.slots[padMap].hasAudio) return;
+            }
             this.sampler.trigger(padMap);
             if (this._seqRecording && this.sequencer.playing) {
                 this._recordPadToStep(padMap, undefined, 'midi-pad-' + padMap);
@@ -4906,17 +5224,27 @@ class App {
         // Send note events for each entry in the step
         for (const entry of step.slots) {
             if (this.sequencer.shouldPlaySlot && !this.sequencer.shouldPlaySlot(entry.slot)) continue;
-            const pad = this.sampler ? this.sampler.pads[entry.slot] : null;
-            const baseMidi = 36 + entry.slot;
-            const pitchOffset = entry.pitch + (pad ? pad.pitch : 0);
-            const note = Math.max(0, Math.min(127, baseMidi + pitchOffset));
-            const vel = Math.max(1, Math.min(127, Math.round((pad ? pad.volume : 1) * 127)));
+
+            let note, vel, ch;
+            if (entry.kitSub !== undefined) {
+                // Kit sub-slot: use GM drum mapping
+                note = 36 + entry.kitSub;
+                const pad = this.sampler ? this.sampler.pads[entry.kitSub] : null;
+                vel = Math.max(1, Math.min(127, Math.round((pad ? pad.volume : 1) * 127)));
+                ch = entry.slot & 0x0F;
+            } else {
+                const pad = this.sampler ? this.sampler.pads[entry.slot] : null;
+                const baseMidi = 36 + entry.slot;
+                const pitchOffset = entry.pitch + (pad ? pad.pitch : 0);
+                note = Math.max(0, Math.min(127, baseMidi + pitchOffset));
+                vel = Math.max(1, Math.min(127, Math.round((pad ? pad.volume : 1) * 127)));
+                ch = entry.slot & 0x0F; // slot 0-15 → MIDI channel 1-16
+            }
 
             // Note duration: use entry.duration if set, otherwise one step
             const durSteps = (entry.duration > 0) ? entry.duration : 1;
             const durMs = durSteps * this.sequencer.stepDuration * 1000;
 
-            const ch = entry.slot & 0x0F; // slot 0-15 → MIDI channel 1-16
             setTimeout(() => this.midi.sendNoteOn(note, vel, ch), delayMs);
             setTimeout(() => this.midi.sendNoteOff(note, ch), delayMs + durMs - 5);
         }
@@ -4957,7 +5285,363 @@ class App {
     }
 
     // Persistence
+    // === Kit Mode ===
+
+    static get GM_NOTE_NAMES() {
+        return ['C2','C#2','D2','D#2','E2','F2','F#2','G2','G#2','A2','A#2','B2','C3','C#3','D3','D#3'];
+    }
+
+    async _enterKitMode(slotIndex) {
+        this._kitMode = true;
+        this._kitParentSlot = slotIndex;
+        this._kitSelectedSub = 0;
+        this._kitSlotBuffers = {};
+
+        // Preload kit sub-slot audio buffers
+        await this._preloadKitBuffers(slotIndex);
+
+        // Swap sampler to use kit buffers
+        this.sampler.getSlotBuffer = (subIndex) => {
+            return this._kitSlotBuffers[subIndex] || null;
+        };
+
+        // Load kit pad config
+        this._loadKitPadConfig(slotIndex);
+
+        // Show back button
+        document.getElementById('kit-back-btn').hidden = false;
+
+        // Update header
+        const kitName = this.slots.slots[slotIndex].name || 'Kit';
+        document.querySelector('.header-title').textContent = 'KIT: ' + kitName;
+
+        // Add kit-mode class to slot grid
+        document.getElementById('slot-grid').classList.add('kit-mode');
+
+        // Rebuild and render the grid for kit sub-slots
+        this._buildKitGrid();
+        this._renderKitGrid();
+    }
+
+    _exitKitMode() {
+        this._kitMode = false;
+        this._kitParentSlot = -1;
+        this._kitSlotBuffers = {};
+        this._drumGridView = false;
+
+        // Hide back button
+        document.getElementById('kit-back-btn').hidden = true;
+
+        // Hide drum grid if visible
+        document.getElementById('drum-grid').hidden = true;
+        document.getElementById('slot-grid').hidden = false;
+        document.getElementById('seq-drum-grid-btn').hidden = true;
+
+        // Remove kit-mode class
+        document.getElementById('slot-grid').classList.remove('kit-mode');
+
+        // Restore sampler buffer callback to normal
+        this.sampler.getSlotBuffer = (slotIndex) => {
+            return this._slotBuffers[slotIndex] || null;
+        };
+
+        // Reload normal sampler config
+        this._loadSamplerConfig();
+
+        // Return to REC mode view
+        this.switchMode('rec');
+    }
+
+    async _preloadKitBuffers(parentSlot) {
+        for (let j = 0; j < 16; j++) {
+            const meta = this.slots.getKitSlotMeta(parentSlot, j);
+            if (meta && meta.hasAudio) {
+                try {
+                    const data = await this.slots.getKitSlotAudio(parentSlot, j);
+                    if (data && this.audio.audioContext) {
+                        const buf = this.audio.audioContext.createBuffer(
+                            data.channels.length,
+                            data.channels[0].length,
+                            data.sampleRate
+                        );
+                        for (let ch = 0; ch < data.channels.length; ch++) {
+                            buf.getChannelData(ch).set(data.channels[ch]);
+                        }
+                        this._kitSlotBuffers[j] = buf;
+                    }
+                } catch (e) {
+                    console.warn('Failed to preload kit slot', parentSlot, j, e);
+                }
+            }
+        }
+    }
+
+    _buildKitGrid() {
+        const grid = document.getElementById('slot-grid');
+        grid.innerHTML = '';
+
+        for (let i = 0; i < 16; i++) {
+            const el = document.createElement('div');
+            el.className = 'slot';
+            el.dataset.index = i;
+            el.dataset.bank = Math.floor(i / 4);
+
+            el.innerHTML = `
+                <span class="slot-number">${App.GM_NOTE_NAMES[i]}</span>
+                <span class="slot-name empty">empty</span>
+                <div class="slot-mini"><canvas></canvas></div>
+            `;
+
+            // Touch/mouse handling for kit sub-pads
+            let usedTouch = false;
+
+            el.addEventListener('click', (e) => {
+                if (this._sampleMode) return;
+                if (this._seqMode) {
+                    this.seqStepTap(i);
+                    return;
+                }
+                this._onKitSlotTap(i);
+            });
+
+            el.addEventListener('contextmenu', (e) => this.onSlotContext(i, e));
+
+            el.addEventListener('mousedown', (e) => {
+                if (usedTouch) return;
+                if (this._sampleMode && e.button === 0) this.samplePadTap(i);
+            });
+            el.addEventListener('mouseup', () => {
+                if (usedTouch) return;
+                if (this._sampleMode) this.samplePadRelease(i);
+            });
+            el.addEventListener('mouseleave', () => {
+                if (usedTouch) return;
+                if (this._sampleMode) this.samplePadRelease(i);
+            });
+            el.addEventListener('touchstart', (e) => {
+                usedTouch = true;
+                if (this._sampleMode) {
+                    e.preventDefault();
+                    this.samplePadTap(i);
+                }
+            });
+            el.addEventListener('touchend', (e) => {
+                if (this._sampleMode) {
+                    e.preventDefault();
+                    this.samplePadRelease(i);
+                }
+                setTimeout(() => { usedTouch = false; }, 400);
+            });
+            el.addEventListener('touchcancel', () => {
+                if (this._sampleMode) this.samplePadRelease(i);
+                setTimeout(() => { usedTouch = false; }, 400);
+            });
+
+            grid.appendChild(el);
+        }
+    }
+
+    _renderKitGrid() {
+        const grid = document.getElementById('slot-grid');
+        const slotEls = grid.querySelectorAll('.slot');
+
+        slotEls.forEach((el, i) => {
+            const meta = this.slots.getKitSlotMeta(this._kitParentSlot, i);
+            const nameEl = el.querySelector('.slot-name');
+            if (meta && meta.hasAudio) {
+                nameEl.textContent = meta.name || 'untitled';
+                nameEl.className = 'slot-name';
+            } else {
+                nameEl.textContent = 'empty';
+                nameEl.className = 'slot-name empty';
+            }
+
+            const numEl = el.querySelector('.slot-number');
+            numEl.textContent = App.GM_NOTE_NAMES[i];
+
+            el.className = 'slot';
+            el.dataset.bank = Math.floor(i / 4);
+
+            if (i === this._kitSelectedSub) el.classList.add('pad-selected');
+
+            // Draw mini waveform
+            const miniCanvas = el.querySelector('.slot-mini canvas');
+            if (meta && meta.hasAudio && meta.peaks) {
+                const isSelected = i === this._kitSelectedSub;
+                const color = isSelected ? 'rgba(255,255,255,0.8)' : 'rgba(14,165,233,0.6)';
+                WaveformRenderer.drawMiniFromPeaks(miniCanvas, meta.peaks, color);
+            } else {
+                const ctx = miniCanvas.getContext('2d');
+                miniCanvas.width = miniCanvas.clientWidth;
+                miniCanvas.height = miniCanvas.clientHeight;
+                ctx.clearRect(0, 0, miniCanvas.width, miniCanvas.height);
+            }
+
+            // Add key label in sample mode
+            if (this._sampleMode) {
+                let keyEl = el.querySelector('.pad-key-label');
+                if (!keyEl) {
+                    keyEl = document.createElement('span');
+                    keyEl.className = 'pad-key-label';
+                    el.appendChild(keyEl);
+                }
+                keyEl.textContent = this.sampler.keyLabels[i];
+            }
+        });
+    }
+
+    async _onKitSlotTap(subIndex) {
+        await this.ensureAudioInit();
+        this._kitSelectedSub = subIndex;
+        const meta = this.slots.getKitSlotMeta(this._kitParentSlot, subIndex);
+
+        if (meta && meta.hasAudio) {
+            const data = await this.slots.getKitSlotAudio(this._kitParentSlot, subIndex);
+            if (data) {
+                this.channels = data.channels;
+                this.bufferSampleRate = data.sampleRate;
+                this.waveform.setAudio(this.channels, this.bufferSampleRate);
+                document.getElementById('waveform-empty').hidden = true;
+            }
+        } else {
+            this.channels = null;
+            this.waveform.clear();
+            document.getElementById('waveform-empty').hidden = false;
+        }
+
+        this._renderKitGrid();
+        this.updateTransportInfo();
+        this.updateToolbarState();
+    }
+
+    _showKitSlotRenameDialog(parentSlot, subIndex) {
+        const dialog = document.getElementById('rename-dialog');
+        const input = document.getElementById('rename-input');
+        const meta = this.slots.getKitSlotMeta(parentSlot, subIndex);
+        dialog._slotIndex = subIndex;
+        dialog._kitParentSlot = parentSlot;
+        dialog._isKitSlot = true;
+        input.value = (meta && meta.name) || '';
+        dialog.hidden = false;
+        setTimeout(() => input.focus(), 50);
+    }
+
+    async _saveKitSlotToDevice(parentSlot, subIndex) {
+        const data = await this.slots.getKitSlotAudio(parentSlot, subIndex);
+        if (!data) return;
+        const blob = AudioEngine.encodeWAV(data.channels, data.sampleRate);
+        const meta = this.slots.getKitSlotMeta(parentSlot, subIndex);
+        const name = (meta && meta.name) || 'kit-sample';
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+        const filename = `soniphorm-${name}-${timestamp}.wav`;
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(a.href);
+    }
+
+    _loadKitPadConfig(parentSlot) {
+        try {
+            const json = localStorage.getItem('soniphorm-kit-pads-' + parentSlot);
+            if (json) {
+                this.sampler.fromJSON(JSON.parse(json));
+            } else {
+                // Reset to defaults
+                for (let i = 0; i < 16; i++) {
+                    this.sampler.pads[i] = Sampler.defaultPad();
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to load kit pad config:', e);
+        }
+    }
+
+    _saveKitPadConfig() {
+        if (!this._kitMode) return;
+        try {
+            localStorage.setItem('soniphorm-kit-pads-' + this._kitParentSlot, JSON.stringify(this.sampler.toJSON()));
+        } catch (e) {
+            console.warn('Failed to save kit pad config:', e);
+        }
+    }
+
+    // === Drum Grid ===
+
+    _toggleDrumGrid() {
+        this._drumGridView = !this._drumGridView;
+        const drumGridEl = document.getElementById('drum-grid');
+        const slotGridEl = document.getElementById('slot-grid');
+        const btn = document.getElementById('seq-drum-grid-btn');
+
+        if (this._drumGridView) {
+            slotGridEl.hidden = true;
+            drumGridEl.hidden = false;
+            btn.classList.add('loop-on');
+            this._renderDrumGrid();
+        } else {
+            slotGridEl.hidden = false;
+            drumGridEl.hidden = true;
+            btn.classList.remove('loop-on');
+        }
+    }
+
+    _renderDrumGrid() {
+        const container = document.getElementById('drum-grid');
+        const stepCount = this.sequencer.stepCount;
+        const parentSlot = this._kitParentSlot;
+
+        container.style.gridTemplateColumns = `80px repeat(${stepCount}, 1fr)`;
+        container.innerHTML = '';
+
+        for (let sub = 0; sub < 16; sub++) {
+            // Row label
+            const label = document.createElement('div');
+            label.className = 'drum-grid-label';
+            const meta = this.slots.getKitSlotMeta(parentSlot, sub);
+            const name = (meta && meta.name) || '';
+            label.textContent = `${App.GM_NOTE_NAMES[sub]} ${name}`;
+            container.appendChild(label);
+
+            // Step cells
+            for (let step = 0; step < stepCount; step++) {
+                const cell = document.createElement('div');
+                cell.className = 'drum-grid-cell';
+                if (step % 4 === 0) cell.classList.add('beat-marker');
+
+                const isActive = this.sequencer.hasKitSubOnStep(step, parentSlot, sub);
+                if (isActive) cell.classList.add('active');
+
+                if (this.sequencer.currentStep === step) cell.classList.add('playing');
+
+                cell.addEventListener('click', () => {
+                    this.sequencer.toggleKitSubOnStep(step, parentSlot, sub);
+                    this._renderDrumGrid();
+                    this._saveSeqPattern();
+                });
+
+                container.appendChild(cell);
+            }
+        }
+    }
+
+    _updateDrumGridStep(stepIndex) {
+        if (!this._drumGridView) return;
+        const container = document.getElementById('drum-grid');
+        const cells = container.querySelectorAll('.drum-grid-cell');
+        const stepCount = this.sequencer.stepCount;
+
+        cells.forEach((cell, idx) => {
+            const step = idx % stepCount;
+            cell.classList.toggle('playing', step === stepIndex);
+        });
+    }
+
     _saveSamplerConfig() {
+        if (this._kitMode) {
+            this._saveKitPadConfig();
+            return;
+        }
         try {
             localStorage.setItem('soniphorm-sampler', JSON.stringify(this.sampler.toJSON()));
         } catch (e) {
