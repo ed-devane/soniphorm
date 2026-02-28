@@ -4753,11 +4753,6 @@ class App {
             this._updateMidiIndicator();
         });
         if (chSel) {
-            // Populate channel options: Omni, 1-16
-            chSel.innerHTML = '<option value="0">Omni</option>';
-            for (let i = 1; i <= 16; i++) {
-                chSel.innerHTML += `<option value="${i}">${i}</option>`;
-            }
             chSel.value = this.midi.channel;
             chSel.addEventListener('change', () => {
                 this.midi.channel = parseInt(chSel.value);
@@ -4765,10 +4760,6 @@ class App {
             });
         }
         if (outChSel) {
-            outChSel.innerHTML = '<option value="0">1</option>';
-            for (let i = 1; i <= 16; i++) {
-                outChSel.innerHTML += `<option value="${i}">${i}</option>`;
-            }
             outChSel.value = this.midi.outChannel;
             outChSel.addEventListener('change', () => {
                 this.midi.outChannel = parseInt(outChSel.value);

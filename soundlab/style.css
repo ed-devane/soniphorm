@@ -582,6 +582,18 @@ main {
 }
 .context-menu button:hover { background: var(--surface); color: var(--text); }
 .context-menu button.menu-active { color: var(--green); }
+.menu-select {
+    display: block;
+    width: 100%;
+    padding: 4px 8px;
+    margin: 2px 0;
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-family: var(--mono);
+    font-size: 11px;
+}
 .menu-hint { display: block; padding: 4px 12px 8px; font-size: 10px; color: var(--text3); font-style: italic; }
 .menu-hint[hidden] { display: none; }
 #macro-map-menu { z-index: 200; }

@@ -18,7 +18,7 @@
     <header id="header">
         <div class="header-left">
             <a href="../index.html" class="header-brand" title="Back to Soniphorm"><img src="../images/soniphormLogo.png" alt="Soniphorm"></a>
-            <span class="header-title">SOUNDLAB v100</span>
+            <span class="header-title">SOUNDLAB v101</span>
         </div>
         <span id="midi-indicator" class="midi-indicator" hidden>MIDI</span>
         <div class="header-center" id="transport-info">
@@ -46,8 +46,8 @@
                 <div id="midi-settings" hidden>
                     <div class="midi-row"><span>Input</span><select id="midi-input-select" class="menu-select"><option value="">None</option></select></div>
                     <div class="midi-row"><span>Output</span><select id="midi-output-select" class="menu-select"><option value="">None</option></select></div>
-                    <div class="midi-row"><span>In Ch</span><select id="midi-channel-select" class="menu-select"></select></div>
-                    <div class="midi-row"><span>Out Ch</span><select id="midi-out-channel-select" class="menu-select"></select></div>
+                    <div class="midi-row"><span>In Ch</span><select id="midi-channel-select" class="menu-select"><option value="0">Omni</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option><option value="11">11</option><option value="12">12</option><option value="13">13</option><option value="14">14</option><option value="15">15</option><option value="16">16</option></select></div>
+                    <div class="midi-row"><span>Out Ch</span><select id="midi-out-channel-select" class="menu-select"><option value="0">1</option><option value="1">2</option><option value="2">3</option><option value="3">4</option><option value="4">5</option><option value="5">6</option><option value="6">7</option><option value="7">8</option><option value="8">9</option><option value="9">10</option><option value="10">11</option><option value="11">12</option><option value="12">13</option><option value="13">14</option><option value="14">15</option><option value="15">16</option></select></div>
                     <div class="midi-row"><span>Clock</span><select id="midi-clock-select" class="menu-select"><option value="off">Off</option><option value="send">Send</option><option value="receive">Receive</option></select></div>
                 </div>
                 <button data-action="export-all">Export all slots</button>
