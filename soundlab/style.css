@@ -1859,6 +1859,7 @@ main {
     border: 1px solid var(--border);
     margin-right: 6px;
     flex-shrink: 0;
+    cursor: pointer;
 }
 .midi-indicator.midi-active {
     color: var(--green);
