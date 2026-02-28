@@ -845,8 +845,10 @@ class App {
             }
             if (action === 'midi') {
                 const panel = document.getElementById('midi-settings');
-                panel.hidden = !panel.hidden;
-                if (!panel.hidden) this._refreshMidiPortUI();
+                const show = panel.hidden;
+                panel.hidden = !show;
+                e.target.classList.toggle('menu-active', show);
+                if (show) this._refreshMidiPortUI();
                 return;
             }
             document.getElementById('main-menu').hidden = true;

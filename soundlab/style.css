@@ -1871,6 +1871,14 @@ main {
     from { color: var(--yellow); border-color: var(--yellow); opacity: 0.5; }
     to   { color: var(--yellow); border-color: var(--yellow); opacity: 1; }
 }
+#midi-settings {
+    background: var(--bg2);
+    border: 1px solid var(--border-lt);
+    border-radius: var(--radius);
+    margin: 4px;
+    padding: 4px 0;
+}
+#midi-settings[hidden] { display: none !important; }
 .midi-row {
     display: flex;
     align-items: center;
@@ -1881,9 +1889,11 @@ main {
 .midi-row span {
     min-width: 48px;
     color: var(--text2);
+    flex-shrink: 0;
 }
 .midi-row select {
     flex: 1;
+    min-width: 0;
 }
 .midi-learning .macro-label {
     animation: midi-pulse 0.6s ease-in-out infinite alternate;
