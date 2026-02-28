@@ -819,14 +819,20 @@ class App {
         $('menu-btn').addEventListener('click', () => this._toggleMainMenu());
 
         // MIDI settings toggle (direct handler)
-        $('midi-btn').addEventListener('click', (e) => {
-            e.stopPropagation();
-            const panel = document.getElementById('midi-settings');
-            const show = panel.hidden;
-            panel.hidden = !show;
-            e.target.classList.toggle('menu-active', show);
-            if (show) this._refreshMidiPortUI();
-        });
+        const midiBtn = $('midi-btn');
+        if (midiBtn) {
+            midiBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                alert('MIDI button clicked');
+                const panel = document.getElementById('midi-settings');
+                const show = panel.hidden;
+                panel.hidden = !show;
+                e.target.classList.toggle('menu-active', show);
+                if (show) this._refreshMidiPortUI();
+            });
+        } else {
+            console.error('MIDI button not found!');
+        }
 
         document.getElementById('main-menu').addEventListener('click', async (e) => {
             const action = e.target.dataset.action;
