@@ -409,10 +409,29 @@ class GenController {
     }
 
     _genClearAllSensors() {
+        // Stop analysis and video
+        this.app.gen.stop();
+        this.app.gen.stopCamera();
+        this._genStopTimeDisplay();
+        const video = this.app.gen.videoEl;
+        if (video) {
+            video.pause();
+            video.removeAttribute('src');
+            video.srcObject = null;
+            video.load();
+        }
+        document.getElementById('gen-play-btn').textContent = '\u25B6 PLAY';
+        // Reset loop state
+        this._genResetLoop();
+        this._genWasPlaying = false;
+        // Clear sensors
         this.app.gen.sensors = [];
         this.app.gen._prevFrameData = {};
         this.app.gen._nextSensorId = 1;
+        this.app.gen.enabled = false;
         this._genTriggerState = {};
+        document.getElementById('gen-toggle-btn').textContent = 'OFF';
+        document.getElementById('gen-toggle-btn').classList.remove('gen-active');
         this._genUpdatePadPanel();
         this._genRenderGrid();
         this._genDrawOverlay();
