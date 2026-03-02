@@ -529,6 +529,7 @@ main {
 }
 .menu-hint { display: block; padding: 4px 12px 8px; font-size: 10px; color: var(--text3); font-style: italic; }
 .menu-hint[hidden] { display: none; }
+.menu-version { display: block; padding: 4px 12px; font-size: 9px; color: var(--text3); text-align: right; }
 /* === Effects Dialog === */
 .fx-dialog {
     min-width: 320px;
