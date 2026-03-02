@@ -350,6 +350,8 @@ class RecController {
         const idx = this.app.slots.selectedIndex;
         if (idx < 0) return;
         await this.app.slots.saveSlotAudio(idx, this.app.channels, this.app.bufferSampleRate);
+        // Invalidate cached AudioBuffer so sampler/sequencer/gen pick up the edit
+        delete this.app._slotBuffers[idx];
         this.app.renderSlotGrid();
     }
 
