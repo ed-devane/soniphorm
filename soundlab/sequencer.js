@@ -210,7 +210,8 @@ class Sequencer {
 
         // Volume
         const volumeGain = ctx.createGain();
-        volumeGain.gain.setValueAtTime(pad ? pad.volume : 1.0, time);
+        const velGain = (entry.velocity !== undefined) ? entry.velocity / 127 : 1.0;
+        volumeGain.gain.setValueAtTime((pad ? pad.volume : 1.0) * velGain, time);
         lastNode.connect(volumeGain);
         lastNode = volumeGain;
 
@@ -358,20 +359,33 @@ class Sequencer {
         }
     }
 
-    /** Toggle a kit sub-slot on/off for a step. */
+    /** Toggle a kit sub-slot through velocity cycle: off → 80 → 100 → 127 → 40 → off */
     toggleKitSubOnStep(stepIndex, parentSlot, subIndex) {
         const step = this.pattern[stepIndex];
         const pos = step.slots.findIndex(e => e.slot === parentSlot && e.kitSub === subIndex);
+        const cycle = [80, 100, 127, 40];
         if (pos >= 0) {
-            step.slots.splice(pos, 1);
+            const cur = step.slots[pos].velocity || 80;
+            const idx = cycle.indexOf(cur);
+            const next = idx >= 0 ? cycle[idx + 1] : undefined;
+            if (next !== undefined) {
+                step.slots[pos].velocity = next;
+            } else {
+                step.slots.splice(pos, 1);
+            }
         } else {
-            step.slots.push({ slot: parentSlot, pitch: 0, duration: 0, kitSub: subIndex });
+            step.slots.push({ slot: parentSlot, pitch: 0, duration: 0, kitSub: subIndex, velocity: 80 });
         }
     }
 
     /** Check if a kit sub-slot is active on a step. */
     hasKitSubOnStep(stepIndex, parentSlot, subIndex) {
         return this.pattern[stepIndex].slots.some(e => e.slot === parentSlot && e.kitSub === subIndex);
+    }
+
+    /** Get the kit sub-slot entry object for a given step (or null). */
+    getKitSubEntry(stepIndex, parentSlot, subIndex) {
+        return this.pattern[stepIndex].slots.find(e => e.slot === parentSlot && e.kitSub === subIndex) || null;
     }
 
     /** Check if a slot is active on a step. */
@@ -592,6 +606,7 @@ class Sequencer {
                 slots: step.slots.map(e => {
                     const obj = { slot: e.slot, pitch: e.pitch, duration: e.duration || 0 };
                     if (e.kitSub !== undefined) obj.kitSub = e.kitSub;
+                    if (e.velocity !== undefined) obj.velocity = e.velocity;
                     return obj;
                 }),
                 mode: step.mode,
@@ -622,6 +637,7 @@ class Sequencer {
                             if (typeof e === 'object' && e !== null) {
                                 const obj = { slot: e.slot, pitch: e.pitch || 0, duration: e.duration || 0 };
                                 if (e.kitSub !== undefined) obj.kitSub = e.kitSub;
+                                if (e.velocity !== undefined) obj.velocity = e.velocity;
                                 return obj;
                             }
                             // Old format: plain number — apply step-level pitch if present

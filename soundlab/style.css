@@ -149,6 +149,8 @@ main {
     display: block;
     width: 100%;
     height: calc(100% - 18px);
+    position: relative;
+    z-index: 1;
 }
 .waveform-empty {
     position: absolute;
@@ -156,6 +158,7 @@ main {
     display: flex;
     align-items: center;
     justify-content: center;
+    z-index: 2;
     color: var(--text3);
     font-size: 14px;
     letter-spacing: 1px;
@@ -214,6 +217,7 @@ main {
 .toolbar-scroll::-webkit-scrollbar { display: none; }
 .toolbar.sample-mode .rec-only,
 .toolbar.seq-mode .rec-only { display: none; }
+.toolbar.gen-mode { display: none; }
 
 .tb {
     flex-shrink: 0;
@@ -1870,14 +1874,15 @@ main {
 
 /* Drum grid sequencer */
 .drum-grid {
-    flex: 2 1 0;
+    position: absolute;
+    inset: 0;
+    z-index: 5;
     display: grid;
     gap: 1px;
     background: var(--bg);
     overflow-x: auto;
     overflow-y: auto;
     padding: 4px;
-    min-height: 240px;
 }
 .drum-grid[hidden] { display: none; }
 .drum-grid-row {
@@ -1915,10 +1920,223 @@ main {
     background: #2d7a4f;
     border-color: #3a9d62;
 }
+.drum-grid-cell.vel-med    { background: #2d7a4f; border-color: #3a9d62; }
+.drum-grid-cell.vel-high   { background: #b45309; border-color: #d97706; }
+.drum-grid-cell.vel-max    { background: #b91c1c; border-color: #dc2626; }
+.drum-grid-cell.vel-ghost  { background: #a16207; border-color: #ca8a04; }
 .drum-grid-cell.playing {
     background: #d97706 !important;
     border-color: #f59e0b !important;
 }
 .drum-grid-cell.beat-marker {
     border-left: 1px solid var(--border-lt);
+}
+
+/* === Gen Mode === */
+.gen-transport {
+    display: none;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 10px;
+    background: var(--bg2);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+}
+.gen-transport.active {
+    display: flex;
+}
+.gen-row-main {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.gen-pad-panel {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 0;
+    min-height: 0;
+}
+.gen-pad-info {
+    color: var(--text2);
+    font-size: 10px;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+.gen-pad-info .gen-pad-name {
+    color: var(--accent);
+}
+.gen-mappings {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px 8px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+    flex: 1;
+    min-width: 0;
+}
+.gen-mapping-row {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 10px;
+    flex-shrink: 0;
+}
+.gen-mapping-swatch {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    flex-shrink: 0;
+}
+.gen-mapping-sel {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 0 2px;
+    height: 20px;
+    font-family: var(--mono);
+    font-size: 9px;
+    cursor: pointer;
+}
+.gen-mapping-arrow {
+    color: var(--text3);
+    font-size: 9px;
+}
+.gen-mapping-value {
+    color: var(--green);
+    font-size: 9px;
+    min-width: 28px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.gen-mapping-remove {
+    padding: 0 4px !important;
+    font-size: 10px !important;
+    min-width: 0 !important;
+    height: 20px !important;
+    color: var(--text3);
+    cursor: pointer;
+}
+#gen-add-mapping-btn {
+    flex-shrink: 0;
+    height: 22px !important;
+    padding: 0 8px !important;
+    font-size: 10px !important;
+}
+#gen-toggle-btn.gen-active {
+    background: var(--green);
+    color: #000;
+}
+.gen-time {
+    color: var(--text2);
+    font-size: 10px;
+    white-space: nowrap;
+    min-width: 60px;
+}
+.gen-loop-label {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 9px;
+    color: var(--text3);
+    white-space: nowrap;
+}
+.gen-loop-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 60px;
+    height: 4px;
+    background: var(--border);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+}
+.gen-loop-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    background: var(--accent);
+    border-radius: 50%;
+    cursor: pointer;
+}
+.gen-loop-slider::-moz-range-thumb {
+    width: 12px;
+    height: 12px;
+    background: var(--accent);
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+}
+#gen-loop-btn.loop-active {
+    color: var(--green);
+    border-color: var(--green);
+}
+.gen-video-wrap {
+    position: absolute;
+    inset: 0;
+    background: #000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+.gen-video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    transform-origin: center center;
+}
+.gen-overlay {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    cursor: crosshair;
+    transform-origin: center center;
+}
+.slot.gen-modulated {
+    box-shadow: 0 0 8px rgba(34, 197, 94, 0.5), inset 0 0 4px rgba(34, 197, 94, 0.15);
+    border-color: var(--green) !important;
+}
+.slot-grid.gen-mode .slot {
+    cursor: pointer;
+}
+.slot-grid.gen-mode .slot.pad-selected {
+    border-color: var(--accent);
+    box-shadow: 0 0 6px rgba(14, 165, 233, 0.4);
+}
+.slot-grid.gen-mode .slot .slot-key {
+    display: block;
+}
+
+/* === Project Progress Overlay === */
+.project-progress-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: rgba(10, 14, 26, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.project-progress-overlay[hidden] { display: none; }
+.project-progress-msg {
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    padding: 20px 32px;
+    background: var(--surface);
+    border: 1px solid var(--border-lt);
+    border-radius: var(--radius);
+}
+
+@media (max-width: 500px) {
+    .gen-row-main { gap: 4px; }
+    .gen-mapping-row { flex-wrap: wrap; }
+    .gen-mapping-sel { font-size: 9px; }
 }

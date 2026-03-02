@@ -401,4 +401,45 @@ class SlotManager {
 
         this.onChange?.();
     }
+
+    // === Project save/load helpers ===
+
+    async getRawSlotRecord(index) {
+        const tx = this.db.transaction(STORE_NAME, 'readonly');
+        const store = tx.objectStore(STORE_NAME);
+        return await idbGet(store, index);
+    }
+
+    async getRawKitSlotRecord(parentSlot, subIndex) {
+        const tx = this.db.transaction(KIT_STORE_NAME, 'readonly');
+        const store = tx.objectStore(KIT_STORE_NAME);
+        return await idbGet(store, [parentSlot, subIndex]);
+    }
+
+    async clearAllData() {
+        // Clear all 16 main slots
+        const tx = this.db.transaction(STORE_NAME, 'readwrite');
+        const store = tx.objectStore(STORE_NAME);
+        for (let i = 0; i < NUM_SLOTS; i++) {
+            try { await idbDelete(store, i); } catch (e) {}
+            this.slots[i].name = '';
+            this.slots[i].duration = 0;
+            this.slots[i].sampleRate = 0;
+            this.slots[i].hasAudio = false;
+            this.slots[i].type = 'normal';
+            this.slots[i].peaks = null;
+        }
+
+        // Clear all kit sub-slots
+        const tx2 = this.db.transaction(KIT_STORE_NAME, 'readwrite');
+        const store2 = tx2.objectStore(KIT_STORE_NAME);
+        for (const parentSlot of Object.keys(this.kitSlots)) {
+            for (let j = 0; j < KIT_SUB_COUNT; j++) {
+                try { await idbDelete(store2, [parseInt(parentSlot), j]); } catch (e) {}
+            }
+        }
+        this.kitSlots = {};
+
+        this.onChange?.();
+    }
 }
