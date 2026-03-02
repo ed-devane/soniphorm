@@ -39,12 +39,13 @@ class Gen {
         };
     }
 
-    async startCamera() {
+    async startCamera(deviceId) {
         if (!this.videoEl) return;
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: 'environment' }
-            });
+            const constraints = deviceId
+                ? { video: { deviceId: { exact: deviceId } } }
+                : { video: { facingMode: 'environment' } };
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
             this.cameraStream = stream;
             this.videoEl.src = '';
             this.videoEl.srcObject = stream;

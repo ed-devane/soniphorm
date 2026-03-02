@@ -52,11 +52,25 @@ class GenController {
         document.getElementById('gen-toggle-btn').classList.toggle('gen-active', this.app.gen.enabled);
         // Resize overlay after layout settles
         requestAnimationFrame(() => this._genResizeOverlay());
+        // Resume video playback if it was playing when we left
+        if (this._genWasPlaying) {
+            this._genWasPlaying = false;
+            const video = this.app.gen.videoEl;
+            if (video && video.src && this.app.gen.source === 'file') {
+                video.play();
+                this.app.gen.start();
+                document.getElementById('gen-play-btn').textContent = '\u275A\u275A';
+                this._genStartTimeDisplay();
+            }
+        }
     }
 
     // Called by app.switchMode() when leaving gen mode
     exit() {
         if (this._genRecording) this._genStopRec(false);
+        // Remember if video was playing so we can resume on re-enter
+        const video = this.app.gen.videoEl;
+        this._genWasPlaying = video && !video.paused && this.app.gen.source === 'file';
         this.app.gen.stop();
         this._genStopTimeDisplay();
         this.app._genMode = false;
@@ -227,8 +241,9 @@ class GenController {
         document.getElementById('gen-source-file').classList.toggle('active', src === 'file');
         document.getElementById('gen-source-cam').classList.toggle('active', src === 'camera');
         document.getElementById('gen-load-btn').style.display = src === 'file' ? '' : 'none';
-        // REC button only in camera mode
+        // Camera controls only in camera mode
         document.getElementById('gen-rec-btn').style.display = src === 'camera' ? '' : 'none';
+        document.getElementById('gen-cam-select').style.display = src === 'camera' ? '' : 'none';
         // Loop controls only apply to file mode
         const fileOnly = src === 'file' ? '' : 'none';
         document.getElementById('gen-loop-btn').style.display = fileOnly;
@@ -237,16 +252,45 @@ class GenController {
         document.getElementById('gen-time').style.display = fileOnly;
 
         if (src === 'camera') {
-            this.app.gen.startCamera().then(() => {
+            this._genEnumCameras().then(() => {
+                const sel = document.getElementById('gen-cam-select');
+                const deviceId = sel.value || undefined;
+                return this.app.gen.startCamera(deviceId);
+            }).then(() => {
                 this._genResizeOverlay();
             }).catch(() => {
-                // Revert on failure
                 this._genSetSource('file');
             });
         } else {
             this.app.gen.stopCamera();
         }
         this._saveGenConfig();
+    }
+
+    async _genEnumCameras() {
+        const sel = document.getElementById('gen-cam-select');
+        if (!sel) return;
+        try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const cameras = devices.filter(d => d.kind === 'videoinput');
+            sel.innerHTML = '';
+            cameras.forEach((cam, i) => {
+                const opt = document.createElement('option');
+                opt.value = cam.deviceId;
+                opt.textContent = cam.label || `Camera ${i + 1}`;
+                sel.appendChild(opt);
+            });
+        } catch (e) {}
+    }
+
+    _genSwitchCamera() {
+        if (this.app.gen.source !== 'camera') return;
+        const sel = document.getElementById('gen-cam-select');
+        if (!sel || !sel.value) return;
+        this.app.gen.stopCamera();
+        this.app.gen.startCamera(sel.value).then(() => {
+            this._genResizeOverlay();
+        });
     }
 
     _genLoadVideo(e) {
@@ -552,10 +596,16 @@ class GenController {
                 ctx.fillRect(sx, sy + sh - barH, sw * sensor._lastValue, barH);
             }
 
-            // Resize handle (bottom-right corner, scaled to sensor size)
-            ctx.fillStyle = color;
-            const handleSize = Math.max(4, Math.min(8, Math.min(sw, sh) * 0.4));
-            ctx.fillRect(sx + sw - handleSize, sy + sh - handleSize, handleSize, handleSize);
+            // Resize handle (bottom-right corner triangle for visibility)
+            ctx.fillStyle = color + '60';
+            const hx = sw * 0.3;
+            const hy = sh * 0.3;
+            ctx.beginPath();
+            ctx.moveTo(sx + sw, sy + sh - hy);
+            ctx.lineTo(sx + sw, sy + sh);
+            ctx.lineTo(sx + sw - hx, sy + sh);
+            ctx.closePath();
+            ctx.fill();
         });
     }
 
@@ -579,9 +629,9 @@ class GenController {
                 const s = this.app.gen.sensors[i];
                 if (s.targetPad !== this._genSelectedPad) continue;
                 if (pos.x >= s.x && pos.x <= s.x + s.w && pos.y >= s.y && pos.y <= s.y + s.h) {
-                    // Check if in resize handle (bottom-right 15% of sensor)
-                    const inResizeX = pos.x > s.x + s.w * 0.85;
-                    const inResizeY = pos.y > s.y + s.h * 0.85;
+                    // Check if in resize handle (bottom-right 30% of sensor for easier touch)
+                    const inResizeX = pos.x > s.x + s.w * 0.7;
+                    const inResizeY = pos.y > s.y + s.h * 0.7;
                     return { sensor: s, index: i, resize: inResizeX && inResizeY };
                 }
             }

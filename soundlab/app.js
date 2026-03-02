@@ -830,6 +830,7 @@ class App {
         // Gen transport bindings
         $('gen-source-file').addEventListener('click', () => this.genCtrl._genSetSource('file'));
         $('gen-source-cam').addEventListener('click', () => this.genCtrl._genSetSource('camera'));
+        $('gen-cam-select').addEventListener('change', () => this.genCtrl._genSwitchCamera());
         $('gen-load-btn').addEventListener('click', () => $('gen-file-input').click());
         $('gen-file-input').addEventListener('change', (e) => this.genCtrl._genLoadVideo(e));
         $('project-file-input').addEventListener('change', (e) => this.rec.loadProject(e));
