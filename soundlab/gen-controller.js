@@ -488,6 +488,7 @@ class GenController {
                     <option value="videoLoopSize" ${sensor.targetParam === 'videoLoopSize' ? 'selected' : ''}>V-SIZE</option>
                 </select>
                 <span class="gen-mapping-value" id="gen-sv-${sensor.id}">${sensor._lastValue ? sensor._lastValue.toFixed(2) : '0.00'}</span>
+                <label class="gen-thresh-label">TH <input type="range" class="gen-thresh-slider" min="0" max="0.99" step="0.01" value="${sensor.threshold || 0}"></label>
                 <button class="gen-mapping-remove tb" title="Remove mapping">&times;</button>
             `;
 
@@ -499,6 +500,12 @@ class GenController {
                     this._genDrawOverlay();
                     this._saveGenConfig();
                 });
+            });
+
+            // Threshold slider
+            row.querySelector('.gen-thresh-slider').addEventListener('input', (e) => {
+                this.app.gen.updateSensor(sensor.id, { threshold: parseFloat(e.target.value) });
+                this._saveGenConfig();
             });
 
             // Remove button

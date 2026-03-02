@@ -2091,6 +2091,40 @@ main {
     object-fit: contain;
     transform-origin: center center;
 }
+.gen-thresh-label {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    font-size: 8px;
+    color: var(--text3);
+    white-space: nowrap;
+}
+.gen-thresh-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 40px;
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+}
+.gen-thresh-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 10px;
+    height: 10px;
+    background: var(--yellow);
+    border-radius: 50%;
+    cursor: pointer;
+}
+.gen-thresh-slider::-moz-range-thumb {
+    width: 10px;
+    height: 10px;
+    background: var(--yellow);
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+}
 .gen-cam-select {
     background: var(--surface);
     color: var(--text);

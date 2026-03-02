@@ -125,7 +125,22 @@ class Gen {
             }
 
             if (this.enabled && this.applyModulation) {
-                const scaled = this._scaleValue(value, sensor.targetParam, sensor.scale);
+                let processed = value;
+                const thresh = sensor.threshold || 0;
+                if (thresh > 0) {
+                    if (sensor.targetParam === 'trigger') {
+                        // Threshold is the direct activation point
+                        const hysteresis = Math.max(0.02, thresh * 0.15);
+                        if (value > thresh) processed = 1;
+                        else if (value < thresh - hysteresis) processed = 0;
+                        else processed = sensor._triggerActive ? 1 : 0;
+                        sensor._triggerActive = processed > 0.5;
+                    } else {
+                        // Floor: values below threshold → 0, above → rescaled to 0-1
+                        processed = value <= thresh ? 0 : (value - thresh) / (1 - thresh);
+                    }
+                }
+                const scaled = this._scaleValue(processed, sensor.targetParam, sensor.scale);
                 this.applyModulation(sensor.targetPad, sensor.targetParam, scaled);
             }
         }
@@ -277,6 +292,7 @@ class Gen {
             targetPad: 0,
             targetParam: 'volume',
             scale: { min: 0, max: 1 },
+            threshold: 0,
             enabled: true,
             _lastValue: 0,
             ...props
@@ -309,6 +325,7 @@ class Gen {
                 targetPad: s.targetPad,
                 targetParam: s.targetParam,
                 scale: { ...s.scale },
+                threshold: s.threshold || 0,
                 enabled: s.enabled
             }))
         };
@@ -331,6 +348,7 @@ class Gen {
                     targetPad: s.targetPad,
                     targetParam: s.targetParam,
                     scale: { ...s.scale },
+                    threshold: s.threshold || 0,
                     enabled: s.enabled,
                     _lastValue: 0
                 });
