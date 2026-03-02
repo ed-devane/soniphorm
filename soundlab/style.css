@@ -1664,7 +1664,8 @@ main {
     .header-left { gap: 4px; }
     .header-title { font-size: 9px; letter-spacing: 1px; }
     .header-center { font-size: 9px; }
-    .header-right { gap: 4px; }
+    .header-center { display: none; }
+    .header-right { gap: 4px; flex-shrink: 1; min-width: 0; }
     .toolbar { height: 40px; }
     .tb { height: 28px; padding: 0 8px; font-size: 10px; }
     .slot-grid { gap: 3px; padding: 4px; }

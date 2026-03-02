@@ -785,25 +785,6 @@ class App {
             });
         }
 
-        // Header MIDI indicator — click opens menu with MIDI settings
-        $('midi-indicator').addEventListener('click', () => {
-            const menu = document.getElementById('main-menu');
-            const panel = document.getElementById('midi-settings');
-            menu.hidden = false;
-            panel.hidden = false;
-            const btn = document.getElementById('midi-btn');
-            if (btn) btn.classList.add('menu-active');
-            this._refreshMidiPortUI();
-            const close = (ev) => {
-                if (!menu.contains(ev.target) && ev.target.id !== 'menu-btn' && ev.target.id !== 'midi-indicator') {
-                    menu.hidden = true;
-                    panel.hidden = true;
-                    if (btn) btn.classList.remove('menu-active');
-                    document.removeEventListener('click', close);
-                }
-            };
-            setTimeout(() => document.addEventListener('click', close), 10);
-        });
 
         document.getElementById('main-menu').addEventListener('click', async (e) => {
             const action = e.target.dataset.action;
