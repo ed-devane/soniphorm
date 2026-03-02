@@ -298,14 +298,15 @@ class GenController {
         if (!file) return;
         this._genResetLoop();
         this.app.gen.loadVideoFile(file);
-        // After gen.js sets its own onloadedmetadata, wrap it to also sync sliders
         const video = this.app.gen.videoEl;
-        const genOnLoaded = video.onloadedmetadata;
-        video.onloadedmetadata = () => {
-            if (genOnLoaded) genOnLoaded.call(video);
+        // Use durationchange — fires reliably once duration is known
+        const onDuration = () => {
+            if (!video.duration || !isFinite(video.duration)) return;
+            video.removeEventListener('durationchange', onDuration);
             this._genSyncLoopSliders();
             this._genResizeOverlay();
         };
+        video.addEventListener('durationchange', onDuration);
         e.target.value = '';
     }
 
@@ -872,9 +873,15 @@ class GenController {
             video.onloadedmetadata = () => {
                 this.app.gen._sizeAnalysisCanvas();
                 this._genResizeOverlay();
+                this._genUpdateTimeText();
+            };
+            const onDur = () => {
+                if (!video.duration || !isFinite(video.duration)) return;
+                video.removeEventListener('durationchange', onDur);
                 this._genSyncLoopSliders();
                 this._genUpdateTimeText();
             };
+            video.addEventListener('durationchange', onDur);
         };
 
         this._genRecorder.start(100);
@@ -943,7 +950,7 @@ class GenController {
 
     _genSyncLoopSliders() {
         const video = this.app.gen.videoEl;
-        if (!video || !video.duration) return;
+        if (!video || !video.duration || !isFinite(video.duration)) return;
         const dur = video.duration;
         const inSlider = document.getElementById('gen-in-slider');
         const outSlider = document.getElementById('gen-out-slider');
@@ -984,14 +991,14 @@ class GenController {
             const video = this.app.gen.videoEl;
             if (!video) return;
 
-            // Enforce loop bounds (no order constraint — always forward between min/max)
+            // Enforce loop bounds — only jump back when reaching the end
             if (this._genLoopEnabled) {
                 const lo = Math.min(this._genLoopIn, this._genLoopOut);
                 const hi = Math.max(this._genLoopIn, this._genLoopOut);
                 const end = hi > 0 ? hi : video.duration;
-                if (video.currentTime >= end || video.currentTime < lo || video.ended) {
+                if (video.currentTime >= end || video.ended) {
                     video.currentTime = lo;
-                    if (video.paused) video.play();
+                    if (video.paused && !video.seeking) video.play();
                 }
             }
 
