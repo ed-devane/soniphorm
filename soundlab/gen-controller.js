@@ -925,7 +925,8 @@ class GenController {
         if (isNaN(v)) return;
         this._genLoopIn = v;
         const video = this.app.gen.videoEl;
-        if (video && video.duration) video.currentTime = v;
+        // Only seek when paused (preview); when playing, loop tick handles bounds
+        if (video && video.duration && video.paused) video.currentTime = v;
         if (!this._genLoopEnabled) this._genToggleLoop();
         this._genUpdateTimeText();
     }
@@ -935,7 +936,7 @@ class GenController {
         if (isNaN(v)) return;
         this._genLoopOut = v;
         const video = this.app.gen.videoEl;
-        if (video && video.duration) video.currentTime = v;
+        if (video && video.duration && video.paused) video.currentTime = v;
         if (!this._genLoopEnabled) this._genToggleLoop();
         this._genUpdateTimeText();
     }
