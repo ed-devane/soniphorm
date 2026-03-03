@@ -1255,7 +1255,7 @@ class RecController {
         const slots = this.app.slots;
 
         // Prompt for project name
-        const defaultName = 'soundlab-project';
+        const defaultName = 'sonicraft-project';
         const projectName = prompt('Project name:', defaultName);
         if (projectName === null) return; // cancelled
         const safeName = (projectName.trim() || defaultName).replace(/[<>:"/\\|?*]/g, '-');
@@ -1369,10 +1369,10 @@ class RecController {
             if (window.showSaveFilePicker) {
                 try {
                     const handle = await window.showSaveFilePicker({
-                        suggestedName: `${safeName}.soundlab`,
+                        suggestedName: `${safeName}.sonicraft`,
                         types: [{
-                            description: 'Soundlab Project',
-                            accept: { 'application/zip': ['.soundlab'] }
+                            description: 'SoniCraft Project',
+                            accept: { 'application/zip': ['.sonicraft'] }
                         }]
                     });
                     const writable = await handle.createWritable();
@@ -1390,7 +1390,7 @@ class RecController {
             // Fallback: trigger download via <a> click
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
-            a.download = `${safeName}.soundlab`;
+            a.download = `${safeName}.sonicraft`;
             a.click();
             URL.revokeObjectURL(a.href);
 

@@ -1,6 +1,6 @@
 {
-  "name": "Soniphorm Soundlab",
-  "short_name": "Soundlab",
+  "name": "Soniphorm SoniCraft",
+  "short_name": "SoniCraft",
   "description": "Browser-based audio recorder, sample editor, sampler, and step sequencer.",
   "start_url": ".",
   "display": "standalone",

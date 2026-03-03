@@ -1178,7 +1178,7 @@ class App {
             const kitName = this.slots.slots[this._kitParentSlot].name || 'Kit';
             document.querySelector('.header-title').textContent = 'KIT: ' + kitName;
         } else {
-            const titles = { rec: 'SOUNDLAB', sample: 'SAMPLER', seq: 'SEQUENCER', gen: 'GENERATIVE' };
+            const titles = { rec: 'SONICRAFT', sample: 'SAMPLER', seq: 'SEQUENCER', gen: 'GENERATIVE' };
             document.querySelector('.header-title').textContent = titles[mode];
         }
 
