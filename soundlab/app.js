@@ -253,6 +253,7 @@ class App {
 
             // Sample/Gen mode: trigger on press, release on lift
             let usedTouch = false;
+            let longPressTimer = null;
 
             if (i < 16) {
                 el.addEventListener('mousedown', (e) => {
@@ -281,9 +282,20 @@ class App {
                     } else if (this._genMode) {
                         e.preventDefault();
                         this.genCtrl._genPadTrigger(i);
+                    } else {
+                        // Long-press for context menu on iOS (contextmenu event not fired)
+                        const touch = e.touches[0];
+                        longPressTimer = setTimeout(() => {
+                            longPressTimer = null;
+                            this.onSlotContext(i, { preventDefault: () => {}, clientX: touch.clientX, clientY: touch.clientY });
+                        }, 500);
                     }
                 });
+                el.addEventListener('touchmove', () => {
+                    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+                });
                 el.addEventListener('touchend', (e) => {
+                    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
                     if (this._sampleMode) {
                         e.preventDefault();
                         this.sample.samplePadRelease(i);
@@ -294,6 +306,7 @@ class App {
                     setTimeout(() => { usedTouch = false; }, 400);
                 });
                 el.addEventListener('touchcancel', () => {
+                    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
                     if (this._sampleMode) this.sample.samplePadRelease(i);
                     else if (this._genMode) this.sampler.release(i);
                     setTimeout(() => { usedTouch = false; }, 400);
@@ -1532,6 +1545,7 @@ class App {
 
             // Touch/mouse handling for kit sub-pads
             let usedTouch = false;
+            let longPressTimer = null;
 
             el.addEventListener('click', (e) => {
                 if (this._sampleMode) return;
@@ -1561,9 +1575,20 @@ class App {
                 if (this._sampleMode) {
                     e.preventDefault();
                     this.sample.samplePadTap(i);
+                } else {
+                    // Long-press for context menu on iOS
+                    const touch = e.touches[0];
+                    longPressTimer = setTimeout(() => {
+                        longPressTimer = null;
+                        this.onSlotContext(i, { preventDefault: () => {}, clientX: touch.clientX, clientY: touch.clientY });
+                    }, 500);
                 }
             });
+            el.addEventListener('touchmove', () => {
+                if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
+            });
             el.addEventListener('touchend', (e) => {
+                if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
                 if (this._sampleMode) {
                     e.preventDefault();
                     this.sample.samplePadRelease(i);
@@ -1571,6 +1596,7 @@ class App {
                 setTimeout(() => { usedTouch = false; }, 400);
             });
             el.addEventListener('touchcancel', () => {
+                if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
                 if (this._sampleMode) this.sample.samplePadRelease(i);
                 setTimeout(() => { usedTouch = false; }, 400);
             });

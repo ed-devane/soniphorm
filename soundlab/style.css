@@ -367,6 +367,7 @@ main {
     min-height: 56px;
     display: flex;
     flex-direction: column;
+    -webkit-touch-callout: none;
 }
 .slot:hover { background: var(--bg3); }
 
