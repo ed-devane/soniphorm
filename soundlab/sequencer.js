@@ -421,6 +421,12 @@ class Sequencer {
     setStepMode(stepIndex, mode) { this.pattern[stepIndex].mode = mode; }
     setStepDirection(stepIndex, direction) { this.pattern[stepIndex].direction = direction; }
 
+    /** Set gate length for a specific slot on a step (0 = full/natural, 0.25–1.0 = fraction of step duration). */
+    setSlotDuration(stepIndex, slotIdx, duration) {
+        const entry = this.getSlotEntry(stepIndex, slotIdx);
+        if (entry) entry.duration = Math.max(0, Math.min(1, duration));
+    }
+
     clearPattern() {
         for (let i = 0; i < this.pattern.length; i++) {
             this.pattern[i].slots = [];

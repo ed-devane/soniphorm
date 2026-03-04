@@ -866,6 +866,7 @@ class App {
         // Sampler transport — mode buttons
         $('pad-mode-oneshot').addEventListener('click', () => this.sample.setPadMode('oneshot'));
         $('pad-mode-loop').addEventListener('click', () => this.sample.setPadMode('loop'));
+        $('pad-mode-gate').addEventListener('click', () => this.sample.setPadMode('gate'));
         $('pad-mode-rev').addEventListener('click', () => this.sample._togglePadReverse());
         $('pad-mode-keys').addEventListener('click', () => this.sample._toggleChromaticMode());
 

@@ -295,6 +295,7 @@ class SampleController {
         // Update toggle active states
         document.getElementById('pad-mode-oneshot').classList.toggle('active', mode === 'oneshot');
         document.getElementById('pad-mode-loop').classList.toggle('active', mode === 'loop');
+        document.getElementById('pad-mode-gate').classList.toggle('active', mode === 'gate');
 
         // Show/hide loop markers
         if (this.app.waveform) {
@@ -375,9 +376,10 @@ class SampleController {
         document.getElementById('sample-pad-info').textContent =
             `${String(this._sampleSelectedPad + 1).padStart(2, '0')} ${name}`;
 
-        // Update ONE/LOOP toggle
+        // Update ONE/LOOP/GATE toggle
         document.getElementById('pad-mode-oneshot').classList.toggle('active', pad.mode === 'oneshot');
         document.getElementById('pad-mode-loop').classList.toggle('active', pad.mode === 'loop');
+        document.getElementById('pad-mode-gate').classList.toggle('active', pad.mode === 'gate');
 
         // Show/hide loop markers on waveform
         if (this.app.waveform) {

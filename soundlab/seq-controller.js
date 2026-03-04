@@ -510,6 +510,29 @@ class SeqController {
             pitchCtrl.appendChild(pitchUp);
             row.appendChild(pitchCtrl);
 
+            // Gate length button (cycles through fractions of step duration, only when slot is on)
+            if (isOn) {
+                const gateLens   = [0, 0.25, 0.5, 0.75, 1.0];
+                const gateLabels = ['—', '¼', '½', '¾', '1×'];
+                const curDur = entry ? (entry.duration || 0) : 0;
+                const curIdx = gateLens.findIndex(v => Math.abs(v - curDur) < 0.01);
+                const gateBtn = document.createElement('button');
+                gateBtn.className = 'seq-gate-btn';
+                gateBtn.title = 'Gate length';
+                gateBtn.textContent = 'G:' + gateLabels[curIdx >= 0 ? curIdx : 0];
+                gateBtn.addEventListener('click', (ev) => {
+                    ev.stopPropagation();
+                    const e = this.app.sequencer.getSlotEntry(stepIndex, i);
+                    if (!e) return;
+                    const ci = gateLens.findIndex(v => Math.abs(v - (e.duration || 0)) < 0.01);
+                    const next = gateLens[(ci + 1) % gateLens.length];
+                    this.app.sequencer.setSlotDuration(stepIndex, i, next);
+                    this._renderSeqSampleList();
+                    this._saveSeqPattern();
+                });
+                row.appendChild(gateBtn);
+            }
+
             container.appendChild(row);
         }
     }
