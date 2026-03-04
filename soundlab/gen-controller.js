@@ -997,8 +997,9 @@ class GenController {
                 const hi = Math.max(this._genLoopIn, this._genLoopOut);
                 const end = hi > 0 ? hi : video.duration;
                 if (video.currentTime >= end || video.ended) {
+                    const resume = !video.paused || video.ended;
                     video.currentTime = lo;
-                    if (video.paused && !video.seeking) video.play();
+                    if (resume) video.play().catch(() => {});
                 }
             }
 
