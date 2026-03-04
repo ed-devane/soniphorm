@@ -221,6 +221,7 @@ class App {
             }
 
             el.addEventListener('click', (e) => {
+                if (el._longPressFired) { el._longPressFired = false; return; }
                 this.onSlotTap(i, e);
             });
             if (i < 16) {
@@ -261,14 +262,24 @@ class App {
                     if (e.button !== 0) return;
                     if (this._sampleMode) this.sample.samplePadTap(i);
                     else if (this._genMode) this.genCtrl._genPadTrigger(i);
+                    else {
+                        // Long-press for context menu on desktop without right-click (e.g. macOS single-button)
+                        longPressTimer = setTimeout(() => {
+                            longPressTimer = null;
+                            el._longPressFired = true;
+                            this.onSlotContext(i, { preventDefault: () => {}, clientX: e.clientX, clientY: e.clientY });
+                        }, 500);
+                    }
                 });
                 el.addEventListener('mouseup', () => {
                     if (usedTouch) return;
+                    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
                     if (this._sampleMode) this.sample.samplePadRelease(i);
                     else if (this._genMode) this.sampler.release(i);
                 });
                 el.addEventListener('mouseleave', () => {
                     if (usedTouch) return;
+                    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
                     if (this._sampleMode) this.sample.samplePadRelease(i);
                     else if (this._genMode) this.sampler.release(i);
                 });
