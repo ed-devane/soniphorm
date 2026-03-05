@@ -450,6 +450,7 @@ class SampleController {
         document.getElementById('panel-filter').hidden = (tabName !== 'filter');
         document.getElementById('panel-lfo').hidden = (tabName !== 'lfo');
         document.getElementById('panel-morph').hidden = (tabName !== 'morph');
+        document.getElementById('panel-fx').hidden = (tabName !== 'fx');
         if (tabName === 'env') this._drawEnvelopes();
 
         // MORPH tab: enter morph mode and populate targets

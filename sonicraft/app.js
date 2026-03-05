@@ -455,7 +455,7 @@ class App {
         // Select the slot
         this.audio.stop();
         this.rec.cancelAnimationLoop();
-        document.getElementById('play-btn').classList.remove('playing');
+        const _pb = document.getElementById('play-btn'); _pb.classList.remove('playing'); _pb.innerHTML = '&#9654; PLAY';
         this.slots.selectSlot(index);
         this.undoStack = [];
         this.redoStack = [];
@@ -722,8 +722,10 @@ class App {
             }
         });
 
-        $('play-btn').addEventListener('click', () => this.rec.playAudio());
-        $('stop-btn').addEventListener('click', () => this.rec.stopAudio());
+        $('play-btn').addEventListener('click', () => {
+            if ($('play-btn').classList.contains('playing')) this.rec.stopAudio();
+            else this.rec.playAudio();
+        });
         $('loop-btn').addEventListener('click', () => this.rec.toggleLoop());
 
         // Noise gate
@@ -742,14 +744,15 @@ class App {
 
         // Edit operations
         $('trim-btn').addEventListener('click', () => this.rec.applyEdit('trim'));
-        $('cut-btn').addEventListener('click', () => this.rec.applyEdit('cut'));
-        $('copy-btn').addEventListener('click', () => this.rec.copySelection());
-        $('paste-btn').addEventListener('click', () => this.rec.applyEdit('paste'));
-        $('silence-btn').addEventListener('click', () => this.rec.applyEdit('silence'));
-        $('fadein-btn').addEventListener('click', () => this.rec.applyEdit('fadeIn'));
-        $('fadeout-btn').addEventListener('click', () => this.rec.applyEdit('fadeOut'));
         $('reverse-btn').addEventListener('click', () => this.rec.applyEdit('reverse'));
         $('norm-btn').addEventListener('click', () => this.rec.applyEdit('normalise'));
+
+        // Process expander
+        $('process-btn').addEventListener('click', () => {
+            const bar = document.getElementById('process-bar');
+            bar.hidden = !bar.hidden;
+            $('process-btn').classList.toggle('active', !bar.hidden);
+        });
 
         // File operations
         $('save-btn').addEventListener('click', () => this.rec.saveCurrentToDevice());
@@ -766,12 +769,12 @@ class App {
             });
         });
 
-        // Bounce & batch export
-        $('bounce-btn').addEventListener('click', () => this.rec.bounceToSlot());
-        $('export-all-btn').addEventListener('click', () => this.rec.exportAllSlots());
+        // Sample page FX panel: cross, layer, bounce
+        $('sample-cross-btn').addEventListener('click', () => this.rec.openCrossDialog());
+        $('sample-layer-btn').addEventListener('click', () => this.rec.openLayerDialog());
+        $('sample-bounce-btn').addEventListener('click', () => this.rec.bounceToSlot());
 
-        // Cross-slot
-        $('cross-btn').addEventListener('click', () => this.rec.openCrossDialog());
+        // Cross-slot dialog
         $('cross-preview').addEventListener('click', () => this.rec.previewCross());
         $('cross-apply').addEventListener('click', () => this.rec.applyCross());
         $('cross-cancel').addEventListener('click', () => {
@@ -779,8 +782,7 @@ class App {
             this.audio.stop();
         });
 
-        // Layer & Bounce
-        $('layer-btn').addEventListener('click', () => this.rec.openLayerDialog());
+        // Layer & Bounce dialog
         $('layer-preview').addEventListener('click', () => this.rec.previewLayer());
         $('layer-bounce').addEventListener('click', () => this.rec.bounceLayer());
         $('layer-cancel').addEventListener('click', () => {
@@ -838,6 +840,7 @@ class App {
             }
             if (action === 'midi') return; // handled by direct listener
             document.getElementById('main-menu').hidden = true;
+            if (action === 'bounce') this.rec.bounceToSlot();
             if (action === 'export-all') this.rec.exportAllSlots();
             if (action === 'save-project') this.rec.saveProject();
             if (action === 'load-project') { document.getElementById('project-file-input').click(); return; }
@@ -850,6 +853,55 @@ class App {
         $('mode-sample').addEventListener('click', () => this.switchMode('sample'));
         $('mode-seq').addEventListener('click', () => this.switchMode('seq'));
         $('mode-gen').addEventListener('click', () => this.switchMode('gen'));
+
+        // Waveform context menu
+        const wfCanvas = document.getElementById('waveform');
+        wfCanvas.addEventListener('contextmenu', (e) => {
+            if (this._sampleMode || this._seqMode || this._genMode) return;
+            e.preventDefault();
+            this._showWaveformMenu(e.clientX, e.clientY);
+        });
+        let _wfLongTimer = null;
+        wfCanvas.addEventListener('touchstart', (e) => {
+            const t = e.touches[0];
+            _wfLongTimer = setTimeout(() => {
+                _wfLongTimer = null;
+                this._showWaveformMenu(t.clientX, t.clientY);
+            }, 600);
+        }, { passive: true });
+        wfCanvas.addEventListener('touchmove', () => {
+            if (_wfLongTimer) { clearTimeout(_wfLongTimer); _wfLongTimer = null; }
+        }, { passive: true });
+        wfCanvas.addEventListener('touchend', () => {
+            if (_wfLongTimer) { clearTimeout(_wfLongTimer); _wfLongTimer = null; }
+        }, { passive: true });
+        // Update nudge button visibility after waveform interaction
+        wfCanvas.addEventListener('mouseup', () => this.updateToolbarState());
+        wfCanvas.addEventListener('touchend', () => this.updateToolbarState(), { passive: true });
+        document.getElementById('waveform-menu').addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-wfm]');
+            if (!btn) return;
+            document.getElementById('waveform-menu').hidden = true;
+            const a = btn.dataset.wfm;
+            if (a === 'cut')     this.rec.applyEdit('cut');
+            if (a === 'copy')    this.rec.copySelection();
+            if (a === 'paste')   this.rec.applyEdit('paste');
+            if (a === 'silence') this.rec.applyEdit('silence');
+            if (a === 'fadein')  this.rec.applyEdit('fadeIn');
+            if (a === 'fadeout') this.rec.applyEdit('fadeOut');
+            if (a === 'cross')   this.rec.openCrossDialog();
+            if (a === 'layer')   this.rec.openLayerDialog();
+            if (a === 'bounce')  this.rec.bounceToSlot();
+        });
+        document.addEventListener('click', () => {
+            document.getElementById('waveform-menu').hidden = true;
+        });
+
+        // Selection nudge buttons (nudge IN/OUT locators by 5ms)
+        $('nudge-in-left').addEventListener('click',  () => this._nudgeSel('in',  -1));
+        $('nudge-in-right').addEventListener('click', () => this._nudgeSel('in',  +1));
+        $('nudge-out-left').addEventListener('click', () => this._nudgeSel('out', -1));
+        $('nudge-out-right').addEventListener('click',() => this._nudgeSel('out', +1));
 
         // Gen transport bindings
         $('gen-source-file').addEventListener('click', () => this.genCtrl._genSetSource('file'));
@@ -1070,7 +1122,7 @@ class App {
         // Reset UI
         this.waveform.clear();
         document.getElementById('waveform-empty').hidden = false;
-        document.getElementById('play-btn').classList.remove('playing');
+        const _pb = document.getElementById('play-btn'); _pb.classList.remove('playing'); _pb.innerHTML = '&#9654; PLAY';
         document.getElementById('seq-stutter-btn').classList.remove('stutter-on');
         document.getElementById('seq-mutate-btn').classList.remove('mutate-on');
 
@@ -1096,34 +1148,66 @@ class App {
     updateToolbarState() {
         const hasAudio = !!this.channels;
         const hasSel = hasAudio && !!this.waveform.getSelection();
-        const hasSlot = this.slots.selectedIndex >= 0;
 
         document.getElementById('rec-btn').disabled = false;
         document.getElementById('play-btn').disabled = !hasAudio;
-        document.getElementById('stop-btn').disabled = !hasAudio;
         document.getElementById('loop-btn').disabled = !hasAudio;
         document.getElementById('trim-btn').disabled = !hasSel;
-        document.getElementById('cut-btn').disabled = !hasSel;
-        document.getElementById('copy-btn').disabled = !hasSel;
-        document.getElementById('paste-btn').disabled = !this.clipboard;
-        document.getElementById('silence-btn').disabled = !hasSel;
-        document.getElementById('fadein-btn').disabled = !hasAudio;
-        document.getElementById('fadeout-btn').disabled = !hasAudio;
         document.getElementById('reverse-btn').disabled = !hasAudio;
         document.getElementById('norm-btn').disabled = !hasAudio;
+        document.getElementById('process-btn').disabled = !hasAudio;
         document.getElementById('save-btn').disabled = !hasAudio;
         document.getElementById('load-btn').disabled = false;
-        document.getElementById('bounce-btn').disabled = !hasAudio;
-        document.getElementById('export-all-btn').disabled = !this.slots.slots.some(s => s.hasAudio);
-        document.getElementById('cross-btn').disabled = !hasAudio;
-        document.getElementById('layer-btn').disabled = this.slots.slots.filter(s => s.hasAudio).length < 2;
 
-        // FX buttons
+        // Show nudge buttons only when a selection exists in rec mode
+        const nudgeGroup = document.getElementById('nudge-group');
+        if (nudgeGroup) nudgeGroup.hidden = !hasSel || this._sampleMode || this._seqMode || this._genMode;
+
+        // FX buttons (process bar + sample FX panel)
         document.querySelectorAll('.fx-btn').forEach(btn => {
             btn.disabled = !hasAudio;
         });
 
+        const hasMultiSlot = this.slots.slots.filter(s => s.hasAudio).length >= 2;
+        document.getElementById('sample-cross-btn').disabled = !hasAudio;
+        document.getElementById('sample-layer-btn').disabled = !hasMultiSlot;
+        document.getElementById('sample-bounce-btn').disabled = !hasAudio;
+
         this.rec.updateUndoCount();
+    }
+
+    _showWaveformMenu(x, y) {
+        const menu = document.getElementById('waveform-menu');
+        const hasSel = !!this.waveform.getSelection();
+        const hasAudio = !!this.channels;
+        const hasMulti = this.slots.slots.filter(s => s.hasAudio).length >= 2;
+        menu.querySelector('[data-wfm="cut"]').hidden     = !hasSel;
+        menu.querySelector('[data-wfm="copy"]').hidden    = !hasSel;
+        menu.querySelector('[data-wfm="paste"]').hidden   = !this.clipboard;
+        menu.querySelector('[data-wfm="silence"]').hidden = !hasSel;
+        menu.querySelector('[data-wfm="fadein"]').hidden  = !hasAudio;
+        menu.querySelector('[data-wfm="fadeout"]').hidden = !hasAudio;
+        menu.querySelector('[data-wfm="cross"]').hidden   = !hasAudio;
+        menu.querySelector('[data-wfm="layer"]').hidden   = !hasMulti;
+        menu.querySelector('[data-wfm="bounce"]').hidden  = !hasAudio;
+        menu.style.left = Math.min(x, window.innerWidth - 160) + 'px';
+        menu.style.top  = Math.min(y, window.innerHeight - 240) + 'px';
+        menu.hidden = false;
+    }
+
+    _nudgeSel(handle, dir) {
+        const sel = this.waveform.getSelection();
+        if (!sel) return;
+        const step = Math.round((this.bufferSampleRate || 44100) * 0.005); // 5ms
+        const total = this.channels ? this.channels[0].length : sel.end;
+        if (handle === 'in') {
+            const s = Math.max(0, sel.start + dir * step);
+            if (s < sel.end) this.waveform.setSelection(s, sel.end);
+        } else {
+            const e = Math.min(total, sel.end + dir * step);
+            if (e > sel.start) this.waveform.setSelection(sel.start, e);
+        }
+        this.updateToolbarState();
     }
 
     // === Mode Switching ===

@@ -51,12 +51,13 @@
                     <div class="midi-row"><span>Out Ch</span><select id="midi-out-channel-select" class="menu-select"><option value="0">1</option><option value="1">2</option><option value="2">3</option><option value="3">4</option><option value="4">5</option><option value="5">6</option><option value="6">7</option><option value="7">8</option><option value="8">9</option><option value="9">10</option><option value="10">11</option><option value="11">12</option><option value="12">13</option><option value="13">14</option><option value="14">15</option><option value="15">16</option></select></div>
                     <div class="midi-row"><span>Clock</span><select id="midi-clock-select" class="menu-select"><option value="off">Off</option><option value="send">Send</option><option value="receive">Receive</option></select></div>
                 </div>
+                <button data-action="bounce">Bounce to slot</button>
                 <button data-action="export-all">Export all slots</button>
                 <button data-action="save-project">Save project</button>
                 <button data-action="load-project">Load project</button>
                 <button data-action="delete-all" class="danger">Delete all</button>
                 <button data-action="install" id="install-btn" hidden>Install app</button>
-                <span class="menu-version">v143</span>
+                <span class="menu-version">v144</span>
             </div>
         </div>
     </header>
@@ -78,6 +79,14 @@
                 <button id="zoom-out" class="zoom-btn" title="Zoom out">&minus;</button>
                 <button id="zoom-in" class="zoom-btn" title="Zoom in">+</button>
                 <button id="zoom-fit" class="zoom-btn zoom-fit-label" title="Fit to view">[ ]</button>
+                <div class="nudge-group" id="nudge-group" hidden>
+                    <span class="zoom-sep"></span>
+                    <button id="nudge-in-left" class="zoom-btn nudge-btn" title="Nudge selection start left">&#9668;IN</button>
+                    <button id="nudge-in-right" class="zoom-btn nudge-btn" title="Nudge selection start right">IN&#9658;</button>
+                    <span class="zoom-sep"></span>
+                    <button id="nudge-out-left" class="zoom-btn nudge-btn" title="Nudge selection end left">&#9668;OUT</button>
+                    <button id="nudge-out-right" class="zoom-btn nudge-btn" title="Nudge selection end right">OUT&#9658;</button>
+                </div>
             </div>
             <div class="time-ruler" id="time-ruler"></div>
         </div>
@@ -87,60 +96,44 @@
             <div class="toolbar-scroll">
                 <!-- Transport -->
                 <button id="rec-btn" class="tb rec rec-only" title="Record">&#9679; REC</button>
-                <button id="play-btn" class="tb rec-only" title="Play">&#9654; PLAY</button>
-                <button id="stop-btn" class="tb rec-only" title="Stop">&#9632; STOP</button>
+                <button id="play-btn" class="tb rec-only" title="Play / Stop">&#9654; PLAY</button>
                 <button id="loop-btn" class="tb rec-only" title="Toggle loop">&#8635; LOOP</button>
                 <span class="tb-sep rec-only"></span>
                 <!-- Editing -->
                 <button id="trim-btn" class="tb rec-only" title="Trim to selection">TRIM</button>
-                <button id="cut-btn" class="tb rec-only" title="Cut selection">CUT</button>
-                <button id="copy-btn" class="tb rec-only" title="Copy selection">COPY</button>
-                <button id="paste-btn" class="tb rec-only" title="Paste at cursor">PASTE</button>
-                <button id="silence-btn" class="tb rec-only" title="Silence selection">SIL</button>
+                <button id="norm-btn" class="tb rec-only" title="Normalise">NORM</button>
+                <span class="tb-sep rec-only"></span>
+                <button id="reverse-btn" class="tb rec-only" title="Reverse">REV</button>
+                <span class="tb-sep rec-only"></span>
+                <!-- Noise Gate (mic-input specific) -->
+                <button id="gate-btn" class="tb rec-only" title="Noise gate">GATE</button>
+                <input type="range" id="gate-threshold" class="gate-slider rec-only"
+                       min="-60" max="0" value="-40" step="1" title="Gate threshold (dB)" hidden>
+                <span id="gate-db" class="gate-db rec-only" hidden>-40dB</span>
+                <span class="tb-sep rec-only"></span>
+                <!-- Process expander -->
+                <button id="process-btn" class="tb rec-only" title="Time / spectral processing">PROCESS</button>
                 <span class="tb-sep"></span>
                 <!-- File -->
                 <button id="save-btn" class="tb" title="Save to device">SAVE</button>
                 <button id="load-btn" class="tb" title="Load file">LOAD</button>
                 <span class="tb-sep rec-only"></span>
-                <!-- Processing -->
-                <button id="fadein-btn" class="tb rec-only" title="Fade in">F.IN</button>
-                <button id="fadeout-btn" class="tb rec-only" title="Fade out">F.OUT</button>
-                <button id="reverse-btn" class="tb rec-only" title="Reverse">REV</button>
-                <button id="norm-btn" class="tb rec-only" title="Normalise">NORM</button>
-                <span class="tb-sep rec-only"></span>
-                <!-- Creative FX -->
-                <button class="tb fx-btn rec-only" data-fx="reverb" title="Reverb">VERB</button>
-                <button class="tb fx-btn rec-only" data-fx="delay" title="Delay / Echo">DLY</button>
-                <button id="gate-btn" class="tb rec-only" title="Noise gate">GATE</button>
-                <input type="range" id="gate-threshold" class="gate-slider rec-only"
-                       min="-60" max="0" value="-40" step="1" title="Gate threshold (dB)" hidden>
-                <span id="gate-db" class="gate-db rec-only" hidden>-40dB</span>
-                <button class="tb fx-btn rec-only" data-fx="overdrive" title="Overdrive">DRIVE</button>
-                <button class="tb fx-btn rec-only" data-fx="bitcrush" title="Bit Crush">CRUSH</button>
-                <button class="tb fx-btn rec-only" data-fx="filter" title="Filter">FILT</button>
-                <button class="tb fx-btn rec-only" data-fx="ringmod" title="Ring Modulation">RING</button>
-                <button class="tb fx-btn rec-only" data-fx="wavefolding" title="Wavefolding">FOLD</button>
-                <button class="tb fx-btn rec-only" data-fx="stutter" title="Stutter / Glitch">GLITCH</button>
-                <span class="tb-sep rec-only"></span>
-                <!-- Time/Pitch/Spectral -->
-                <button class="tb fx-btn rec-only" data-fx="timestretch" title="Time Stretch">STRETCH</button>
-                <button class="tb fx-btn rec-only" data-fx="pitchshift" title="Pitch Shift">PITCH</button>
-                <button class="tb fx-btn rec-only" data-fx="paulstretch" title="Paulstretch">PAUL</button>
-                <button class="tb fx-btn rec-only" data-fx="granularfreeze" title="Granular Freeze">GRAIN</button>
-                <button class="tb fx-btn rec-only" data-fx="spectralfreeze" title="Spectral Freeze">SPEC</button>
-                <span class="tb-sep rec-only"></span>
-                <!-- Cross-slot -->
-                <button id="cross-btn" class="tb rec-only" title="Cross-slot processing">CROSS</button>
-                <button id="layer-btn" class="tb rec-only" title="Layer & bounce samples">LAYER</button>
-                <span class="tb-sep"></span>
-                <button id="bounce-btn" class="tb" title="Bounce to slot">BOUNCE</button>
-                <button id="export-all-btn" class="tb" title="Export all slots">EXPORT ALL</button>
-                <span class="tb-sep rec-only"></span>
-                <!-- Undo -->
-                <button id="undo-btn" class="tb rec-only" title="Undo">&#8617; UNDO</button>
-                <button id="redo-btn" class="tb rec-only" title="Redo">&#8618; REDO</button>
+                <!-- Undo / Redo as arrows -->
+                <button id="undo-btn" class="tb rec-only" title="Undo">&#8592;</button>
+                <button id="redo-btn" class="tb rec-only" title="Redo">&#8594;</button>
                 <span id="undo-count" class="undo-count rec-only"></span>
             </div>
+        </div>
+        <!-- Process Bar (expandable from PROCESS button) -->
+        <div class="process-bar" id="process-bar" hidden>
+            <button class="tb fx-btn" data-fx="paulstretch" title="Paulstretch">PAUL</button>
+            <button class="tb fx-btn" data-fx="granularfreeze" title="Granular Freeze">GRAIN</button>
+            <button class="tb fx-btn" data-fx="spectralfreeze" title="Spectral Freeze">SPEC</button>
+            <button class="tb fx-btn" data-fx="timestretch" title="Time Stretch">STRETCH</button>
+            <button class="tb fx-btn" data-fx="pitchshift" title="Pitch Shift">PITCH</button>
+            <button class="tb fx-btn" data-fx="wavefolding" title="Wavefolding">FOLD</button>
+            <button class="tb fx-btn" data-fx="ringmod" title="Ring Modulation">RING</button>
+            <button class="tb fx-btn" data-fx="stutter" title="Stutter / Glitch">GLITCH</button>
         </div>
 
         <!-- Sequencer Transport -->
@@ -200,6 +193,7 @@
                 <button class="sample-tab" data-tab="filter">FILT</button>
                 <button class="sample-tab" data-tab="lfo">LFO</button>
                 <button class="sample-tab" data-tab="morph">MORPH</button>
+                <button class="sample-tab" data-tab="fx">FX</button>
             </div>
             <!-- ENV panel: Dual visual curve editors (AMP + PITCH) -->
             <div class="sample-panel" id="panel-env">
@@ -324,6 +318,30 @@
                     <span class="param-value" id="morph-amount-val">50%</span>
                 </div>
             </div>
+
+            <!-- FX Panel -->
+            <div class="sample-panel" id="panel-fx" hidden>
+                <div class="fx-grid">
+                    <button class="tb fx-btn" data-fx="reverb" title="Reverb">VERB</button>
+                    <button class="tb fx-btn" data-fx="delay" title="Delay / Echo">DLY</button>
+                    <button class="tb fx-btn" data-fx="overdrive" title="Overdrive">DRIVE</button>
+                    <button class="tb fx-btn" data-fx="bitcrush" title="Bit Crush">CRUSH</button>
+                    <button class="tb fx-btn" data-fx="filter" title="Filter">FILT</button>
+                    <button class="tb fx-btn" data-fx="ringmod" title="Ring Mod">RING</button>
+                    <button class="tb fx-btn" data-fx="wavefolding" title="Wavefolding">FOLD</button>
+                    <button class="tb fx-btn" data-fx="stutter" title="Stutter / Glitch">GLITCH</button>
+                    <button class="tb fx-btn" data-fx="timestretch" title="Time Stretch">STRETCH</button>
+                    <button class="tb fx-btn" data-fx="pitchshift" title="Pitch Shift">PITCH</button>
+                    <button class="tb fx-btn" data-fx="paulstretch" title="Paulstretch">PAUL</button>
+                    <button class="tb fx-btn" data-fx="granularfreeze" title="Granular Freeze">GRAIN</button>
+                    <button class="tb fx-btn" data-fx="spectralfreeze" title="Spectral Freeze">SPEC</button>
+                </div>
+                <div class="fx-edit-row">
+                    <button id="sample-cross-btn" class="tb" title="Cross-slot processing">CROSS</button>
+                    <button id="sample-layer-btn" class="tb" title="Layer &amp; bounce samples">LAYER</button>
+                    <button id="sample-bounce-btn" class="tb" title="Bounce to slot">BOUNCE</button>
+                </div>
+            </div>
         </div>
 
         <!-- Gen Transport -->
@@ -379,6 +397,19 @@
                 <button id="rename-ok" class="dialog-btn primary">Save</button>
             </div>
         </div>
+    </div>
+
+    <!-- Waveform Context Menu -->
+    <div class="context-menu" id="waveform-menu" hidden>
+        <button data-wfm="cut">Cut</button>
+        <button data-wfm="copy">Copy</button>
+        <button data-wfm="paste">Paste</button>
+        <button data-wfm="silence">Silence</button>
+        <button data-wfm="fadein">Fade In</button>
+        <button data-wfm="fadeout">Fade Out</button>
+        <button data-wfm="cross">Cross-slot</button>
+        <button data-wfm="layer">Layer &amp; Bounce</button>
+        <button data-wfm="bounce">Bounce to slot</button>
     </div>
 
     <!-- Context Menu -->

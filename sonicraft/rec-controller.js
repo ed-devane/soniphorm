@@ -136,19 +136,25 @@ class RecController {
 
         this.app.audio.play(this.app.channels, this.app.bufferSampleRate, start, end, () => {
             this.cancelAnimationLoop();
-            document.getElementById('play-btn').classList.remove('playing');
+            const pb = document.getElementById('play-btn');
+            pb.classList.remove('playing');
+            pb.innerHTML = '&#9654; PLAY';
             this.app.waveform.setCursor(start);
             this.app.waveform.render();
         });
 
-        document.getElementById('play-btn').classList.add('playing');
+        const pb = document.getElementById('play-btn');
+        pb.classList.add('playing');
+        pb.innerHTML = '&#9632; STOP';
         this.startCursorAnimation();
     }
 
     stopAudio() {
         this.app.audio.stop();
         this.cancelAnimationLoop();
-        document.getElementById('play-btn').classList.remove('playing');
+        const pb = document.getElementById('play-btn');
+        pb.classList.remove('playing');
+        pb.innerHTML = '&#9654; PLAY';
     }
 
     toggleLoop() {
