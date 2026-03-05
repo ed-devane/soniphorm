@@ -1,4 +1,4 @@
-const CACHE_NAME = 'soniphorm-sonicraft-v145';
+const CACHE_NAME = 'soniphorm-sonicraft-v146';
 const ASSETS = [
   './',
   './index.html',

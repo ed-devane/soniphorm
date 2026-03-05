@@ -57,7 +57,7 @@
                 <button data-action="load-project">Load project</button>
                 <button data-action="delete-all" class="danger">Delete all</button>
                 <button data-action="install" id="install-btn" hidden>Install app</button>
-                <span class="menu-version">v145</span>
+                <span class="menu-version">v146</span>
             </div>
         </div>
     </header>
@@ -105,6 +105,17 @@
                 <span class="tb-sep rec-only"></span>
                 <!-- Process expander -->
                 <button id="process-btn" class="tb rec-only" title="Time / spectral processing">PROCESS</button>
+                <div id="process-group" hidden>
+                    <span class="tb-sep"></span>
+                    <button class="tb fx-btn" data-fx="paulstretch" title="Paulstretch">PAUL</button>
+                    <button class="tb fx-btn" data-fx="granularfreeze" title="Granular Freeze">GRAIN</button>
+                    <button class="tb fx-btn" data-fx="spectralfreeze" title="Spectral Freeze">SPEC</button>
+                    <button class="tb fx-btn" data-fx="timestretch" title="Time Stretch">STRETCH</button>
+                    <button class="tb fx-btn" data-fx="pitchshift" title="Pitch Shift">PITCH</button>
+                    <button class="tb fx-btn" data-fx="wavefolding" title="Wavefolding">FOLD</button>
+                    <button class="tb fx-btn" data-fx="ringmod" title="Ring Modulation">RING</button>
+                    <button class="tb fx-btn" data-fx="stutter" title="Stutter / Glitch">GLITCH</button>
+                </div>
                 <span class="tb-sep"></span>
                 <!-- File -->
                 <button id="save-btn" class="tb" title="Save to device">SAVE</button>
@@ -116,18 +127,6 @@
                 <span id="undo-count" class="undo-count rec-only"></span>
             </div>
         </div>
-        <!-- Process Bar (expandable from PROCESS button) -->
-        <div class="process-bar" id="process-bar" hidden>
-            <button class="tb fx-btn" data-fx="paulstretch" title="Paulstretch">PAUL</button>
-            <button class="tb fx-btn" data-fx="granularfreeze" title="Granular Freeze">GRAIN</button>
-            <button class="tb fx-btn" data-fx="spectralfreeze" title="Spectral Freeze">SPEC</button>
-            <button class="tb fx-btn" data-fx="timestretch" title="Time Stretch">STRETCH</button>
-            <button class="tb fx-btn" data-fx="pitchshift" title="Pitch Shift">PITCH</button>
-            <button class="tb fx-btn" data-fx="wavefolding" title="Wavefolding">FOLD</button>
-            <button class="tb fx-btn" data-fx="ringmod" title="Ring Modulation">RING</button>
-            <button class="tb fx-btn" data-fx="stutter" title="Stutter / Glitch">GLITCH</button>
-        </div>
-
         <!-- Sequencer Transport -->
         <div class="seq-transport" id="seq-transport">
             <button id="seq-play-btn" class="tb" title="Play / Stop sequence">&#9654; PLAY</button>

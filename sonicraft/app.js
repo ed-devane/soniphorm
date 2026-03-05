@@ -749,7 +749,7 @@ class App {
 
         // Process expander
         $('process-btn').addEventListener('click', () => {
-            const bar = document.getElementById('process-bar');
+            const bar = document.getElementById('process-group');
             bar.hidden = !bar.hidden;
             $('process-btn').classList.toggle('active', !bar.hidden);
         });

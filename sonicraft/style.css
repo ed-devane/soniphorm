@@ -232,17 +232,7 @@ main {
     padding: 0 8px 6px;
 }
 
-/* Process bar */
-.process-bar {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 4px;
-    padding: 5px 8px;
-    background: var(--bg2);
-    border-bottom: 1px solid var(--border);
-}
-.process-bar .tb { font-size: 10px; }
+#process-group { display: flex; align-items: center; gap: 4px; }
 #process-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
 .tb {
