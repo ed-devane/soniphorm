@@ -897,12 +897,6 @@ class App {
             document.getElementById('waveform-menu').hidden = true;
         });
 
-        // Selection nudge buttons (nudge IN/OUT locators by 5ms)
-        $('nudge-in-left').addEventListener('click',  () => this._nudgeSel('in',  -1));
-        $('nudge-in-right').addEventListener('click', () => this._nudgeSel('in',  +1));
-        $('nudge-out-left').addEventListener('click', () => this._nudgeSel('out', -1));
-        $('nudge-out-right').addEventListener('click',() => this._nudgeSel('out', +1));
-
         // Gen transport bindings
         $('gen-source-file').addEventListener('click', () => this.genCtrl._genSetSource('file'));
         $('gen-source-cam').addEventListener('click', () => this.genCtrl._genSetSource('camera'));
@@ -1159,10 +1153,6 @@ class App {
         document.getElementById('save-btn').disabled = !hasAudio;
         document.getElementById('load-btn').disabled = false;
 
-        // Show nudge buttons only when a selection exists in rec mode
-        const nudgeGroup = document.getElementById('nudge-group');
-        if (nudgeGroup) nudgeGroup.hidden = !hasSel || this._sampleMode || this._seqMode || this._genMode;
-
         // FX buttons (process bar + sample FX panel)
         document.querySelectorAll('.fx-btn').forEach(btn => {
             btn.disabled = !hasAudio;
@@ -1193,21 +1183,6 @@ class App {
         menu.style.left = Math.min(x, window.innerWidth - 160) + 'px';
         menu.style.top  = Math.min(y, window.innerHeight - 240) + 'px';
         menu.hidden = false;
-    }
-
-    _nudgeSel(handle, dir) {
-        const sel = this.waveform.getSelection();
-        if (!sel) return;
-        const step = Math.round((this.bufferSampleRate || 44100) * 0.005); // 5ms
-        const total = this.channels ? this.channels[0].length : sel.end;
-        if (handle === 'in') {
-            const s = Math.max(0, sel.start + dir * step);
-            if (s < sel.end) this.waveform.setSelection(s, sel.end);
-        } else {
-            const e = Math.min(total, sel.end + dir * step);
-            if (e > sel.start) this.waveform.setSelection(sel.start, e);
-        }
-        this.updateToolbarState();
     }
 
     // === Mode Switching ===

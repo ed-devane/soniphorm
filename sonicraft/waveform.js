@@ -48,6 +48,7 @@ class WaveformRenderer {
         this._loopEnd = -1;
         this._loopVisible = false;
         this._draggingLoopMarker = null; // 'start' | 'end' | null
+        this._draggingSelMarker = null;  // 'start' | 'end' | null
         this._lastPointerDownTime = 0;
         this.onLoopChange = null;
         this.onLoopClear = null;
@@ -537,6 +538,28 @@ class WaveformRenderer {
             ctx.lineTo(right, h);
             ctx.stroke();
         }
+
+        // Drag handles (triangles at bottom)
+        const startActive = this._draggingSelMarker === 'start';
+        const endActive   = this._draggingSelMarker === 'end';
+        if (left >= 0 && left <= w) {
+            ctx.fillStyle = startActive ? 'rgba(14,165,233,1)' : 'rgba(14,165,233,0.75)';
+            ctx.beginPath();
+            ctx.moveTo(left, h);
+            ctx.lineTo(left + 10, h - 8);
+            ctx.lineTo(left, h - 16);
+            ctx.closePath();
+            ctx.fill();
+        }
+        if (right >= 0 && right <= w) {
+            ctx.fillStyle = endActive ? 'rgba(14,165,233,1)' : 'rgba(14,165,233,0.75)';
+            ctx.beginPath();
+            ctx.moveTo(right, h);
+            ctx.lineTo(right - 10, h - 8);
+            ctx.lineTo(right, h - 16);
+            ctx.closePath();
+            ctx.fill();
+        }
     }
 
     /** Draw loop marker overlay: green fill + edge lines + triangular handles. */
@@ -603,12 +626,17 @@ class WaveformRenderer {
         // --- Mouse events ---
         c.addEventListener('mousedown', (e) => this._pointerDown(e.clientX));
         c.addEventListener('mousemove', (e) => {
-            if (this._dragging || this._draggingLoopMarker) this._pointerMove(e.clientX);
+            if (this._dragging || this._draggingLoopMarker || this._draggingSelMarker) {
+                this._pointerMove(e.clientX);
+            } else {
+                c.style.cursor = this._selHandleAtX(e.clientX) ? 'ew-resize' : '';
+            }
         });
         c.addEventListener('mouseup', (e) => this._pointerUp(e.clientX));
         // Handle mouse leaving the canvas while dragging
         c.addEventListener('mouseleave', (e) => {
-            if (this._dragging || this._draggingLoopMarker) this._pointerUp(e.clientX);
+            c.style.cursor = '';
+            if (this._dragging || this._draggingLoopMarker || this._draggingSelMarker) this._pointerUp(e.clientX);
         });
 
         // --- Touch events (single-touch selection + two-finger pinch zoom) ---
@@ -695,6 +723,16 @@ class WaveformRenderer {
         return Math.sqrt(dx * dx + dy * dy);
     }
 
+    /** Returns true if clientX is within 20px of a selection edge handle. */
+    _selHandleAtX(clientX) {
+        if (this._selStart < 0 || this._selEnd < 0) return false;
+        const rect = this._canvas.getBoundingClientRect();
+        const xS = this._sampleToX(this._selStart, this._scrollOffset, this.getVisibleSamples(), this._width);
+        const xE = this._sampleToX(this._selEnd,   this._scrollOffset, this.getVisibleSamples(), this._width);
+        const px = clientX - rect.left;
+        return Math.abs(px - xS) <= 20 || Math.abs(px - xE) <= 20;
+    }
+
     /** Midpoint clientX between two touch points. */
     _touchMid(touches) {
         return (touches[0].clientX + touches[1].clientX) / 2;
@@ -740,6 +778,24 @@ class WaveformRenderer {
             }
         }
 
+        // Selection handle hit-test
+        if (this._selStart >= 0 && this._selEnd >= 0) {
+            const rect2 = this._canvas.getBoundingClientRect();
+            const xS = this._sampleToX(this._selStart, this._scrollOffset, this.getVisibleSamples(), this._width);
+            const xE = this._sampleToX(this._selEnd,   this._scrollOffset, this.getVisibleSamples(), this._width);
+            const px2 = clientX - rect2.left;
+            if (Math.abs(px2 - xS) <= 20) {
+                this._draggingSelMarker = 'start';
+                this.render();
+                return;
+            }
+            if (Math.abs(px2 - xE) <= 20) {
+                this._draggingSelMarker = 'end';
+                this.render();
+                return;
+            }
+        }
+
         this._lastPointerDownTime = now;
         this._dragging = true;
         this._dragStartX = clientX;
@@ -748,6 +804,19 @@ class WaveformRenderer {
 
     _pointerMove(clientX) {
         if (this.chromaticMode) return;
+
+        // Selection handle dragging
+        if (this._draggingSelMarker) {
+            const sample = Math.max(0, Math.min(this.sampleAtX(clientX), this._totalSamples));
+            if (this._draggingSelMarker === 'start') {
+                this._selStart = Math.min(sample, this._selEnd - 1);
+            } else {
+                this._selEnd = Math.max(sample, this._selStart + 1);
+            }
+            this.render();
+            if (this.onSelectionChange) this.onSelectionChange({ start: this._selStart, end: this._selEnd });
+            return;
+        }
 
         // Loop marker dragging
         if (this._draggingLoopMarker) {
@@ -776,6 +845,20 @@ class WaveformRenderer {
 
     _pointerUp(clientX) {
         if (this.chromaticMode) return;
+
+        // Finalize selection handle drag
+        if (this._draggingSelMarker) {
+            const sample = Math.max(0, Math.min(this.sampleAtX(clientX), this._totalSamples));
+            if (this._draggingSelMarker === 'start') {
+                this._selStart = Math.min(sample, this._selEnd - 1);
+            } else {
+                this._selEnd = Math.max(sample, this._selStart + 1);
+            }
+            this._draggingSelMarker = null;
+            this.render();
+            if (this.onSelectionChange) this.onSelectionChange({ start: this._selStart, end: this._selEnd });
+            return;
+        }
 
         // Finalize loop marker drag
         if (this._draggingLoopMarker) {

@@ -172,16 +172,6 @@ main {
     display: flex; gap: 2px; align-items: center;
     z-index: 10;
 }
-.nudge-group {
-    display: flex; align-items: center; gap: 2px;
-}
-.nudge-btn {
-    font-size: 9px;
-    width: auto;
-    padding: 0 5px;
-    color: var(--cyan);
-    border-color: var(--cyan);
-}
 .zoom-btn {
     width: 28px; height: 28px;
     background: var(--bg2);
