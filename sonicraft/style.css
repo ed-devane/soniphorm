@@ -234,7 +234,8 @@ main {
 
 #process-group { display: flex; align-items: center; gap: 4px; }
 #process-group[hidden] { display: none; }
-#process-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+#process-btn { color: var(--green); border-color: var(--green); }
+#process-btn.active { background: var(--green); color: #fff; border-color: var(--green); }
 
 .tb {
     flex-shrink: 0;
