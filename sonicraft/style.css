@@ -233,6 +233,7 @@ main {
 }
 
 #process-group { display: flex; align-items: center; gap: 4px; }
+#process-group[hidden] { display: none; }
 #process-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
 
 .tb {
