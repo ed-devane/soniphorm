@@ -221,7 +221,7 @@ class App {
             }
 
             el.addEventListener('click', (e) => {
-                if (el._longPressFired) { el._longPressFired = false; return; }
+                if (el._longPressFired) { el._longPressFired = false; e.stopPropagation(); return; }
                 this.onSlotTap(i, e);
             });
             if (i < 16) {
