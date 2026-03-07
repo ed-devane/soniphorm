@@ -43,6 +43,15 @@ class SeqController {
         document.getElementById('seq-speed-btn').textContent = this.app.sequencer.speed + 'x';
         document.getElementById('seq-mutate-amount').value = Math.round(this.app.sequencer.mutateAmount * 100);
         document.getElementById('seq-stutter-amount').value = Math.round(this.app.sequencer.stutterAmount * 100);
+        // Auto-enter kit mode if no regular slots exist but a kit slot does
+        if (!this.app._kitMode) {
+            const hasRegular = this.app.slots.slots.some(s => s.hasAudio && s.type !== 'kit');
+            const kitIdx = this.app.slots.slots.findIndex(s => s.type === 'kit');
+            if (!hasRegular && kitIdx >= 0) {
+                await this.app._enterKitMode(kitIdx);
+            }
+        }
+
         // Show sample list or drum grid in waveform area
         document.getElementById('waveform').style.display = 'none';
         document.getElementById('waveform-empty').hidden = true;
