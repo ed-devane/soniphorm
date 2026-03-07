@@ -1559,6 +1559,12 @@ class App {
         // Load kit pad config
         this._loadKitPadConfig(slotIndex);
 
+        // Wire sampler audio context if already initialised
+        if (this.audio.audioContext) {
+            this.sampler.audioContext = this.audio.audioContext;
+            this.sampler.outputNode = this.audio.getEffectsBus();
+        }
+
         // Show back + play mode buttons
         document.getElementById('kit-back-btn').hidden = false;
         document.getElementById('kit-play-btn').hidden = false;
@@ -1666,7 +1672,13 @@ class App {
                     const area = (e.width || 1) * (e.height || 1);
                     vel = area > 4 ? Math.min(1, Math.max(0.15, area / 400)) : 0.8;
                 }
-                this.ensureAudioInit().then(() => this.sampler.trigger(i, vel));
+                this.ensureAudioInit().then(() => {
+                    if (!this.sampler.audioContext) {
+                        this.sampler.audioContext = this.audio.audioContext;
+                        this.sampler.outputNode = this.audio.getEffectsBus();
+                    }
+                    this.sampler.trigger(i, vel);
+                });
                 el.classList.add('kit-triggered');
                 setTimeout(() => el.classList.remove('kit-triggered'), 80);
             });
@@ -1781,6 +1793,12 @@ class App {
 
     async _onKitSlotTap(subIndex) {
         await this.ensureAudioInit();
+
+        // If recording is active, tapping any kit pad stops the recording
+        if (this.recordingSlotIndex >= 0) {
+            await this.rec.stopRecording();
+            return;
+        }
 
         // If a waveform selection exists and target sub-slot is empty, copy region
         const meta = this.slots.getKitSlotMeta(this._kitParentSlot, subIndex);
