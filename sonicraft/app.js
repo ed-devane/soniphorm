@@ -1577,8 +1577,9 @@ class App {
             this.sampler.outputNode = this.audio.getEffectsBus();
         }
 
-        // Show back button + PAD PLAY in toolbar
+        // Show back + PAD PLAY in toolbar
         document.getElementById('kit-back-btn').hidden = false;
+        document.getElementById('kit-back-sep').hidden = false;
         document.getElementById('kit-play-btn').hidden = false;
         document.getElementById('kit-play-sep').hidden = false;
         this._kitPlayMode = false;
@@ -1602,8 +1603,9 @@ class App {
         this._kitSlotBuffers = {};
         this._drumGridView = false;
 
-        // Hide back button + PAD PLAY in toolbar
+        // Hide back + PAD PLAY in toolbar
         document.getElementById('kit-back-btn').hidden = true;
+        document.getElementById('kit-back-sep').hidden = true;
         document.getElementById('kit-play-btn').hidden = true;
         document.getElementById('kit-play-sep').hidden = true;
         this._kitPlayMode = false;

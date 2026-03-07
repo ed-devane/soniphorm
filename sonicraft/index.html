@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="../favicon.png">
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=152">
+    <link rel="stylesheet" href="style.css?v=161">
 </head>
 <body>
     <header id="header">
@@ -20,7 +20,6 @@
             <a href="../index.html" class="header-brand" title="Back to Soniphorm"><img src="../images/soniphormLogo.png" alt="Soniphorm"></a>
             <span class="header-title">SONICRAFT</span>
         </div>
-        <button id="kit-back-btn" class="kit-back-btn" hidden>&#9664; BACK</button>
         <div class="header-center" id="transport-info">
             <span id="info-rate">--</span>
             <span class="info-sep">|</span>
@@ -57,7 +56,7 @@
                 <button data-action="load-project">Load project</button>
                 <button data-action="delete-all" class="danger">Delete all</button>
                 <button data-action="install" id="install-btn" hidden>Install app</button>
-                <span class="menu-version">v160</span>
+                <span class="menu-version">v161</span>
             </div>
         </div>
     </header>
@@ -86,7 +85,9 @@
         <!-- Edit Toolbar -->
         <div class="toolbar" id="toolbar">
             <div class="toolbar-scroll">
-                <!-- Kit PAD PLAY (shown only in kit mode) -->
+                <!-- Kit controls (shown only in kit mode) -->
+                <button id="kit-back-btn" class="tb" hidden>&#9664; BACK</button>
+                <span id="kit-back-sep" class="tb-sep" hidden></span>
                 <button id="kit-play-btn" class="tb kit-play-btn" hidden title="Pad play mode — single tap to trigger, velocity from press size">PAD PLAY</button>
                 <span id="kit-play-sep" class="tb-sep" hidden></span>
                 <!-- Transport -->
