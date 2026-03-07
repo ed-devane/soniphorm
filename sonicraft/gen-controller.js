@@ -279,9 +279,19 @@ class GenController {
         // Wire zone trigger callback
         this.app.gen.onZoneTrigger = (subSlot) => {
             if (!this.app._genMode || !this.app._kitMode) return;
-            const meta = this.app.slots.getKitSlotMeta(this.app._kitParentSlot, subSlot);
-            if (!meta || !meta.hasAudio) return;
-            this.app.sampler.trigger(subSlot);
+            const buf = this.app._kitSlotBuffers[subSlot];
+            const ctx = this.app.audio.audioContext;
+            if (!buf || !ctx) return;
+            const play = () => {
+                const source = ctx.createBufferSource();
+                source.buffer = buf;
+                const gain = ctx.createGain();
+                gain.gain.value = 1;
+                source.connect(gain);
+                gain.connect(this.app.audio.getEffectsBus() || ctx.destination);
+                source.start();
+            };
+            if (ctx.state === 'suspended') { ctx.resume().then(play); } else { play(); }
             this._genHighlightPad(subSlot);
         };
 
@@ -340,6 +350,9 @@ class GenController {
                 opt.textContent = cam.label || `Camera ${i + 1}`;
                 sel.appendChild(opt);
             });
+            // Pre-select rear/environment camera if available (Android lists front first)
+            const rear = cameras.find(c => /back|rear|environment/i.test(c.label));
+            if (rear) sel.value = rear.deviceId;
         } catch (e) {}
     }
 
