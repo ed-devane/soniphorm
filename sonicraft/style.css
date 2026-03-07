@@ -1901,6 +1901,13 @@ main {
     color: var(--text);
 }
 .kit-back-btn[hidden] { display: none; }
+.kit-play-btn.active {
+    color: var(--green);
+    border-color: var(--green);
+}
+.slot.kit-triggered {
+    background: rgba(34, 197, 94, 0.2) !important;
+}
 
 /* Context menu hidden buttons */
 .context-menu button[hidden] { display: none; }

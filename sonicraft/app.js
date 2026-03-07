@@ -48,6 +48,7 @@ class App {
         this._kitSlotBuffers = {}; // subIndex -> AudioBuffer
         this._kitSelectedSub = 0;
         this._drumGridView = false; // true = drum grid, false = normal seq view
+        this._kitPlayMode = false;  // PAD PLAY: immediate trigger on first tap with velocity
 
         // Gen mode
         this._genMode = false;
@@ -926,6 +927,12 @@ class App {
         // Kit mode back button
         $('kit-back-btn').addEventListener('click', () => this._exitKitMode());
 
+        // Kit PAD PLAY mode toggle
+        $('kit-play-btn').addEventListener('click', () => {
+            this._kitPlayMode = !this._kitPlayMode;
+            $('kit-play-btn').classList.toggle('active', this._kitPlayMode);
+        });
+
         // Drum grid toggle
         $('seq-drum-grid-btn').addEventListener('click', () => this.seq._toggleDrumGrid());
 
@@ -1552,8 +1559,11 @@ class App {
         // Load kit pad config
         this._loadKitPadConfig(slotIndex);
 
-        // Show back button
+        // Show back + play mode buttons
         document.getElementById('kit-back-btn').hidden = false;
+        document.getElementById('kit-play-btn').hidden = false;
+        this._kitPlayMode = false;
+        document.getElementById('kit-play-btn').classList.remove('active');
 
         // Update header
         const kitName = this.slots.slots[slotIndex].name || 'Kit';
@@ -1573,8 +1583,10 @@ class App {
         this._kitSlotBuffers = {};
         this._drumGridView = false;
 
-        // Hide back button
+        // Hide back + play mode buttons
         document.getElementById('kit-back-btn').hidden = true;
+        document.getElementById('kit-play-btn').hidden = true;
+        this._kitPlayMode = false;
 
         // Hide drum grid if visible
         document.getElementById('drum-grid').hidden = true;
@@ -1640,7 +1652,27 @@ class App {
             let usedTouch = false;
             let longPressTimer = null;
 
+            // PAD PLAY mode: immediate trigger on pointerdown with velocity
+            el.addEventListener('pointerdown', (e) => {
+                if (!this._kitPlayMode || this._sampleMode || this._seqMode) return;
+                const meta = this.slots.getKitSlotMeta(this._kitParentSlot, i);
+                if (!meta || !meta.hasAudio) return;
+                e.preventDefault();
+                // Velocity: prefer real pressure, fall back to contact area proxy
+                let vel;
+                if (e.pressure > 0 && e.pressure !== 0.5) {
+                    vel = Math.max(0.1, e.pressure);
+                } else {
+                    const area = (e.width || 1) * (e.height || 1);
+                    vel = area > 4 ? Math.min(1, Math.max(0.15, area / 400)) : 0.8;
+                }
+                this.ensureAudioInit().then(() => this.sampler.trigger(i, vel));
+                el.classList.add('kit-triggered');
+                setTimeout(() => el.classList.remove('kit-triggered'), 80);
+            });
+
             el.addEventListener('click', (e) => {
+                if (this._kitPlayMode && !this._sampleMode && !this._seqMode) return; // handled by pointerdown
                 if (this._sampleMode) return;
                 if (this._seqMode) {
                     this.seq.seqStepTap(i);

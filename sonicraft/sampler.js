@@ -88,14 +88,14 @@ class Sampler {
 
     // === Triggering ===
 
-    trigger(slotIndex) {
+    trigger(slotIndex, velocity = 1) {
         if (!this.audioContext) return;
         const pad = this.pads[slotIndex];
 
         if (pad.mode === 'morph') {
             this._stopVoice(slotIndex);
             const buf = this._getMorphBuffer(slotIndex);
-            if (buf) this._startVoice(slotIndex, buf, false);
+            if (buf) this._startVoice(slotIndex, buf, false, undefined, velocity);
         } else {
             const buffer = this._getPlayBuffer(slotIndex);
             if (!buffer) return;
@@ -103,15 +103,15 @@ class Sampler {
             switch (pad.mode) {
                 case 'oneshot':
                     this._stopVoice(slotIndex);
-                    this._startVoice(slotIndex, buffer, false);
+                    this._startVoice(slotIndex, buffer, false, undefined, velocity);
                     break;
                 case 'loop':
                     this._stopVoice(slotIndex);
-                    this._startVoice(slotIndex, buffer, true);
+                    this._startVoice(slotIndex, buffer, true, undefined, velocity);
                     break;
                 case 'gate':
                     this._stopVoice(slotIndex);
-                    this._startVoice(slotIndex, buffer, true);
+                    this._startVoice(slotIndex, buffer, true, undefined, velocity);
                     break;
             }
         }
@@ -222,7 +222,7 @@ class Sampler {
         }
     }
 
-    _startVoice(slotIndex, buffer, loop, voiceKey) {
+    _startVoice(slotIndex, buffer, loop, voiceKey, velocity = 1) {
         const vk = voiceKey !== undefined ? voiceKey : slotIndex;
         const pad = this.pads[slotIndex];
         const ctx = this.audioContext;
@@ -292,9 +292,9 @@ class Sampler {
         lastNode.connect(envelopeGain);
         lastNode = envelopeGain;
 
-        // 4. Volume gain
+        // 4. Volume gain (velocity scales the pad volume at trigger time)
         const volumeGain = ctx.createGain();
-        volumeGain.gain.setValueAtTime(pad.volume, now);
+        volumeGain.gain.setValueAtTime(pad.volume * Math.max(0, Math.min(1, velocity)), now);
         lastNode.connect(volumeGain);
         lastNode = volumeGain;
 
