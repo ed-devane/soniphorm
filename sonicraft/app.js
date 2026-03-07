@@ -907,6 +907,7 @@ class App {
         $('project-file-input').addEventListener('change', (e) => this.rec.loadProject(e));
         $('gen-play-btn').addEventListener('click', () => this.genCtrl._genTogglePlay());
         $('gen-stop-btn').addEventListener('click', () => this.genCtrl._genStop());
+        $('gen-expand-btn').addEventListener('click', () => this.genCtrl._genToggleExpand());
         $('gen-rec-btn').addEventListener('click', () => this.genCtrl._genToggleRec());
         $('gen-toggle-btn').addEventListener('click', () => this.genCtrl._genToggleMaster());
         $('gen-loop-btn').addEventListener('click', () => this.genCtrl._genToggleLoop());

@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="../favicon.png">
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=161">
+    <link rel="stylesheet" href="style.css?v=165">
 </head>
 <body>
     <header id="header">
@@ -56,7 +56,7 @@
                 <button data-action="load-project">Load project</button>
                 <button data-action="delete-all" class="danger">Delete all</button>
                 <button data-action="install" id="install-btn" hidden>Install app</button>
-                <span class="menu-version">v164</span>
+                <span class="menu-version">v165</span>
             </div>
         </div>
     </header>
@@ -73,6 +73,7 @@
             <div id="gen-video-wrap" class="gen-video-wrap" hidden>
                 <video id="gen-video" class="gen-video" playsinline muted></video>
                 <canvas id="gen-overlay" class="gen-overlay"></canvas>
+                <button id="gen-expand-btn" class="gen-expand-btn" title="Expand video">&#x26F6;</button>
             </div>
             <div class="zoom-bar">
                 <button id="zoom-out" class="zoom-btn" title="Zoom out">&minus;</button>

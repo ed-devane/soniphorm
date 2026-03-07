@@ -105,6 +105,11 @@ class GenController {
     // Called by app.switchMode() when leaving gen mode
     exit() {
         if (this._genRecording) this._genStopRec(false);
+        // Collapse expanded view
+        const wrap = document.getElementById('gen-video-wrap');
+        const expandBtn = document.getElementById('gen-expand-btn');
+        if (wrap) wrap.classList.remove('gen-expanded');
+        if (expandBtn) expandBtn.textContent = '\u26F6';
         // Remember if video was playing so we can resume on re-enter
         const video = this.app.gen.videoEl;
         this._genWasPlaying = video && !video.paused && this.app.gen.source === 'file';
@@ -436,6 +441,14 @@ class GenController {
         }
         document.getElementById('gen-play-btn').textContent = '\u25B6 PLAY';
         this._genUpdateTimeText();
+    }
+
+    _genToggleExpand() {
+        const wrap = document.getElementById('gen-video-wrap');
+        const btn = document.getElementById('gen-expand-btn');
+        const expanded = wrap.classList.toggle('gen-expanded');
+        btn.textContent = expanded ? '\u2715' : '\u26F6';
+        requestAnimationFrame(() => this._genResizeOverlay());
     }
 
     _genToggleMaster() {
