@@ -16,6 +16,13 @@ class GenController {
         this._genPanY = 0;
         this._genTriggerState = {};
 
+        // Kit zones mode
+        this._genZonesMode = false;
+        this._genZoneDragging = false;
+        this._genZoneDragId = null;
+        this._genZoneDragType = null;
+        this._genZoneDragStart = null;
+
         // Video loop state
         this._genLoopEnabled = false;
         this._genLoopIn = 0;
@@ -47,6 +54,13 @@ class GenController {
         this.app.buildSlotGrid();
         this._genRenderGrid();
         this._genUpdatePadPanel();
+        // ZONES button — only relevant in kit mode
+        const zonesBtn = document.getElementById('gen-zones-btn');
+        if (zonesBtn) zonesBtn.hidden = !this.app._kitMode;
+        if (this.app._kitMode) {
+            this._genLoadZones();
+            this._genUpdateZonePanel();
+        }
         // Sync UI state
         document.getElementById('gen-toggle-btn').textContent = this.app.gen.enabled ? 'ON' : 'OFF';
         document.getElementById('gen-toggle-btn').classList.toggle('gen-active', this.app.gen.enabled);
@@ -77,6 +91,15 @@ class GenController {
         this._genTriggerState = {};
         this._genZoom = 1; this._genPanX = 0; this._genPanY = 0;
         this._genApplyZoom();
+        // Reset zones mode
+        if (this.app._kitMode) this._genSaveZones();
+        this._genZonesMode = false;
+        const zonePanel = document.getElementById('gen-zone-panel');
+        const padPanel = document.getElementById('gen-pad-panel');
+        if (zonePanel) zonePanel.hidden = true;
+        if (padPanel) padPanel.hidden = false;
+        const zonesBtn = document.getElementById('gen-zones-btn');
+        if (zonesBtn) { zonesBtn.hidden = true; zonesBtn.classList.remove('active'); }
         document.getElementById('gen-video-wrap').hidden = true;
         document.getElementById('waveform').style.display = '';
         if (this.app.channels) {
@@ -228,6 +251,20 @@ class GenController {
         this.app.gen.onSensorUpdate = (sensorIndex, value) => {
             this._genUpdateSensorDisplay(sensorIndex, value);
             if (this.app._genMode) this._genDrawOverlay();
+        };
+
+        // Wire zone trigger callback
+        this.app.gen.onZoneTrigger = (subSlot) => {
+            if (!this.app._genMode || !this.app._kitMode) return;
+            const meta = this.app.slots.getKitSlotMeta(this.app._kitParentSlot, subSlot);
+            if (!meta || !meta.hasAudio) return;
+            this.app.sampler.trigger(subSlot);
+            this._genHighlightPad(subSlot);
+        };
+
+        // Wire zone update (for overlay redraws when no sensors exist)
+        this.app.gen.onZoneUpdate = () => {
+            if (this.app._genMode && this._genZonesMode) this._genDrawOverlay();
         };
 
         this._loadGenConfig();
@@ -580,6 +617,11 @@ class GenController {
         const h = overlay.height;
         ctx.clearRect(0, 0, w, h);
 
+        if (this._genZonesMode) {
+            this._genDrawZonesOverlay(ctx, w, h);
+            return;
+        }
+
         const selectedPad = this._genSelectedPad;
 
         this.app.gen.sensors.forEach((sensor, i) => {
@@ -665,11 +707,42 @@ class GenController {
             return null;
         };
 
+        const findZone = (pos) => {
+            for (let i = this.app.gen.zones.length - 1; i >= 0; i--) {
+                const z = this.app.gen.zones[i];
+                if (pos.x >= z.x && pos.x <= z.x + z.w && pos.y >= z.y && pos.y <= z.y + z.h) {
+                    const inResizeX = pos.x > z.x + z.w * 0.7;
+                    const inResizeY = pos.y > z.y + z.h * 0.7;
+                    return { zone: z, resize: inResizeX && inResizeY };
+                }
+            }
+            return null;
+        };
+
         const onDown = (e) => {
             e.preventDefault();
             const pos = getPos(e);
-            const hit = findSensor(pos);
 
+            if (this._genZonesMode) {
+                const hit = findZone(pos);
+                if (hit) {
+                    this._genZoneDragging = true;
+                    this._genZoneDragId = hit.zone.id;
+                    this._genZoneDragType = hit.resize ? 'resize' : 'move';
+                    this._genZoneDragStart = {
+                        px: pos.x, py: pos.y,
+                        sx: hit.zone.x, sy: hit.zone.y,
+                        sw: hit.zone.w, sh: hit.zone.h
+                    };
+                } else {
+                    this._genZoneDragging = true;
+                    this._genZoneDragType = 'create';
+                    this._genZoneDragStart = { px: pos.x, py: pos.y };
+                }
+                return;
+            }
+
+            const hit = findSensor(pos);
             if (hit) {
                 this._genDragging = true;
                 this._genDragSensorId = hit.sensor.id;
@@ -688,6 +761,30 @@ class GenController {
         };
 
         const onMove = (e) => {
+            if (this._genZonesMode) {
+                if (!this._genZoneDragging) return;
+                e.preventDefault();
+                const pos = getPos(e);
+                if (this._genZoneDragType === 'move') {
+                    const dx = pos.x - this._genZoneDragStart.px;
+                    const dy = pos.y - this._genZoneDragStart.py;
+                    this.app.gen.updateZone(this._genZoneDragId, {
+                        x: Math.max(0, Math.min(1 - this._genZoneDragStart.sw, this._genZoneDragStart.sx + dx)),
+                        y: Math.max(0, Math.min(1 - this._genZoneDragStart.sh, this._genZoneDragStart.sy + dy))
+                    });
+                    this._genDrawOverlay();
+                } else if (this._genZoneDragType === 'resize') {
+                    const nw = Math.max(0.05, this._genZoneDragStart.sw + (pos.x - this._genZoneDragStart.px));
+                    const nh = Math.max(0.05, this._genZoneDragStart.sh + (pos.y - this._genZoneDragStart.py));
+                    this.app.gen.updateZone(this._genZoneDragId, {
+                        w: Math.min(nw, 1 - this._genZoneDragStart.sx),
+                        h: Math.min(nh, 1 - this._genZoneDragStart.sy)
+                    });
+                    this._genDrawOverlay();
+                }
+                return;
+            }
+
             if (!this._genDragging) return;
             e.preventDefault();
             const pos = getPos(e);
@@ -712,6 +809,34 @@ class GenController {
         };
 
         const onUp = (e) => {
+            if (this._genZonesMode) {
+                if (!this._genZoneDragging) return;
+                if (this._genZoneDragType === 'create') {
+                    const pos = getPos(e);
+                    const x = Math.min(this._genZoneDragStart.px, pos.x);
+                    const y = Math.min(this._genZoneDragStart.py, pos.y);
+                    const w = Math.abs(pos.x - this._genZoneDragStart.px);
+                    const h = Math.abs(pos.y - this._genZoneDragStart.py);
+                    if (w > 0.05 && h > 0.05) {
+                        // Assign next available sub-slot
+                        const used = new Set(this.app.gen.zones.map(z => z.subSlot));
+                        let sub = 0;
+                        while (used.has(sub) && sub < 16) sub++;
+                        this.app.gen.addZone({ x, y, w, h, subSlot: sub });
+                        this._genUpdateZonePanel();
+                        this._genDrawOverlay();
+                        this._genSaveZones();
+                    }
+                } else {
+                    this._genSaveZones();
+                }
+                this._genZoneDragging = false;
+                this._genZoneDragId = null;
+                this._genZoneDragType = null;
+                this._genZoneDragStart = null;
+                return;
+            }
+
             if (!this._genDragging) return;
 
             if (this._genDragType === 'create') {
@@ -1042,5 +1167,180 @@ class GenController {
         const m = Math.floor(s / 60);
         const sec = s % 60;
         return `${m}:${sec < 10 ? '0' : ''}${sec.toFixed(1)}`;
+    }
+
+    // --- Gen Kit Zones ---
+
+    _genToggleZonesMode() {
+        this._genZonesMode = !this._genZonesMode;
+        const zonesBtn = document.getElementById('gen-zones-btn');
+        const padPanel = document.getElementById('gen-pad-panel');
+        const zonePanel = document.getElementById('gen-zone-panel');
+        if (zonesBtn) zonesBtn.classList.toggle('active', this._genZonesMode);
+        if (padPanel) padPanel.hidden = this._genZonesMode;
+        if (zonePanel) zonePanel.hidden = !this._genZonesMode;
+        this._genDrawOverlay();
+    }
+
+    _genAddZone() {
+        const used = new Set(this.app.gen.zones.map(z => z.subSlot));
+        let sub = 0;
+        while (used.has(sub) && sub < 16) sub++;
+        const off = this.app.gen.zones.length;
+        this.app.gen.addZone({
+            x: 0.05 + (off % 4) * 0.22,
+            y: 0.05 + Math.floor(off / 4) * 0.35,
+            w: 0.2, h: 0.3,
+            subSlot: sub
+        });
+        this._genUpdateZonePanel();
+        this._genDrawOverlay();
+        this._genSaveZones();
+    }
+
+    _genRemoveZone(id) {
+        this.app.gen.removeZone(id);
+        this._genUpdateZonePanel();
+        this._genDrawOverlay();
+        this._genSaveZones();
+    }
+
+    _genUpdateZonePanel() {
+        const container = document.getElementById('gen-zone-list');
+        const clearBtn = document.getElementById('gen-clear-zones-btn');
+        if (!container) return;
+        container.innerHTML = '';
+        const zones = this.app.gen.zones;
+        if (clearBtn) clearBtn.hidden = zones.length === 0;
+
+        zones.forEach((zone) => {
+            const color = Gen.SENSOR_COLORS[zone.subSlot % Gen.SENSOR_COLORS.length];
+            const row = document.createElement('div');
+            row.className = 'gen-zone-row';
+
+            // Build sub-slot options
+            let subOpts = '';
+            for (let i = 0; i < 16; i++) {
+                const meta = this.app.slots.getKitSlotMeta(this.app._kitParentSlot, i);
+                const name = (meta && meta.name) ? meta.name : `${i + 1}`;
+                const hasAudio = meta && meta.hasAudio;
+                subOpts += `<option value="${i}" ${zone.subSlot === i ? 'selected' : ''} ${!hasAudio ? 'class="empty-sub"' : ''}>${String(i + 1).padStart(2, '0')} ${name}</option>`;
+            }
+
+            row.innerHTML = `
+                <span class="gen-zone-swatch" style="background:${color}"></span>
+                <select class="gen-zone-sel gen-zone-sub">${subOpts}</select>
+                <span class="gen-zone-value" id="gen-zv-${zone.id}">${zone._lastValue.toFixed(2)}</span>
+                <label class="gen-thresh-label">TH <input type="range" class="gen-thresh-slider gen-zone-thresh" min="0.05" max="0.99" step="0.01" value="${zone.threshold}"></label>
+                <button class="gen-mapping-remove tb" title="Remove zone">&times;</button>
+            `;
+
+            row.querySelector('.gen-zone-sub').addEventListener('change', (e) => {
+                const newSub = parseInt(e.target.value);
+                this.app.gen.updateZone(zone.id, { subSlot: newSub });
+                // Update swatch color
+                const newColor = Gen.SENSOR_COLORS[newSub % Gen.SENSOR_COLORS.length];
+                row.querySelector('.gen-zone-swatch').style.background = newColor;
+                this._genDrawOverlay();
+                this._genSaveZones();
+            });
+
+            row.querySelector('.gen-zone-thresh').addEventListener('input', (e) => {
+                this.app.gen.updateZone(zone.id, { threshold: parseFloat(e.target.value) });
+                this._genSaveZones();
+            });
+
+            row.querySelector('.gen-mapping-remove').addEventListener('click', () => {
+                this._genRemoveZone(zone.id);
+            });
+
+            container.appendChild(row);
+        });
+    }
+
+    _genDrawZonesOverlay(ctx, w, h) {
+        this.app.gen.zones.forEach((zone) => {
+            // Update live value display
+            const valEl = document.getElementById('gen-zv-' + zone.id);
+            if (valEl) valEl.textContent = zone._lastValue.toFixed(2);
+
+            const color = Gen.SENSOR_COLORS[zone.subSlot % Gen.SENSOR_COLORS.length];
+            const zx = zone.x * w;
+            const zy = zone.y * h;
+            const zw = zone.w * w;
+            const zh = zone.h * h;
+
+            // Fill
+            ctx.fillStyle = color + '25';
+            ctx.fillRect(zx, zy, zw, zh);
+
+            // Border
+            ctx.strokeStyle = zone._triggerActive ? '#ffffff' : color;
+            ctx.lineWidth = zone._triggerActive ? 3 : 2;
+            ctx.strokeRect(zx, zy, zw, zh);
+
+            // Label
+            ctx.fillStyle = color;
+            ctx.font = '11px JetBrains Mono, monospace';
+            const meta = this.app.slots.getKitSlotMeta(this.app._kitParentSlot, zone.subSlot);
+            const subName = (meta && meta.name) ? meta.name : String(zone.subSlot + 1);
+            const label = `${String(zone.subSlot + 1).padStart(2, '0')} ${subName}`;
+            const labelY = zy > 16 ? zy - 3 : zy + zh + 13;
+            ctx.fillText(label, zx + 3, labelY);
+
+            // Motion bar
+            if (zone._lastValue > 0) {
+                ctx.fillStyle = zone._triggerActive ? '#ffffff80' : color + '80';
+                const barH = Math.max(2, Math.min(4, zh * 0.15));
+                ctx.fillRect(zx, zy + zh - barH, zw * zone._lastValue, barH);
+            }
+
+            // Resize handle
+            ctx.fillStyle = color + '60';
+            const hx = zw * 0.3;
+            const hy = zh * 0.3;
+            ctx.beginPath();
+            ctx.moveTo(zx + zw, zy + zh - hy);
+            ctx.lineTo(zx + zw, zy + zh);
+            ctx.lineTo(zx + zw - hx, zy + zh);
+            ctx.closePath();
+            ctx.fill();
+        });
+    }
+
+    _genSaveZones() {
+        if (!this.app._kitMode) return;
+        const key = 'soniphorm-gen-zones-' + this.app._kitParentSlot;
+        try {
+            const data = this.app.gen.zones.map(z => ({
+                id: z.id, x: z.x, y: z.y, w: z.w, h: z.h,
+                subSlot: z.subSlot, threshold: z.threshold, enabled: z.enabled
+            }));
+            localStorage.setItem(key, JSON.stringify(data));
+        } catch (e) {}
+    }
+
+    _genLoadZones() {
+        if (!this.app._kitMode) return;
+        const key = 'soniphorm-gen-zones-' + this.app._kitParentSlot;
+        this.app.gen.zones = [];
+        this.app.gen._nextZoneId = 100;
+        try {
+            const data = JSON.parse(localStorage.getItem(key));
+            if (Array.isArray(data)) {
+                let maxId = 99;
+                for (const z of data) {
+                    this.app.gen.zones.push({
+                        id: z.id, x: z.x, y: z.y, w: z.w, h: z.h,
+                        subSlot: z.subSlot || 0,
+                        threshold: z.threshold || 0.3,
+                        enabled: z.enabled !== false,
+                        _lastValue: 0, _triggerActive: false
+                    });
+                    if (z.id > maxId) maxId = z.id;
+                }
+                this.app.gen._nextZoneId = maxId + 1;
+            }
+        } catch (e) {}
     }
 }

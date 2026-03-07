@@ -2215,8 +2215,60 @@ main {
     border-radius: var(--radius);
 }
 
+/* Gen Zone Panel */
+.gen-zone-panel {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 4px 0;
+    flex-wrap: wrap;
+}
+.gen-zone-panel[hidden] { display: none; }
+.gen-zone-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    flex: 1;
+    min-width: 0;
+}
+.gen-zone-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    flex-wrap: wrap;
+}
+.gen-zone-swatch {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    flex-shrink: 0;
+}
+.gen-zone-sel {
+    background: var(--surface);
+    color: var(--text);
+    border: 1px solid var(--border);
+    font-size: 10px;
+    font-family: inherit;
+    padding: 1px 2px;
+    border-radius: var(--radius);
+    cursor: pointer;
+    max-width: 100px;
+}
+.gen-zone-value {
+    color: var(--green);
+    font-size: 9px;
+    min-width: 28px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+#gen-zones-btn.active {
+    color: var(--accent);
+    border-color: var(--accent);
+}
+
 @media (max-width: 500px) {
     .gen-row-main { gap: 4px; }
     .gen-mapping-row { flex-wrap: wrap; }
     .gen-mapping-sel { font-size: 9px; }
+    .gen-zone-row { flex-wrap: wrap; }
 }

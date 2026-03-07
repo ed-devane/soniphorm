@@ -21,9 +21,15 @@ class Gen {
         this._animFrame = null;
         this._lastAnalysisTime = 0;
 
+        // Kit trigger zones
+        this.zones = [];
+        this._nextZoneId = 100;
+
         // Callbacks (set by app.js)
         this.onSensorUpdate = null;     // (sensorIndex, value) => void
         this.applyModulation = null;    // (padIndex, paramName, value) => void
+        this.onZoneTrigger = null;      // (subSlot) => void
+        this.onZoneUpdate = null;       // () => void (called after zone analysis)
     }
 
     // --- Video source ---
@@ -111,6 +117,33 @@ class Gen {
         const cw = this._analysisCanvas.width;
         const ch = this._analysisCanvas.height;
         ctx.drawImage(this.videoEl, 0, 0, cw, ch);
+
+        // Analyze kit trigger zones (motion-based drum hits)
+        for (let i = 0; i < this.zones.length; i++) {
+            const zone = this.zones[i];
+            if (!zone.enabled) continue;
+            const px = Math.round(zone.x * cw);
+            const py = Math.round(zone.y * ch);
+            const pw = Math.max(1, Math.round(zone.w * cw));
+            const ph = Math.max(1, Math.round(zone.h * ch));
+            const zsx = Math.max(0, Math.min(px, cw - 1));
+            const zsy = Math.max(0, Math.min(py, ch - 1));
+            const zsw = Math.min(pw, cw - zsx);
+            const zsh = Math.min(ph, ch - zsy);
+            if (zsw <= 0 || zsh <= 0) continue;
+            const zdata = this._analysisCtx.getImageData(zsx, zsy, zsw, zsh).data;
+            const motion = this._metricMotion(zdata, zsw * zsh, 'z' + zone.id);
+            zone._lastValue = motion;
+            const thresh = zone.threshold;
+            const hyst = Math.max(0.02, thresh * 0.15);
+            if (motion > thresh && !zone._triggerActive) {
+                zone._triggerActive = true;
+                if (this.onZoneTrigger) this.onZoneTrigger(zone.subSlot);
+            } else if (motion < thresh - hyst) {
+                zone._triggerActive = false;
+            }
+        }
+        if (this.zones.length > 0 && this.onZoneUpdate) this.onZoneUpdate();
 
         // Analyze each enabled sensor
         for (let i = 0; i < this.sensors.length; i++) {
@@ -309,6 +342,33 @@ class Gen {
     updateSensor(id, props) {
         const sensor = this.sensors.find(s => s.id === id);
         if (sensor) Object.assign(sensor, props);
+    }
+
+    // --- Zone CRUD (kit drum trigger zones) ---
+
+    addZone(props) {
+        const zone = {
+            id: this._nextZoneId++,
+            x: 0.1, y: 0.1, w: 0.3, h: 0.3,
+            subSlot: 0,
+            threshold: 0.3,
+            enabled: true,
+            _lastValue: 0,
+            _triggerActive: false,
+            ...props
+        };
+        this.zones.push(zone);
+        return zone;
+    }
+
+    removeZone(id) {
+        this.zones = this.zones.filter(z => z.id !== id);
+        delete this._prevFrameData['z' + id];
+    }
+
+    updateZone(id, props) {
+        const zone = this.zones.find(z => z.id === id);
+        if (zone) Object.assign(zone, props);
     }
 
     // --- Persistence ---

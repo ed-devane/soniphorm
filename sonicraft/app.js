@@ -913,6 +913,15 @@ class App {
         $('gen-out-slider').addEventListener('input', (e) => this.genCtrl._genOnOutSlider(e.target.value));
         $('gen-add-mapping-btn').addEventListener('click', () => this.genCtrl._genAddMapping());
         $('gen-clear-pad-maps-btn').addEventListener('click', () => this.genCtrl._genClearPadMappings());
+        $('gen-zones-btn').addEventListener('click', () => this.genCtrl._genToggleZonesMode());
+        $('gen-add-zone-btn').addEventListener('click', () => this.genCtrl._genAddZone());
+        $('gen-clear-zones-btn').addEventListener('click', () => {
+            this.gen.zones = [];
+            this.gen._nextZoneId = 100;
+            this.genCtrl._genUpdateZonePanel();
+            this.genCtrl._genDrawOverlay();
+            this.genCtrl._genSaveZones();
+        });
 
         // Kit mode back button
         $('kit-back-btn').addEventListener('click', () => this._exitKitMode());
@@ -1074,8 +1083,18 @@ class App {
             this.seq._seqStopAnimation();
         }
 
-        // Clear all slots
+        // Exit kit mode if active
+        if (this._kitMode) this._exitKitMode();
+
+        // Clear all slots (including kit sub-slots)
         for (let i = 0; i < 16; i++) {
+            if (this.slots.slots[i].type === 'kit') {
+                await this.slots.clearAllKitSlots(i);
+                delete this.slots.kitSlots[i];
+                this.slots.slots[i].type = 'normal';
+                try { localStorage.removeItem('soniphorm-kit-pads-' + i); } catch (e) {}
+                try { localStorage.removeItem('soniphorm-gen-zones-' + i); } catch (e) {}
+            }
             await this.slots.clearSlot(i);
         }
 
@@ -1255,6 +1274,9 @@ class App {
 
         // Show drum grid toggle button in SEQ mode when in kit mode
         document.getElementById('seq-drum-grid-btn').hidden = !(mode === 'seq' && this._kitMode);
+
+        // Show zones button in GEN mode when in kit mode (hidden if not in kit mode — genCtrl.enter() handles it)
+        document.getElementById('gen-zones-btn').hidden = !(mode === 'gen' && this._kitMode);
 
         // Maintain kit-mode class on slot grid
         if (this._kitMode) {

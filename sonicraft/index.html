@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="../favicon.png">
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=150">
+    <link rel="stylesheet" href="style.css?v=151">
 </head>
 <body>
     <header id="header">
@@ -57,7 +57,7 @@
                 <button data-action="load-project">Load project</button>
                 <button data-action="delete-all" class="danger">Delete all</button>
                 <button data-action="install" id="install-btn" hidden>Install app</button>
-                <span class="menu-version">v151</span>
+                <span class="menu-version">v153</span>
             </div>
         </div>
     </header>
@@ -354,12 +354,18 @@
                 <span id="gen-time" class="gen-time">0:00.0</span>
                 <div class="seq-sep"></div>
                 <button id="gen-toggle-btn" class="tb">OFF</button>
+                <button id="gen-zones-btn" class="tb" hidden>ZONES</button>
             </div>
             <div class="gen-pad-panel" id="gen-pad-panel">
                 <span class="gen-pad-info" id="gen-pad-info">Tap a pad to configure</span>
                 <div class="gen-mappings" id="gen-mappings"></div>
                 <button id="gen-add-mapping-btn" class="tb" hidden>+ MAP</button>
                 <button id="gen-clear-pad-maps-btn" class="tb" hidden>CLEAR</button>
+            </div>
+            <div class="gen-zone-panel" id="gen-zone-panel" hidden>
+                <div class="gen-zone-list" id="gen-zone-list"></div>
+                <button id="gen-add-zone-btn" class="tb">+ ZONE</button>
+                <button id="gen-clear-zones-btn" class="tb" hidden>CLR ALL</button>
             </div>
         </div>
 
