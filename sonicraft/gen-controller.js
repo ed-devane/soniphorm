@@ -46,11 +46,10 @@ class GenController {
             this.app.sampler.outputNode = this.app.audio.getEffectsBus();
         }
         await this.app.seq._seqPreloadBuffers();
-        // Auto-enter kit mode if only a kit slot exists (same as seq mode)
+        // Auto-enter kit mode if any kit slot exists (gen zones is a kit-centric workflow)
         if (!this.app._kitMode) {
-            const hasRegular = this.app.slots.slots.some(s => s.hasAudio && s.type !== 'kit');
             const kitIdx = this.app.slots.slots.findIndex(s => s.type === 'kit');
-            if (!hasRegular && kitIdx >= 0) {
+            if (kitIdx >= 0) {
                 await this.app.ensureAudioInit();
                 await this.app._enterKitMode(kitIdx);
             }
