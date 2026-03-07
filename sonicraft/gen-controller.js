@@ -59,10 +59,15 @@ class GenController {
         document.getElementById('waveform').style.display = 'none';
         document.getElementById('waveform-empty').hidden = true;
         document.getElementById('gen-video-wrap').hidden = false;
-        // Build pad grid
-        this.app.buildSlotGrid();
-        this._genRenderGrid();
-        this._genUpdatePadPanel();
+        // Build pad grid — kit mode needs the kit grid, not the normal slot grid
+        if (this.app._kitMode) {
+            this.app._buildKitGrid();
+            this.app._renderKitGrid();
+        } else {
+            this.app.buildSlotGrid();
+            this._genRenderGrid();
+            this._genUpdatePadPanel();
+        }
         // ZONES — only relevant in kit mode; auto-activate when entering gen in kit mode
         const zonesBtn = document.getElementById('gen-zones-btn');
         if (zonesBtn) zonesBtn.hidden = !this.app._kitMode;

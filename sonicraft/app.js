@@ -928,9 +928,21 @@ class App {
         $('kit-back-btn').addEventListener('click', () => this._exitKitMode());
 
         // Kit PAD PLAY mode toggle
-        $('kit-play-btn').addEventListener('click', () => {
+        $('kit-play-btn').addEventListener('click', async () => {
             this._kitPlayMode = !this._kitPlayMode;
             $('kit-play-btn').classList.toggle('active', this._kitPlayMode);
+            if (this._kitPlayMode) {
+                // Init audio within this user gesture so iOS allows context resume
+                await this.ensureAudioInit();
+                if (!this.sampler.audioContext) {
+                    this.sampler.audioContext = this.audio.audioContext;
+                    this.sampler.outputNode = this.audio.getEffectsBus();
+                }
+                // Decode buffers now if audio context wasn't ready at _enterKitMode time
+                if (Object.keys(this._kitSlotBuffers).length === 0) {
+                    await this._preloadKitBuffers(this._kitParentSlot);
+                }
+            }
         });
 
         // Drum grid toggle
@@ -1672,13 +1684,8 @@ class App {
                     const area = (e.width || 1) * (e.height || 1);
                     vel = area > 4 ? Math.min(1, Math.max(0.15, area / 400)) : 0.8;
                 }
-                this.ensureAudioInit().then(() => {
-                    if (!this.sampler.audioContext) {
-                        this.sampler.audioContext = this.audio.audioContext;
-                        this.sampler.outputNode = this.audio.getEffectsBus();
-                    }
-                    this.sampler.trigger(i, vel);
-                });
+                // Trigger synchronously — audio was already primed on PAD PLAY button click
+                this.sampler.trigger(i, vel);
                 el.classList.add('kit-triggered');
                 setTimeout(() => el.classList.remove('kit-triggered'), 80);
             });
