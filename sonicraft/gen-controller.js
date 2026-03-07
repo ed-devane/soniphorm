@@ -63,12 +63,22 @@ class GenController {
         this.app.buildSlotGrid();
         this._genRenderGrid();
         this._genUpdatePadPanel();
-        // ZONES button — only relevant in kit mode
+        // ZONES — only relevant in kit mode; auto-activate when entering gen in kit mode
         const zonesBtn = document.getElementById('gen-zones-btn');
         if (zonesBtn) zonesBtn.hidden = !this.app._kitMode;
         if (this.app._kitMode) {
             this._genLoadZones();
+            // Auto-open zones panel (kit mode is the primary use of gen mode with a kit)
+            this._genZonesMode = true;
+            if (zonesBtn) zonesBtn.classList.add('active');
+            document.getElementById('gen-pad-panel').hidden = true;
+            document.getElementById('gen-zone-panel').hidden = false;
             this._genUpdateZonePanel();
+        } else {
+            // Ensure zone panel is hidden in normal mode
+            this._genZonesMode = false;
+            document.getElementById('gen-pad-panel').hidden = false;
+            document.getElementById('gen-zone-panel').hidden = true;
         }
         // Sync UI state
         document.getElementById('gen-toggle-btn').textContent = this.app.gen.enabled ? 'ON' : 'OFF';
