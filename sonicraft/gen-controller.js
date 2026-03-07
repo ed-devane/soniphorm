@@ -328,6 +328,11 @@ class GenController {
                 return this.app.gen.startCamera(deviceId);
             }).then(() => {
                 this._genResizeOverlay();
+                // Auto-start analysis for real-time camera feed
+                if (!this.app.gen.running) {
+                    this.app.gen.start();
+                    document.getElementById('gen-play-btn').textContent = '\u275A\u275A';
+                }
             }).catch(() => {
                 this._genSetSource('file');
             });
@@ -363,6 +368,10 @@ class GenController {
         this.app.gen.stopCamera();
         this.app.gen.startCamera(sel.value).then(() => {
             this._genResizeOverlay();
+            if (!this.app.gen.running) {
+                this.app.gen.start();
+                document.getElementById('gen-play-btn').textContent = '\u275A\u275A';
+            }
         });
     }
 
@@ -413,6 +422,11 @@ class GenController {
     }
 
     _genStop() {
+        // In camera mode, STOP ends any active recording first
+        if (this._genRecording) {
+            this._genStopRec(true);
+            return;
+        }
         this.app.gen.stop();
         this._genStopTimeDisplay();
         const video = this.app.gen.videoEl;
