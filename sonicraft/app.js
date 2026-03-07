@@ -1275,8 +1275,8 @@ class App {
         // Show drum grid toggle button in SEQ mode when in kit mode
         document.getElementById('seq-drum-grid-btn').hidden = !(mode === 'seq' && this._kitMode);
 
-        // Show zones button in GEN mode when in kit mode (hidden if not in kit mode — genCtrl.enter() handles it)
-        document.getElementById('gen-zones-btn').hidden = !(mode === 'gen' && this._kitMode);
+        // Zones button visibility is handled by genCtrl.enter() (after auto-kit-mode-entry)
+        if (mode !== 'gen') document.getElementById('gen-zones-btn').hidden = true;
 
         // Maintain kit-mode class on slot grid
         if (this._kitMode) {
