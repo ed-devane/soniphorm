@@ -931,17 +931,9 @@ class App {
         $('kit-play-btn').addEventListener('click', async () => {
             this._kitPlayMode = !this._kitPlayMode;
             $('kit-play-btn').classList.toggle('active', this._kitPlayMode);
-            if (this._kitPlayMode) {
-                // Init audio within this user gesture so iOS allows context resume
-                await this.ensureAudioInit();
-                if (!this.sampler.audioContext) {
-                    this.sampler.audioContext = this.audio.audioContext;
-                    this.sampler.outputNode = this.audio.getEffectsBus();
-                }
-                // Decode buffers now if audio context wasn't ready at _enterKitMode time
-                if (Object.keys(this._kitSlotBuffers).length === 0) {
-                    await this._preloadKitBuffers(this._kitParentSlot);
-                }
+            // Ensure buffers are decoded (audio context is valid by this point)
+            if (this._kitPlayMode && Object.keys(this._kitSlotBuffers).length === 0) {
+                await this._preloadKitBuffers(this._kitParentSlot);
             }
         });
 
@@ -1677,23 +1669,32 @@ class App {
             // PAD PLAY mode: immediate trigger on pointerdown with velocity
             el.addEventListener('pointerdown', (e) => {
                 if (!this._kitPlayMode || this._sampleMode || this._seqMode) return;
-                const meta = this.slots.getKitSlotMeta(this._kitParentSlot, i);
-                if (!meta || !meta.hasAudio) return;
+                const buf = this._kitSlotBuffers[i];
+                const ctx = this.audio.audioContext;
+                if (!buf || !ctx) return;
                 e.preventDefault();
                 // Velocity: prefer real pressure, fall back to contact area proxy
-                let vel;
+                let vel = 0.8;
                 if (e.pressure > 0 && e.pressure !== 0.5) {
                     vel = Math.max(0.1, e.pressure);
                 } else {
                     const area = (e.width || 1) * (e.height || 1);
-                    vel = area > 4 ? Math.min(1, Math.max(0.15, area / 400)) : 0.8;
+                    if (area > 4) vel = Math.min(1, Math.max(0.15, area / 400));
                 }
-                // Trigger — resume context first if suspended (Android Chrome may suspend it)
-                const ctx = this.sampler.audioContext;
-                if (ctx && ctx.state === 'suspended') {
-                    ctx.resume().then(() => this.sampler.trigger(i, vel));
+                // Play directly via AudioContext — bypasses sampler, proven to work
+                const play = () => {
+                    const source = ctx.createBufferSource();
+                    source.buffer = buf;
+                    const gain = ctx.createGain();
+                    gain.gain.value = vel;
+                    source.connect(gain);
+                    gain.connect(this.audio.getEffectsBus() || ctx.destination);
+                    source.start();
+                };
+                if (ctx.state === 'suspended') {
+                    ctx.resume().then(play);
                 } else {
-                    this.sampler.trigger(i, vel);
+                    play();
                 }
                 el.classList.add('kit-triggered');
                 setTimeout(() => el.classList.remove('kit-triggered'), 80);
