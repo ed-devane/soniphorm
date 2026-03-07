@@ -1577,9 +1577,10 @@ class App {
             this.sampler.outputNode = this.audio.getEffectsBus();
         }
 
-        // Show back + play mode buttons
+        // Show back button + PAD PLAY in toolbar
         document.getElementById('kit-back-btn').hidden = false;
         document.getElementById('kit-play-btn').hidden = false;
+        document.getElementById('kit-play-sep').hidden = false;
         this._kitPlayMode = false;
         document.getElementById('kit-play-btn').classList.remove('active');
 
@@ -1601,9 +1602,10 @@ class App {
         this._kitSlotBuffers = {};
         this._drumGridView = false;
 
-        // Hide back + play mode buttons
+        // Hide back button + PAD PLAY in toolbar
         document.getElementById('kit-back-btn').hidden = true;
         document.getElementById('kit-play-btn').hidden = true;
+        document.getElementById('kit-play-sep').hidden = true;
         this._kitPlayMode = false;
 
         // Hide drum grid if visible
@@ -1684,8 +1686,13 @@ class App {
                     const area = (e.width || 1) * (e.height || 1);
                     vel = area > 4 ? Math.min(1, Math.max(0.15, area / 400)) : 0.8;
                 }
-                // Trigger synchronously — audio was already primed on PAD PLAY button click
-                this.sampler.trigger(i, vel);
+                // Trigger — resume context first if suspended (Android Chrome may suspend it)
+                const ctx = this.sampler.audioContext;
+                if (ctx && ctx.state === 'suspended') {
+                    ctx.resume().then(() => this.sampler.trigger(i, vel));
+                } else {
+                    this.sampler.trigger(i, vel);
+                }
                 el.classList.add('kit-triggered');
                 setTimeout(() => el.classList.remove('kit-triggered'), 80);
             });

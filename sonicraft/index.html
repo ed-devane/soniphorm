@@ -21,7 +21,6 @@
             <span class="header-title">SONICRAFT</span>
         </div>
         <button id="kit-back-btn" class="kit-back-btn" hidden>&#9664; BACK</button>
-        <button id="kit-play-btn" class="kit-back-btn kit-play-btn" hidden title="Pad play mode — single tap to trigger, velocity from press size">PAD PLAY</button>
         <div class="header-center" id="transport-info">
             <span id="info-rate">--</span>
             <span class="info-sep">|</span>
@@ -58,7 +57,7 @@
                 <button data-action="load-project">Load project</button>
                 <button data-action="delete-all" class="danger">Delete all</button>
                 <button data-action="install" id="install-btn" hidden>Install app</button>
-                <span class="menu-version">v158</span>
+                <span class="menu-version">v159</span>
             </div>
         </div>
     </header>
@@ -87,6 +86,9 @@
         <!-- Edit Toolbar -->
         <div class="toolbar" id="toolbar">
             <div class="toolbar-scroll">
+                <!-- Kit PAD PLAY (shown only in kit mode) -->
+                <button id="kit-play-btn" class="tb kit-play-btn" hidden title="Pad play mode — single tap to trigger, velocity from press size">PAD PLAY</button>
+                <span id="kit-play-sep" class="tb-sep" hidden></span>
                 <!-- Transport -->
                 <button id="rec-btn" class="tb rec rec-only" title="Record">&#9679; REC</button>
                 <button id="play-btn" class="tb rec-only" title="Play / Stop">&#9654; PLAY</button>
