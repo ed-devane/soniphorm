@@ -110,7 +110,7 @@ class GenController {
         const wrap = document.getElementById('gen-video-wrap');
         const expandBtn = document.getElementById('gen-expand-btn');
         if (wrap) wrap.classList.remove('gen-expanded');
-        if (expandBtn) expandBtn.textContent = '\u26F6';
+        if (expandBtn) expandBtn.classList.remove('active');
         // Remember if video was playing so we can resume on re-enter
         const video = this.app.gen.videoEl;
         this._genWasPlaying = video && !video.paused && this.app.gen.source === 'file';
@@ -449,7 +449,7 @@ class GenController {
         const wrap = document.getElementById('gen-video-wrap');
         const btn = document.getElementById('gen-expand-btn');
         const expanded = wrap.classList.toggle('gen-expanded');
-        btn.textContent = expanded ? '\u2715' : '\u26F6';
+        btn.classList.toggle('active', expanded);
         requestAnimationFrame(() => this._genResizeOverlay());
     }
 
