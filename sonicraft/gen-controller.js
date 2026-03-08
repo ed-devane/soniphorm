@@ -58,6 +58,7 @@ class GenController {
         document.getElementById('waveform').style.display = 'none';
         document.getElementById('waveform-empty').hidden = true;
         document.getElementById('gen-video-wrap').hidden = false;
+        document.querySelector('.zoom-bar').hidden = true;
         // Build pad grid — kit mode needs the kit grid, not the normal slot grid
         if (this.app._kitMode) {
             this.app._buildKitGrid();
@@ -129,6 +130,7 @@ class GenController {
         const zonesBtn = document.getElementById('gen-zones-btn');
         if (zonesBtn) { zonesBtn.hidden = true; zonesBtn.classList.remove('active'); }
         document.getElementById('gen-video-wrap').hidden = true;
+        document.querySelector('.zoom-bar').hidden = false;
         document.getElementById('waveform').style.display = '';
         if (this.app.channels) {
             document.getElementById('waveform-empty').hidden = true;
