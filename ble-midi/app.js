@@ -13,7 +13,7 @@ const MIDI_CHANNEL = 0; // Channel 1
 // CC mapping: bank 0-5 → pots CC 20-43, buttons CC 44-47, bank select CC 48
 const POT_CC_BASE = 20;   // Bank 0 pot 1 = CC20, pot 2 = CC21 ... bank 5 pot 4 = CC43
 const BTN_CC = [44, 45, 46, 47];
-const BTN_NOTES = [44, 45, 46, 47];
+const BTN_NOTE_BASE = 60;  // Bank 0: notes 60-63, Bank 1: 64-67, etc. (matches patcher)
 const BANK_SELECT_CC = 48;
 const NUM_BANKS = 6;
 
@@ -282,14 +282,14 @@ triggerBtns.forEach((btn) => {
         e.preventDefault();
         btn.classList.add('pressed');
         sendCC(BTN_CC[idx], 127);
-        sendNoteOn(BTN_NOTES[idx], 127);
+        sendNoteOn(BTN_NOTE_BASE + currentBank * 4 + idx, 127);
     }
 
     function release(e) {
         e.preventDefault();
         btn.classList.remove('pressed');
         sendCC(BTN_CC[idx], 0);
-        sendNoteOff(BTN_NOTES[idx]);
+        sendNoteOff(BTN_NOTE_BASE + currentBank * 4 + idx);
     }
 
     btn.addEventListener('pointerdown', press);
