@@ -8,6 +8,7 @@ const BLE_SERVICE  = '03b80e5a-ede8-4b33-a751-6ce34ec4c700';
 const BLE_CHAR     = '7772e5db-3868-4112-a1a9-f2669d106bf3';
 const BLE_PATCH_SERVICE = '4f6e6950-686f-726d-5061-746368496e66';
 const BLE_PATCH_CHAR    = '4f6e6950-686f-726d-4c61-62656c730000';
+const BLE_CTRL_STATE_CHAR = '4f6e6950-686f-726d-4374-726c53746174';
 const MIDI_CHANNEL = 0; // Channel 1
 
 // CC mapping: bank 0-5 -> pots CC 20-43, buttons CC 44-47, bank select CC 48
@@ -25,6 +26,8 @@ let currentBank = 0;
 let faderValues = new Array(NUM_BANKS * 4).fill(0); // 24 fader values (6 banks x 4)
 let patchLabels = {};  // bank -> { p: [pot labels], b: [btn labels] }
 let patchName = '';
+let bleActive = true;
+let ctrlStateChar = null;
 
 // === DOM refs ===
 const connectBtn  = document.getElementById('connect-btn');
@@ -36,6 +39,7 @@ const faderChannels = document.querySelectorAll('.fader-channel');
 const triggerBtns = document.querySelectorAll('.trigger-btn');
 const compatWarn  = document.getElementById('compat-warning');
 const installBtn  = document.getElementById('install-btn');
+const ctrlOverlay = document.getElementById('ctrl-overlay');
 
 // === Compatibility check ===
 if (!navigator.bluetooth) {
@@ -86,11 +90,28 @@ async function bleConnect() {
             patchNameEl.textContent = '';
         }
 
+        // Read control state (patcher active flag)
+        try {
+            ctrlStateChar = await patchService.getCharacteristic(BLE_CTRL_STATE_CHAR);
+            const stateVal = await ctrlStateChar.readValue();
+            bleActive = stateVal.getUint8(0) === 1;
+            updateCtrlOverlay();
+            await ctrlStateChar.startNotifications();
+            ctrlStateChar.addEventListener('characteristicvaluechanged', (event) => {
+                bleActive = event.target.value.getUint8(0) === 1;
+                updateCtrlOverlay();
+            });
+        } catch (e) {
+            console.warn('Could not read control state:', e);
+            bleActive = true;
+        }
+
         connected = true;
         connectBtn.textContent = 'Disconnect';
         connectBtn.classList.remove('connecting');
         connectBtn.classList.add('connected');
         statusDot.classList.add('connected');
+        updateCtrlOverlay();
 
         // Send current bank select so device is in sync
         await sendBLEPacket(0xB0 | MIDI_CHANNEL, BANK_SELECT_CC, currentBank);
@@ -114,19 +135,27 @@ function bleDisconnect() {
 function onDisconnected() {
     connected = false;
     characteristic = null;
+    ctrlStateChar = null;
+    bleActive = true;
     connectBtn.textContent = 'Connect';
     connectBtn.classList.remove('connecting', 'connected');
     statusDot.classList.remove('connected');
     patchNameEl.textContent = '';
+    updateCtrlOverlay();
 }
 
 connectBtn.addEventListener('click', bleConnect);
+
+function updateCtrlOverlay() {
+    if (ctrlOverlay) ctrlOverlay.classList.toggle('show', !bleActive && connected);
+    controlsDiv.classList.toggle('inactive', !bleActive && connected);
+}
 
 // === BLE MIDI packet send ===
 
 // Send a single 3-byte MIDI message
 function sendBLEPacket(status, data1, data2) {
-    if (!characteristic || !connected) return Promise.resolve();
+    if (!characteristic || !connected || !bleActive) return Promise.resolve();
     const packet = new Uint8Array([0x80, 0x80, status, data1, data2]);
     return characteristic.writeValueWithoutResponse(packet).catch((e) => {
         console.warn('BLE send error:', e);
@@ -135,7 +164,7 @@ function sendBLEPacket(status, data1, data2) {
 
 // Send two MIDI messages in one BLE packet (e.g. CC + Note for buttons)
 function sendBLEPacket2(status1, d1a, d1b, status2, d2a, d2b) {
-    if (!characteristic || !connected) return Promise.resolve();
+    if (!characteristic || !connected || !bleActive) return Promise.resolve();
     // BLE MIDI multi-message: [header, ts, msg1..., ts, msg2...]
     const packet = new Uint8Array([0x80, 0x80, status1, d1a, d1b, 0x80, status2, d2a, d2b]);
     return characteristic.writeValueWithoutResponse(packet).catch((e) => {
