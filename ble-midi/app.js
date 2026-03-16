@@ -6,6 +6,8 @@
 // === BLE MIDI constants ===
 const BLE_SERVICE  = '03b80e5a-ede8-4b33-a751-6ce34ec4c700';
 const BLE_CHAR     = '7772e5db-3868-4112-a1a9-f2669d106bf3';
+const BLE_PATCH_SERVICE = '4f6e6950-686f-726d-5061-746368496e66';
+const BLE_PATCH_CHAR    = '4f6e6950-686f-726d-4c61-62656c730000';
 const MIDI_CHANNEL = 0; // Channel 1
 
 // CC mapping: bank 0-5 → pots CC 20-43, buttons CC 44-47, bank select CC 48
@@ -21,10 +23,13 @@ let characteristic = null;
 let connected = false;
 let currentBank = 0;
 let faderValues = new Array(NUM_BANKS * 4).fill(0); // 24 fader values (6 banks × 4)
+let patchLabels = {};  // bank -> { p: [pot labels], b: [btn labels] }
+let patchName = '';
 
 // === DOM refs ===
 const connectBtn  = document.getElementById('connect-btn');
 const statusDot   = document.getElementById('status-dot');
+const patchNameEl = document.getElementById('patch-name');
 const controlsDiv = document.querySelector('.controls');
 const bankBtns    = document.querySelectorAll('.bank-btn');
 const faderChannels = document.querySelectorAll('.fader-channel');
@@ -54,7 +59,7 @@ async function bleConnect() {
 
         device = await navigator.bluetooth.requestDevice({
             filters: [{ name: 'Soniphorm' }],
-            optionalServices: [BLE_SERVICE]
+            optionalServices: [BLE_SERVICE, BLE_PATCH_SERVICE]
         });
 
         device.addEventListener('gattserverdisconnected', onDisconnected);
@@ -62,6 +67,24 @@ async function bleConnect() {
         const server = await device.gatt.connect();
         const service = await server.getPrimaryService(BLE_SERVICE);
         characteristic = await service.getCharacteristic(BLE_CHAR);
+
+        // Read patch info (name + labels) from custom service
+        try {
+            const patchService = await server.getPrimaryService(BLE_PATCH_SERVICE);
+            const patchChar = await patchService.getCharacteristic(BLE_PATCH_CHAR);
+            const value = await patchChar.readValue();
+            const json = new TextDecoder().decode(value);
+            const info = JSON.parse(json);
+            patchName = info.name || '';
+            patchLabels = info.labels || {};
+            patchNameEl.textContent = patchName;
+            applyLabels();
+        } catch (e) {
+            console.warn('Could not read patch info:', e);
+            patchLabels = {};
+            patchName = '';
+            patchNameEl.textContent = '';
+        }
 
         connected = true;
         connectBtn.textContent = 'Disconnect';
@@ -96,6 +119,7 @@ function onDisconnected() {
     connectBtn.textContent = 'Connect';
     connectBtn.classList.remove('connecting', 'connected');
     statusDot.classList.remove('connected');
+    patchNameEl.textContent = '';
 }
 
 connectBtn.addEventListener('click', bleConnect);
@@ -149,8 +173,9 @@ function setBank(bank) {
     // Update fader display for new bank
     updateFaderUI();
 
-    // Update CC labels
+    // Update CC labels and patch labels
     updateCCLabels();
+    applyLabels();
 
     // Send bank select CC
     sendBankSelect(bank);
@@ -180,6 +205,27 @@ function updateCCLabels() {
         const idx = parseInt(ch.dataset.index);
         const cc = POT_CC_BASE + currentBank * 4 + idx;
         ch.querySelector('.fader-cc').textContent = 'CC ' + cc;
+    });
+}
+
+function applyLabels() {
+    // Labels keyed by firmware bank (1-6), app bank is 0-5
+    const bankKey = String(currentBank + 1);
+    const bankLabels = patchLabels[bankKey];
+
+    faderChannels.forEach((ch) => {
+        const idx = parseInt(ch.dataset.index);
+        const label = bankLabels?.p?.[idx];
+        ch.querySelector('.fader-label').textContent = label || ('Pot ' + (idx + 1));
+    });
+
+    triggerBtns.forEach((btn) => {
+        const idx = parseInt(btn.dataset.index);
+        const label = bankLabels?.b?.[idx];
+        // Button text is the first text node; btn-cc span is separate
+        const ccSpan = btn.querySelector('.btn-cc');
+        btn.textContent = label || ('Btn ' + (idx + 1));
+        btn.appendChild(ccSpan);
     });
 }
 
