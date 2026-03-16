@@ -1,4 +1,4 @@
-const CACHE_NAME = 'soniphorm-ble-midi-v2';
+const CACHE_NAME = 'soniphorm-ble-midi-v3';
 const ASSETS = [
   './',
   './index.html',
@@ -25,15 +25,12 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   e.respondWith(
-    caches.match(e.request).then((r) => {
-      if (r) return r;
-      return fetch(e.request).then((resp) => {
-        if (resp && resp.status === 200 && resp.type === 'basic') {
-          const clone = resp.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(e.request, clone));
-        }
-        return resp;
-      });
-    }).catch(() => caches.match('./index.html'))
+    fetch(e.request).then((resp) => {
+      if (resp && resp.status === 200 && resp.type === 'basic') {
+        const clone = resp.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(e.request, clone));
+      }
+      return resp;
+    }).catch(() => caches.match(e.request).then((r) => r || caches.match('./index.html')))
   );
 });
