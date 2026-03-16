@@ -12,6 +12,9 @@ class MidiManager {
         this.channel = 0;       // 0-15 (0 = omni)
         this.outChannel = 0;    // 0-15 output channel
 
+        // Note mapping: 'gm' = notes 36-51, 'launchpad' = 4x4 grid bottom-left
+        this.noteMap = 'gm';
+
         // CC Mappings: { [ccNumber]: { type: 'macro', index: 0-3 } }
         this.ccMappings = {};
 
@@ -102,6 +105,29 @@ class MidiManager {
         if (!entry) return;
         this.activeOutput = entry;
         this._saveSettings();
+    }
+
+    // === Note Mapping ===
+
+    /**
+     * Map incoming MIDI note to pad index 0-15, or -1 if unmapped.
+     * 'gm': notes 36-51 → pads 0-15
+     * 'launchpad': Launchpad Mini Mk1 bottom-left 4×4 grid → pads 0-15
+     *   Row 0 (bottom): notes 0-3 → pads 0-3
+     *   Row 1: notes 16-19 → pads 4-7
+     *   Row 2: notes 32-35 → pads 8-11
+     *   Row 3: notes 48-51 → pads 12-15
+     */
+    mapNoteToPad(note) {
+        if (this.noteMap === 'launchpad') {
+            const row = Math.floor(note / 16);
+            const col = note % 16;
+            if (row < 0 || row > 3 || col < 0 || col > 3) return -1;
+            return row * 4 + col;
+        }
+        // Default GM: 36-51
+        const pad = note - 36;
+        return (pad >= 0 && pad <= 15) ? pad : -1;
     }
 
     // === Message Parsing ===
@@ -295,6 +321,7 @@ class MidiManager {
                 channel: this.channel,
                 outChannel: this.outChannel,
                 clockMode: this.clockMode,
+                noteMap: this.noteMap,
                 ccMappings: this.ccMappings
             };
             localStorage.setItem('soniphorm-midi', JSON.stringify(data));
@@ -311,6 +338,7 @@ class MidiManager {
             if (data.channel !== undefined) this.channel = data.channel;
             if (data.outChannel !== undefined) this.outChannel = data.outChannel;
             if (data.clockMode) this.clockMode = data.clockMode;
+            if (data.noteMap) this.noteMap = data.noteMap;
             if (data.ccMappings) this.ccMappings = data.ccMappings;
             // Restore ports (may not be available yet on first load)
             if (data.inputId) this.selectInput(data.inputId);

@@ -1385,6 +1385,14 @@ class App {
                 this.midi._saveSettings();
             });
         }
+        const mapSel = document.getElementById('midi-notemap-select');
+        if (mapSel) {
+            mapSel.value = this.midi.noteMap;
+            mapSel.addEventListener('change', () => {
+                this.midi.noteMap = mapSel.value;
+                this.midi._saveSettings();
+            });
+        }
 
         this._refreshMidiPortUI();
     }
@@ -1417,9 +1425,9 @@ class App {
                 this.seq._recordPadToStep(padIdx, midiNote - 60, voiceKey);
             }
         } else if (this._sampleMode || (this._seqMode && this._seqRecording)) {
-            // Pad mode: notes 36-51 map to pads 0-15 (GM drum / kit sub-pads)
-            const padMap = midiNote - 36;
-            if (padMap < 0 || padMap > 15) return;
+            // Pad mode: map note to pad via selected note map
+            const padMap = this.midi.mapNoteToPad(midiNote);
+            if (padMap < 0) return;
             if (this._kitMode) {
                 const meta = this.slots.getKitSlotMeta(this._kitParentSlot, padMap);
                 if (!meta || !meta.hasAudio) return;
@@ -1449,8 +1457,8 @@ class App {
                 }
             }
         } else if (this._sampleMode || (this._seqMode && this._seqRecording)) {
-            const padMap = midiNote - 36;
-            if (padMap < 0 || padMap > 15) return;
+            const padMap = this.midi.mapNoteToPad(midiNote);
+            if (padMap < 0) return;
             this.sampler.release(padMap);
             if (this._seqRecording && this.sequencer.playing) {
                 this.seq._recordNoteOff('midi-pad-' + padMap);
@@ -1538,6 +1546,8 @@ class App {
         if (outChSel) outChSel.value = this.midi.outChannel;
         const clkSel = document.getElementById('midi-clock-select');
         if (clkSel) clkSel.value = this.midi.clockMode;
+        const mapSel = document.getElementById('midi-notemap-select');
+        if (mapSel) mapSel.value = this.midi.noteMap;
     }
 
     // Persistence
