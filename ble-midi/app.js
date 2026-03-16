@@ -10,7 +10,7 @@ const BLE_PATCH_SERVICE = '4f6e6950-686f-726d-5061-746368496e66';
 const BLE_PATCH_CHAR    = '4f6e6950-686f-726d-4c61-62656c730000';
 const MIDI_CHANNEL = 0; // Channel 1
 
-// CC mapping: bank 0-5 → pots CC 20-43, buttons CC 44-47, bank select CC 48
+// CC mapping: bank 0-5 -> pots CC 20-43, buttons CC 44-47, bank select CC 48
 const POT_CC_BASE = 20;   // Bank 0 pot 1 = CC20, pot 2 = CC21 ... bank 5 pot 4 = CC43
 const BTN_CC = [44, 45, 46, 47];
 const BTN_NOTE_BASE = 60;  // Bank 0: notes 60-63, Bank 1: 64-67, etc. (matches patcher)
@@ -22,7 +22,7 @@ let device = null;
 let characteristic = null;
 let connected = false;
 let currentBank = 0;
-let faderValues = new Array(NUM_BANKS * 4).fill(0); // 24 fader values (6 banks × 4)
+let faderValues = new Array(NUM_BANKS * 4).fill(0); // 24 fader values (6 banks x 4)
 let patchLabels = {};  // bank -> { p: [pot labels], b: [btn labels] }
 let patchName = '';
 
@@ -54,7 +54,7 @@ async function bleConnect() {
         return;
     }
     try {
-        connectBtn.textContent = 'Connecting…';
+        connectBtn.textContent = 'Connecting...';
         connectBtn.classList.add('connecting');
 
         device = await navigator.bluetooth.requestDevice({
@@ -93,9 +93,7 @@ async function bleConnect() {
         statusDot.classList.add('connected');
 
         // Send current bank select so device is in sync
-        sendBankSelect(currentBank);
-        // Send current fader positions for this bank
-        sendAllFadersForBank(currentBank);
+        await sendBLEPacket(0xB0 | MIDI_CHANNEL, BANK_SELECT_CC, currentBank);
 
     } catch (e) {
         console.warn('BLE connect failed:', e);
@@ -126,29 +124,27 @@ connectBtn.addEventListener('click', bleConnect);
 
 // === BLE MIDI packet send ===
 
-// Serialize BLE writes: queue ensures previous write completes before next starts
-let bleWriteQueue = Promise.resolve();
-
-function sendBLEMidi(status, data1, data2) {
-    if (!characteristic || !connected) return;
+// Send a single 3-byte MIDI message
+function sendBLEPacket(status, data1, data2) {
+    if (!characteristic || !connected) return Promise.resolve();
     const packet = new Uint8Array([0x80, 0x80, status, data1, data2]);
-    bleWriteQueue = bleWriteQueue.then(() =>
-        characteristic.writeValueWithoutResponse(packet)
-    ).catch((e) => {
-        console.warn('BLE MIDI send error:', e);
+    return characteristic.writeValueWithoutResponse(packet).catch((e) => {
+        console.warn('BLE send error:', e);
+    });
+}
+
+// Send two MIDI messages in one BLE packet (e.g. CC + Note for buttons)
+function sendBLEPacket2(status1, d1a, d1b, status2, d2a, d2b) {
+    if (!characteristic || !connected) return Promise.resolve();
+    // BLE MIDI multi-message: [header, ts, msg1..., ts, msg2...]
+    const packet = new Uint8Array([0x80, 0x80, status1, d1a, d1b, 0x80, status2, d2a, d2b]);
+    return characteristic.writeValueWithoutResponse(packet).catch((e) => {
+        console.warn('BLE send error:', e);
     });
 }
 
 function sendCC(cc, value) {
-    sendBLEMidi(0xB0 | MIDI_CHANNEL, cc & 0x7F, value & 0x7F);
-}
-
-function sendNoteOn(note, velocity) {
-    sendBLEMidi(0x90 | MIDI_CHANNEL, note & 0x7F, velocity & 0x7F);
-}
-
-function sendNoteOff(note) {
-    sendBLEMidi(0x80 | MIDI_CHANNEL, note & 0x7F, 0);
+    sendBLEPacket(0xB0 | MIDI_CHANNEL, cc & 0x7F, value & 0x7F);
 }
 
 function sendBankSelect(bank) {
@@ -285,15 +281,22 @@ triggerBtns.forEach((btn) => {
     function press(e) {
         e.preventDefault();
         btn.classList.add('pressed');
-        sendCC(BTN_CC[idx], 127);
-        sendNoteOn(BTN_NOTE_BASE + currentBank * 4 + idx, 127);
+        // Send CC + NoteOn in one BLE packet (avoids dropped second write)
+        const note = BTN_NOTE_BASE + currentBank * 4 + idx;
+        sendBLEPacket2(
+            0xB0 | MIDI_CHANNEL, BTN_CC[idx], 127,
+            0x90 | MIDI_CHANNEL, note, 127
+        );
     }
 
     function release(e) {
         e.preventDefault();
         btn.classList.remove('pressed');
-        sendCC(BTN_CC[idx], 0);
-        sendNoteOff(BTN_NOTE_BASE + currentBank * 4 + idx);
+        const note = BTN_NOTE_BASE + currentBank * 4 + idx;
+        sendBLEPacket2(
+            0xB0 | MIDI_CHANNEL, BTN_CC[idx], 0,
+            0x80 | MIDI_CHANNEL, note, 0
+        );
     }
 
     btn.addEventListener('pointerdown', press);
@@ -342,10 +345,6 @@ function scheduleSave() {
     saveTimer = setTimeout(saveState, 500);
 }
 
-// Patch sendCC and setBank to trigger save
-const _origSendCC = sendCC;
-// We'll save via a MutationObserver-like approach — just hook into the interaction handlers
-// Actually, simplest: save on pointerup and bank change
 faderChannels.forEach((ch) => {
     ch.querySelector('.fader-track').addEventListener('pointerup', scheduleSave);
 });
