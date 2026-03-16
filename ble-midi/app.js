@@ -126,11 +126,15 @@ connectBtn.addEventListener('click', bleConnect);
 
 // === BLE MIDI packet send ===
 
+// Serialize BLE writes: queue ensures previous write completes before next starts
+let bleWriteQueue = Promise.resolve();
+
 function sendBLEMidi(status, data1, data2) {
     if (!characteristic || !connected) return;
-    // BLE MIDI packet: [header, timestamp, status, data1, data2]
     const packet = new Uint8Array([0x80, 0x80, status, data1, data2]);
-    characteristic.writeValueWithoutResponse(packet).catch((e) => {
+    bleWriteQueue = bleWriteQueue.then(() =>
+        characteristic.writeValueWithoutResponse(packet)
+    ).catch((e) => {
         console.warn('BLE MIDI send error:', e);
     });
 }
