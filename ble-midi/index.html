@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#0a0e1a">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>SCM Control — Soniphorm</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="icon" href="../favicon.png">
+    <link rel="apple-touch-icon" href="../favicon.png">
+    <link rel="stylesheet" href="style.css?v=1">
+</head>
+<body>
+    <header>
+        <span class="header-title">SCM Control</span>
+        <div class="header-status">
+            <button id="install-btn">Install</button>
+            <button id="connect-btn">Connect</button>
+            <span id="status-dot"></span>
+        </div>
+    </header>
+
+    <div class="bank-bar">
+        <button class="bank-btn active" data-bank="0">1</button>
+        <button class="bank-btn" data-bank="1">2</button>
+        <button class="bank-btn" data-bank="2">3</button>
+        <button class="bank-btn" data-bank="3">4</button>
+        <button class="bank-btn" data-bank="4">5</button>
+        <button class="bank-btn" data-bank="5">6</button>
+    </div>
+
+    <div class="compat-warning" id="compat-warning">
+        Web Bluetooth is not supported in this browser. Use Chrome or Edge on Android or desktop. iOS Safari is not supported — use TouchOSC instead.
+    </div>
+
+    <div class="controls" data-bank="0">
+        <div class="fader-row">
+            <div class="fader-channel" data-index="0">
+                <span class="fader-label">Pot 1</span>
+                <span class="fader-value">0</span>
+                <div class="fader-track">
+                    <div class="fader-fill"></div>
+                    <div class="fader-thumb"></div>
+                </div>
+                <span class="fader-cc">CC 20</span>
+            </div>
+            <div class="fader-channel" data-index="1">
+                <span class="fader-label">Pot 2</span>
+                <span class="fader-value">0</span>
+                <div class="fader-track">
+                    <div class="fader-fill"></div>
+                    <div class="fader-thumb"></div>
+                </div>
+                <span class="fader-cc">CC 21</span>
+            </div>
+            <div class="fader-channel" data-index="2">
+                <span class="fader-label">Pot 3</span>
+                <span class="fader-value">0</span>
+                <div class="fader-track">
+                    <div class="fader-fill"></div>
+                    <div class="fader-thumb"></div>
+                </div>
+                <span class="fader-cc">CC 22</span>
+            </div>
+            <div class="fader-channel" data-index="3">
+                <span class="fader-label">Pot 4</span>
+                <span class="fader-value">0</span>
+                <div class="fader-track">
+                    <div class="fader-fill"></div>
+                    <div class="fader-thumb"></div>
+                </div>
+                <span class="fader-cc">CC 23</span>
+            </div>
+        </div>
+
+        <div class="button-row">
+            <button class="trigger-btn" data-index="0">Btn 1<span class="btn-cc">CC 44</span></button>
+            <button class="trigger-btn" data-index="1">Btn 2<span class="btn-cc">CC 45</span></button>
+            <button class="trigger-btn" data-index="2">Btn 3<span class="btn-cc">CC 46</span></button>
+            <button class="trigger-btn" data-index="3">Btn 4<span class="btn-cc">CC 47</span></button>
+        </div>
+    </div>
+
+    <footer>
+        <a href="https://www.soniphorm.com">soniphorm.com</a> · BLE MIDI requires Chrome/Edge
+    </footer>
+
+    <script src="app.js"></script>
+</body>
+</html>

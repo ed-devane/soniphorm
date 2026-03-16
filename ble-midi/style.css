@@ -1,0 +1,345 @@
+/* Soniphorm BLE MIDI Controller */
+:root {
+  --bg-dark: #0a0f1a;
+  --bg-card: #1e293b;
+  --bg-raised: #253349;
+  --text-primary: #e2e8f0;
+  --text-secondary: #cbd5e1;
+  --text-muted: #94a3b8;
+  --accent: #0ea5e9;
+  --accent-dim: #0891b2;
+  --border: #1f2937;
+  --border-light: #334155;
+  --error: #ef4444;
+  --success: #22c55e;
+
+  /* Bank colours */
+  --bank-0: #ef4444; /* red */
+  --bank-1: #22c55e; /* green */
+  --bank-2: #3b82f6; /* blue */
+  --bank-3: #eab308; /* yellow */
+  --bank-4: #06b6d4; /* cyan */
+  --bank-5: #d946ef; /* magenta */
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg-dark);
+  color: var(--text-primary);
+  display: flex;
+  flex-direction: column;
+}
+
+/* === Header === */
+header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.header-title {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.header-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+#connect-btn {
+  padding: 6px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+#connect-btn:active {
+  background: var(--accent);
+  color: var(--bg-dark);
+}
+
+#connect-btn.connected {
+  background: var(--success);
+  border-color: var(--success);
+  color: var(--bg-dark);
+}
+
+#connect-btn.connecting {
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+#status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: background 0.3s;
+}
+
+#status-dot.connected {
+  background: var(--success);
+  box-shadow: 0 0 6px var(--success);
+}
+
+/* === Bank selector === */
+.bank-bar {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.bank-btn {
+  flex: 1;
+  padding: 8px 0;
+  border: 2px solid transparent;
+  border-radius: 4px;
+  background: var(--bg-raised);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: center;
+}
+
+.bank-btn.active {
+  color: var(--bg-dark);
+  font-weight: 800;
+}
+
+.bank-btn[data-bank="0"] { border-color: var(--bank-0); }
+.bank-btn[data-bank="1"] { border-color: var(--bank-1); }
+.bank-btn[data-bank="2"] { border-color: var(--bank-2); }
+.bank-btn[data-bank="3"] { border-color: var(--bank-3); }
+.bank-btn[data-bank="4"] { border-color: var(--bank-4); }
+.bank-btn[data-bank="5"] { border-color: var(--bank-5); }
+
+.bank-btn[data-bank="0"].active { background: var(--bank-0); }
+.bank-btn[data-bank="1"].active { background: var(--bank-1); }
+.bank-btn[data-bank="2"].active { background: var(--bank-2); }
+.bank-btn[data-bank="3"].active { background: var(--bank-3); }
+.bank-btn[data-bank="4"].active { background: var(--bank-4); }
+.bank-btn[data-bank="5"].active { background: var(--bank-5); }
+
+/* === Main control area === */
+.controls {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  gap: 12px;
+  min-height: 0;
+}
+
+/* === Faders === */
+.fader-row {
+  flex: 1;
+  display: flex;
+  gap: 10px;
+  min-height: 0;
+}
+
+.fader-channel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-height: 0;
+}
+
+.fader-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.fader-value {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
+.fader-track {
+  flex: 1;
+  width: 56px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  position: relative;
+  overflow: hidden;
+  cursor: pointer;
+  touch-action: none;
+  min-height: 80px;
+}
+
+.fader-fill {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: var(--accent);
+  opacity: 0.35;
+  transition: height 0.05s;
+  pointer-events: none;
+}
+
+.fader-thumb {
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 6px;
+  background: var(--accent);
+  border-radius: 3px;
+  pointer-events: none;
+  transition: bottom 0.05s;
+  box-shadow: 0 0 8px rgba(14, 165, 233, 0.4);
+}
+
+.fader-cc {
+  font-size: 9px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* === Buttons === */
+.button-row {
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.trigger-btn {
+  flex: 1;
+  height: 64px;
+  border: 2px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.08s;
+  touch-action: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+.trigger-btn .btn-cc {
+  font-size: 9px;
+  color: var(--text-muted);
+  font-weight: 400;
+}
+
+.trigger-btn.pressed {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg-dark);
+  transform: scale(0.96);
+}
+
+.trigger-btn.pressed .btn-cc {
+  color: var(--bg-dark);
+  opacity: 0.7;
+}
+
+/* === Colour accents per bank === */
+.controls[data-bank="0"] .fader-fill,
+.controls[data-bank="0"] .fader-thumb { background: var(--bank-0); }
+.controls[data-bank="0"] .trigger-btn.pressed { background: var(--bank-0); border-color: var(--bank-0); }
+
+.controls[data-bank="1"] .fader-fill,
+.controls[data-bank="1"] .fader-thumb { background: var(--bank-1); }
+.controls[data-bank="1"] .trigger-btn.pressed { background: var(--bank-1); border-color: var(--bank-1); }
+
+.controls[data-bank="2"] .fader-fill,
+.controls[data-bank="2"] .fader-thumb { background: var(--bank-2); }
+.controls[data-bank="2"] .trigger-btn.pressed { background: var(--bank-2); border-color: var(--bank-2); }
+
+.controls[data-bank="3"] .fader-fill,
+.controls[data-bank="3"] .fader-thumb { background: var(--bank-3); }
+.controls[data-bank="3"] .trigger-btn.pressed { background: var(--bank-3); border-color: var(--bank-3); }
+
+.controls[data-bank="4"] .fader-fill,
+.controls[data-bank="4"] .fader-thumb { background: var(--bank-4); }
+.controls[data-bank="4"] .trigger-btn.pressed { background: var(--bank-4); border-color: var(--bank-4); }
+
+.controls[data-bank="5"] .fader-fill,
+.controls[data-bank="5"] .fader-thumb { background: var(--bank-5); }
+.controls[data-bank="5"] .trigger-btn.pressed { background: var(--bank-5); border-color: var(--bank-5); }
+
+/* === Footer === */
+footer {
+  padding: 6px 12px;
+  text-align: center;
+  font-size: 10px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+footer a { color: var(--accent); }
+
+/* === Compat warning === */
+.compat-warning {
+  display: none;
+  padding: 16px;
+  margin: 12px;
+  background: #3b1a1a;
+  border: 1px solid var(--error);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.compat-warning.show { display: block; }
+
+/* === Install prompt === */
+#install-btn {
+  display: none;
+  padding: 6px 14px;
+  border: 1px solid var(--accent-dim);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+}
