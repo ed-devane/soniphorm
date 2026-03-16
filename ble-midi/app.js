@@ -62,7 +62,7 @@ async function bleConnect() {
         connectBtn.classList.add('connecting');
 
         device = await navigator.bluetooth.requestDevice({
-            filters: [{ namePrefix: 'Soniphorm' }],
+            filters: [{ namePrefix: 'SCM' }, { namePrefix: 'Eurorack' }],
             optionalServices: [BLE_SERVICE, BLE_PATCH_SERVICE]
         });
 
