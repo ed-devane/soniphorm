@@ -83,7 +83,7 @@ async function bleConnect() {
             const info = JSON.parse(json);
             patchName = info.name || '';
             patchLabels = info.labels || {};
-            patchNameEl.textContent = patchName;
+            patchNameEl.textContent = patchName ? 'Patch: ' + patchName : '';
             applyLabels();
         } catch (e) {
             console.warn('Could not read patch info:', e);
@@ -155,8 +155,10 @@ function onDisconnected() {
 connectBtn.addEventListener('click', bleConnect);
 
 function updateCtrlOverlay() {
-    if (ctrlOverlay) ctrlOverlay.classList.toggle('show', !bleActive && connected);
-    controlsDiv.classList.toggle('inactive', !bleActive && connected);
+    const inactive = !bleActive && connected;
+    if (ctrlOverlay) ctrlOverlay.classList.toggle('show', inactive);
+    controlsDiv.classList.toggle('inactive', inactive);
+    document.querySelector('.bank-bar').classList.toggle('inactive', inactive);
 }
 
 // === BLE MIDI packet send ===

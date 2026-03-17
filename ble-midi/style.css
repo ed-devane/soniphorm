@@ -72,15 +72,15 @@ header {
 
 .header-sub {
   display: none;
+  flex-direction: column;
   padding: 0 12px 6px;
-  gap: 8px;
+  gap: 2px;
   font-size: 10px;
   color: var(--text-muted);
 }
 
 .header-sub.show {
   display: flex;
-  align-items: center;
 }
 
 #device-name {
@@ -89,7 +89,6 @@ header {
 }
 
 #patch-name {
-  font-style: italic;
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -404,6 +403,6 @@ footer a { color: var(--accent); }
   pointer-events: none;
 }
 .ctrl-overlay.show { display: block; }
-.controls.inactive { opacity: 0.3; pointer-events: none; }
+.controls.inactive, .bank-bar.inactive { opacity: 0.3; pointer-events: none; }
 .controls.inactive .fader-fill,
 .controls.inactive .fader-thumb { background: var(--text-muted) !important; }
