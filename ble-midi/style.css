@@ -279,13 +279,15 @@ footer a { color: var(--accent); }
 .ctrl-overlay.show { display: block; }
 
 /* ============================================================
-   LANDSCAPE: sidebar left, controls right, full height
+   LANDSCAPE: sidebar left (25%), controls right (75%)
    ============================================================ */
 @media (orientation: landscape) and (max-height: 500px) {
   .app-shell {
     flex-direction: row;
+    height: 100%;
   }
 
+  /* --- Left sidebar --- */
   .sidebar {
     width: 25%;
     max-width: 200px;
@@ -315,26 +317,40 @@ footer a { color: var(--accent); }
 
   .bank-btn { padding: 0; font-size: 10px; display: flex; align-items: center; justify-content: center; }
 
+  /* --- Right controls --- */
   .main-area {
     flex: 1;
     min-width: 0;
+    overflow: hidden;
   }
 
+  /* Use CSS grid: 4 columns, 2 rows (faders top, buttons bottom) */
   .controls {
-    flex: 1;
-    flex-direction: column;
-    padding: 6px 8px;
-    gap: 2px;
+    display: grid !important;
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr auto;
+    height: 100%;
+    padding: 4px 8px;
+    gap: 4px;
   }
 
-  .fader-row { flex: 1; gap: 6px; min-height: 0; }
+  .fader-row {
+    display: flex;
+    gap: 6px;
+    min-height: 0;
+  }
+
   .fader-track { min-height: 20px; }
   .fader-label, .fader-cc { font-size: 8px; }
   .fader-value { font-size: 9px; }
   .fader-channel { gap: 1px; }
 
-  .button-row { gap: 6px; }
-  .trigger-btn { height: 36px; font-size: 9px; }
+  .button-row {
+    display: flex;
+    gap: 6px;
+  }
+
+  .trigger-btn { height: 32px; font-size: 9px; }
 
   footer { display: none; }
   .ctrl-overlay { bottom: 10px; font-size: 10px; }
