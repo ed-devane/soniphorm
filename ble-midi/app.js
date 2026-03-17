@@ -28,6 +28,7 @@ let patchName = '';
 let bleActive = true;
 let ctrlStateChar = null;
 let muted = false;
+let wakeLock = null;
 
 // === DOM refs ===
 const connectBtn   = document.getElementById('connect-btn');
@@ -140,10 +141,19 @@ connectBtn.addEventListener('click', bleConnect);
 
 // === Active/inactive state ===
 
-function updateActiveState() {
+async function updateActiveState() {
     const inactive = !bleActive && connected;
     ctrlOverlay.classList.toggle('show', inactive);
     mainArea.classList.toggle('inactive', inactive);
+
+    // Wake lock: keep screen on when connected and active
+    const shouldWake = connected && bleActive;
+    if (shouldWake && !wakeLock && 'wakeLock' in navigator) {
+        try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+    } else if (!shouldWake && wakeLock) {
+        try { await wakeLock.release(); } catch (e) {}
+        wakeLock = null;
+    }
 }
 
 // === BLE MIDI send ===
@@ -345,6 +355,11 @@ installBtn.addEventListener('click', () => {
 });
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+
+// Re-acquire wake lock when returning to tab
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && connected && bleActive) updateActiveState();
+});
 
 // === Init ===
 loadState();
