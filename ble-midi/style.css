@@ -56,8 +56,8 @@ header {
 .header-logo {
   height: 18px;
   width: auto;
-  filter: invert(1);
-  opacity: 0.9;
+  filter: invert(1) brightness(2);
+  mix-blend-mode: screen;
 }
 
 .header-title {
@@ -396,3 +396,68 @@ footer a { color: var(--accent); }
 }
 
 .ctrl-overlay.show { display: block; }
+
+/* === Landscape === */
+@media (orientation: landscape) and (max-height: 500px) {
+  header {
+    padding: 4px 12px;
+  }
+
+  .header-brand { margin-bottom: 0; }
+
+  .header-info {
+    display: none;
+  }
+
+  .header-actions {
+    position: absolute;
+    top: 4px;
+    right: 12px;
+    width: auto;
+    gap: 6px;
+  }
+
+  .header-actions .action-btn {
+    padding: 4px 10px;
+    font-size: 10px;
+  }
+
+  header { position: relative; }
+
+  .bank-bar {
+    padding: 4px 12px;
+  }
+
+  .bank-btn {
+    padding: 4px 0;
+    font-size: 10px;
+  }
+
+  .controls {
+    flex-direction: row;
+    padding: 4px 12px 8px;
+    gap: 8px;
+  }
+
+  .fader-row {
+    flex: 1;
+  }
+
+  .button-row {
+    flex-direction: column;
+    gap: 4px;
+    justify-content: center;
+  }
+
+  .trigger-btn {
+    width: 48px;
+    height: 48px;
+    font-size: 10px;
+  }
+
+  .fader-label, .fader-cc { font-size: 8px; }
+  .fader-value { font-size: 9px; }
+  .fader-channel { gap: 2px; }
+
+  footer { padding: 2px 12px; font-size: 9px; }
+}
