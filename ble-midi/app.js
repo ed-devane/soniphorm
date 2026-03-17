@@ -40,6 +40,8 @@ const triggerBtns = document.querySelectorAll('.trigger-btn');
 const compatWarn  = document.getElementById('compat-warning');
 const installBtn  = document.getElementById('install-btn');
 const ctrlOverlay = document.getElementById('ctrl-overlay');
+const headerSub   = document.getElementById('header-sub');
+const deviceNameEl = document.getElementById('device-name');
 
 // === Compatibility check ===
 if (!navigator.bluetooth) {
@@ -62,7 +64,7 @@ async function bleConnect() {
         connectBtn.classList.add('connecting');
 
         device = await navigator.bluetooth.requestDevice({
-            filters: [{ namePrefix: 'SCM' }, { namePrefix: 'Eurorack' }],
+            filters: [{ namePrefix: 'Soniphorm' }],
             optionalServices: [BLE_SERVICE, BLE_PATCH_SERVICE]
         });
 
@@ -111,6 +113,10 @@ async function bleConnect() {
         connectBtn.classList.remove('connecting');
         connectBtn.classList.add('connected');
         statusDot.classList.add('connected');
+        // Show device name in sub-header
+        const devName = device.name || 'Unknown';
+        deviceNameEl.textContent = 'Connected to: ' + devName;
+        headerSub.classList.add('show');
         updateCtrlOverlay();
 
         // Send current bank select so device is in sync
@@ -141,6 +147,8 @@ function onDisconnected() {
     connectBtn.classList.remove('connecting', 'connected');
     statusDot.classList.remove('connected');
     patchNameEl.textContent = '';
+    deviceNameEl.textContent = '';
+    headerSub.classList.remove('show');
     updateCtrlOverlay();
 }
 

@@ -42,35 +42,66 @@ body {
 
 /* === Header === */
 header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 12px;
   background: var(--bg-card);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
-.header-title {
-  font-size: 14px;
-  font-weight: 700;
-  letter-spacing: 0.5px;
+.header-top {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px 4px;
+  gap: 8px;
+}
+
+.header-logo {
+  font-size: 13px;
+  font-weight: 800;
+  letter-spacing: 1px;
   text-transform: uppercase;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.header-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  flex: 1;
+}
+
+.header-sub {
+  display: none;
+  padding: 0 12px 6px;
+  gap: 8px;
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+.header-sub.show {
+  display: flex;
+  align-items: center;
+}
+
+#device-name {
+  font-weight: 600;
+  color: var(--success);
 }
 
 #patch-name {
-  font-size: 11px;
+  font-style: italic;
   color: var(--text-secondary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 40%;
 }
 
 .header-status {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 #connect-btn {
