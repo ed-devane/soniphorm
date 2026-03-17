@@ -56,6 +56,7 @@ header {
 .header-logo {
   height: 18px;
   width: auto;
+  filter: invert(1);
   opacity: 0.9;
 }
 
