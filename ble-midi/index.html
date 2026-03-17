@@ -10,94 +10,92 @@
     <link rel="manifest" href="manifest.json">
     <link rel="icon" href="../favicon.png">
     <link rel="apple-touch-icon" href="../favicon.png">
-    <link rel="stylesheet" href="style.css?v=1">
+    <link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
     <header>
-        <div class="header-top">
-            <span class="header-logo">Soniphorm</span>
+        <div class="header-brand">
+            <img src="logo.png" alt="Soniphorm" class="header-logo">
             <span class="header-title">Smart Contact Mic Control</span>
-            <div class="header-status">
-                <button id="install-btn">Install</button>
-                <button id="connect-btn">Connect</button>
-                <span id="status-dot"></span>
-            </div>
         </div>
-        <div class="header-sub" id="header-sub">
-            <div id="device-name"></div>
+        <div class="header-info" id="header-info">
+            <div id="device-name">Not connected</div>
             <div id="patch-name"></div>
+        </div>
+        <div class="header-actions">
+            <button class="action-btn mute-btn" id="mute-btn">MUTE</button>
+            <button class="action-btn connect-btn" id="connect-btn">CONNECT</button>
         </div>
     </header>
 
-    <div class="bank-bar">
-        <button class="bank-btn active" data-bank="0">1</button>
-        <button class="bank-btn" data-bank="1">2</button>
-        <button class="bank-btn" data-bank="2">3</button>
-        <button class="bank-btn" data-bank="3">4</button>
-        <button class="bank-btn" data-bank="4">5</button>
-        <button class="bank-btn" data-bank="5">6</button>
-    </div>
-
-    <div class="mute-bar">
-        <button class="mute-btn" id="mute-btn">MUTE</button>
-    </div>
-
     <div class="compat-warning" id="compat-warning">
-        Web Bluetooth is not supported in this browser. Use Chrome or Edge on Android or desktop. iOS Safari is not supported — use TouchOSC instead.
-    </div>
-
-    <div class="controls" data-bank="0">
-        <div class="fader-row">
-            <div class="fader-channel" data-index="0">
-                <span class="fader-label">Pot 1</span>
-                <span class="fader-value">0</span>
-                <div class="fader-track">
-                    <div class="fader-fill"></div>
-                    <div class="fader-thumb"></div>
-                </div>
-                <span class="fader-cc">CC 20</span>
-            </div>
-            <div class="fader-channel" data-index="1">
-                <span class="fader-label">Pot 2</span>
-                <span class="fader-value">0</span>
-                <div class="fader-track">
-                    <div class="fader-fill"></div>
-                    <div class="fader-thumb"></div>
-                </div>
-                <span class="fader-cc">CC 21</span>
-            </div>
-            <div class="fader-channel" data-index="2">
-                <span class="fader-label">Pot 3</span>
-                <span class="fader-value">0</span>
-                <div class="fader-track">
-                    <div class="fader-fill"></div>
-                    <div class="fader-thumb"></div>
-                </div>
-                <span class="fader-cc">CC 22</span>
-            </div>
-            <div class="fader-channel" data-index="3">
-                <span class="fader-label">Pot 4</span>
-                <span class="fader-value">0</span>
-                <div class="fader-track">
-                    <div class="fader-fill"></div>
-                    <div class="fader-thumb"></div>
-                </div>
-                <span class="fader-cc">CC 23</span>
-            </div>
-        </div>
-
-        <div class="button-row">
-            <button class="trigger-btn" data-index="0">Btn 1<span class="btn-cc">CC 44</span></button>
-            <button class="trigger-btn" data-index="1">Btn 2<span class="btn-cc">CC 45</span></button>
-            <button class="trigger-btn" data-index="2">Btn 3<span class="btn-cc">CC 46</span></button>
-            <button class="trigger-btn" data-index="3">Btn 4<span class="btn-cc">CC 47</span></button>
-        </div>
+        Web Bluetooth is not supported in this browser. Use Chrome or Edge on Android or desktop.
     </div>
 
     <div class="ctrl-overlay" id="ctrl-overlay">Patcher has control</div>
 
+    <div class="main-area">
+        <div class="bank-bar">
+            <button class="bank-btn active" data-bank="0">1</button>
+            <button class="bank-btn" data-bank="1">2</button>
+            <button class="bank-btn" data-bank="2">3</button>
+            <button class="bank-btn" data-bank="3">4</button>
+            <button class="bank-btn" data-bank="4">5</button>
+            <button class="bank-btn" data-bank="5">6</button>
+        </div>
+
+        <div class="controls" data-bank="0">
+            <div class="fader-row">
+                <div class="fader-channel" data-index="0">
+                    <span class="fader-label">Pot 1</span>
+                    <span class="fader-value">0</span>
+                    <div class="fader-track">
+                        <div class="fader-fill"></div>
+                        <div class="fader-thumb"></div>
+                    </div>
+                    <span class="fader-cc">CC 20</span>
+                </div>
+                <div class="fader-channel" data-index="1">
+                    <span class="fader-label">Pot 2</span>
+                    <span class="fader-value">0</span>
+                    <div class="fader-track">
+                        <div class="fader-fill"></div>
+                        <div class="fader-thumb"></div>
+                    </div>
+                    <span class="fader-cc">CC 21</span>
+                </div>
+                <div class="fader-channel" data-index="2">
+                    <span class="fader-label">Pot 3</span>
+                    <span class="fader-value">0</span>
+                    <div class="fader-track">
+                        <div class="fader-fill"></div>
+                        <div class="fader-thumb"></div>
+                    </div>
+                    <span class="fader-cc">CC 22</span>
+                </div>
+                <div class="fader-channel" data-index="3">
+                    <span class="fader-label">Pot 4</span>
+                    <span class="fader-value">0</span>
+                    <div class="fader-track">
+                        <div class="fader-fill"></div>
+                        <div class="fader-thumb"></div>
+                    </div>
+                    <span class="fader-cc">CC 23</span>
+                </div>
+            </div>
+
+            <div class="button-row">
+                <button class="trigger-btn" data-index="0">Btn 1<span class="btn-cc">CC 44</span></button>
+                <button class="trigger-btn" data-index="1">Btn 2<span class="btn-cc">CC 45</span></button>
+                <button class="trigger-btn" data-index="2">Btn 3<span class="btn-cc">CC 46</span></button>
+                <button class="trigger-btn" data-index="3">Btn 4<span class="btn-cc">CC 47</span></button>
+            </div>
+        </div>
+    </div>
+
     <footer>
-        <a href="https://www.soniphorm.com">soniphorm.com</a> · BLE MIDI requires Chrome/Edge
+        <a href="https://www.soniphorm.com">soniphorm.com</a>
+        <button id="install-btn">Install App</button>
     </footer>
 
     <script src="app.js"></script>

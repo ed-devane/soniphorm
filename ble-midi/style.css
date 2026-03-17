@@ -12,14 +12,12 @@
   --border-light: #334155;
   --error: #ef4444;
   --success: #22c55e;
-
-  /* Bank colours */
-  --bank-0: #ef4444; /* red */
-  --bank-1: #22c55e; /* green */
-  --bank-2: #3b82f6; /* blue */
-  --bank-3: #eab308; /* yellow */
-  --bank-4: #06b6d4; /* cyan */
-  --bank-5: #d946ef; /* magenta */
+  --bank-0: #ef4444;
+  --bank-1: #22c55e;
+  --bank-2: #3b82f6;
+  --bank-3: #eab308;
+  --bank-4: #06b6d4;
+  --bank-5: #d946ef;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -45,46 +43,40 @@ header {
   background: var(--bg-card);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
+  padding: 10px 12px 8px;
 }
 
-.header-top {
+.header-brand {
   display: flex;
   align-items: center;
-  padding: 8px 12px 4px;
   gap: 8px;
+  margin-bottom: 4px;
 }
 
 .header-logo {
-  font-size: 13px;
-  font-weight: 800;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  color: var(--accent);
-  flex-shrink: 0;
+  height: 18px;
+  width: auto;
+  opacity: 0.9;
 }
 
 .header-title {
   font-size: 12px;
   font-weight: 600;
   color: var(--text-secondary);
-  flex: 1;
 }
 
-.header-sub {
-  display: none;
-  flex-direction: column;
-  padding: 0 12px 6px;
-  gap: 2px;
+.header-info {
+  margin-bottom: 8px;
   font-size: 10px;
-  color: var(--text-muted);
-}
-
-.header-sub.show {
-  display: flex;
+  line-height: 1.5;
 }
 
 #device-name {
+  color: var(--text-muted);
   font-weight: 600;
+}
+
+#device-name.connected {
   color: var(--success);
 }
 
@@ -95,54 +87,60 @@ header {
   white-space: nowrap;
 }
 
-.header-status {
+.header-actions {
   display: flex;
-  align-items: center;
   gap: 8px;
-  flex-shrink: 0;
-  margin-left: auto;
 }
 
-#connect-btn {
-  padding: 6px 14px;
-  border: 1px solid var(--accent);
-  border-radius: 4px;
-  background: transparent;
-  color: var(--accent);
-  font-size: 12px;
-  font-weight: 600;
+.action-btn {
+  flex: 1;
+  padding: 8px 0;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
   text-transform: uppercase;
   cursor: pointer;
-  transition: all 0.15s;
+  transition: all 0.12s;
 }
 
-#connect-btn:active {
-  background: var(--accent);
-  color: var(--bg-dark);
+.mute-btn.muted {
+  background: var(--error);
+  border-color: var(--error);
+  color: white;
 }
 
-#connect-btn.connected {
+.connect-btn.connected {
   background: var(--success);
   border-color: var(--success);
   color: var(--bg-dark);
 }
 
-#connect-btn.connecting {
-  opacity: 0.6;
+.connect-btn.connecting {
+  opacity: 0.5;
   pointer-events: none;
 }
 
-#status-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--text-muted);
-  transition: background 0.3s;
+/* === Main area (everything that greys out) === */
+.main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  transition: opacity 0.2s;
 }
 
-#status-dot.connected {
-  background: var(--success);
-  box-shadow: 0 0 6px var(--success);
+.main-area.inactive {
+  opacity: 0.25;
+  pointer-events: none;
+}
+
+.main-area.inactive .fader-fill,
+.main-area.inactive .fader-thumb {
+  background: var(--text-muted) !important;
 }
 
 /* === Bank selector === */
@@ -150,21 +148,18 @@ header {
   display: flex;
   gap: 4px;
   padding: 8px 12px;
-  background: var(--bg-card);
-  border-bottom: 1px solid var(--border);
   flex-shrink: 0;
 }
 
 .bank-btn {
   flex: 1;
-  padding: 8px 0;
+  padding: 7px 0;
   border: 2px solid transparent;
   border-radius: 4px;
   background: var(--bg-raised);
   color: var(--text-muted);
   font-size: 11px;
   font-weight: 700;
-  text-transform: uppercase;
   cursor: pointer;
   transition: all 0.15s;
   text-align: center;
@@ -189,44 +184,16 @@ header {
 .bank-btn[data-bank="4"].active { background: var(--bank-4); }
 .bank-btn[data-bank="5"].active { background: var(--bank-5); }
 
-/* === Mute bar === */
-.mute-bar {
-  padding: 6px 12px;
-  flex-shrink: 0;
-}
-
-.mute-btn {
-  width: 100%;
-  padding: 10px 0;
-  border: 2px solid var(--border-light);
-  border-radius: 6px;
-  background: var(--bg-card);
-  color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 2px;
-  text-transform: uppercase;
-  cursor: pointer;
-  transition: all 0.1s;
-}
-
-.mute-btn.muted {
-  background: var(--error);
-  border-color: var(--error);
-  color: white;
-}
-
-/* === Main control area === */
+/* === Controls === */
 .controls {
   flex: 1;
   display: flex;
   flex-direction: column;
-  padding: 12px;
-  gap: 12px;
+  padding: 8px 12px 12px;
+  gap: 10px;
   min-height: 0;
 }
 
-/* === Faders === */
 .fader-row {
   flex: 1;
   display: flex;
@@ -239,7 +206,7 @@ header {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   min-height: 0;
 }
 
@@ -274,9 +241,7 @@ header {
 
 .fader-fill {
   position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
+  bottom: 0; left: 0; right: 0;
   background: var(--accent);
   opacity: 0.35;
   transition: height 0.05s;
@@ -285,8 +250,7 @@ header {
 
 .fader-thumb {
   position: absolute;
-  left: 4px;
-  right: 4px;
+  left: 4px; right: 4px;
   height: 6px;
   background: var(--accent);
   border-radius: 3px;
@@ -310,7 +274,7 @@ header {
 
 .trigger-btn {
   flex: 1;
-  height: 64px;
+  height: 60px;
   border: 2px solid var(--border-light);
   border-radius: 8px;
   background: var(--bg-card);
@@ -345,27 +309,22 @@ header {
   opacity: 0.7;
 }
 
-/* === Colour accents per bank === */
+/* === Bank colour accents === */
 .controls[data-bank="0"] .fader-fill,
 .controls[data-bank="0"] .fader-thumb { background: var(--bank-0); }
 .controls[data-bank="0"] .trigger-btn.pressed { background: var(--bank-0); border-color: var(--bank-0); }
-
 .controls[data-bank="1"] .fader-fill,
 .controls[data-bank="1"] .fader-thumb { background: var(--bank-1); }
 .controls[data-bank="1"] .trigger-btn.pressed { background: var(--bank-1); border-color: var(--bank-1); }
-
 .controls[data-bank="2"] .fader-fill,
 .controls[data-bank="2"] .fader-thumb { background: var(--bank-2); }
 .controls[data-bank="2"] .trigger-btn.pressed { background: var(--bank-2); border-color: var(--bank-2); }
-
 .controls[data-bank="3"] .fader-fill,
 .controls[data-bank="3"] .fader-thumb { background: var(--bank-3); }
 .controls[data-bank="3"] .trigger-btn.pressed { background: var(--bank-3); border-color: var(--bank-3); }
-
 .controls[data-bank="4"] .fader-fill,
 .controls[data-bank="4"] .fader-thumb { background: var(--bank-4); }
 .controls[data-bank="4"] .trigger-btn.pressed { background: var(--bank-4); border-color: var(--bank-4); }
-
 .controls[data-bank="5"] .fader-fill,
 .controls[data-bank="5"] .fader-thumb { background: var(--bank-5); }
 .controls[data-bank="5"] .trigger-btn.pressed { background: var(--bank-5); border-color: var(--bank-5); }
@@ -373,7 +332,9 @@ header {
 /* === Footer === */
 footer {
   padding: 6px 12px;
-  text-align: center;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   font-size: 10px;
   color: var(--text-muted);
   border-top: 1px solid var(--border);
@@ -381,6 +342,17 @@ footer {
 }
 
 footer a { color: var(--accent); }
+
+#install-btn {
+  display: none;
+  padding: 4px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 10px;
+  cursor: pointer;
+}
 
 /* === Compat warning === */
 .compat-warning {
@@ -397,20 +369,7 @@ footer a { color: var(--accent); }
 
 .compat-warning.show { display: block; }
 
-/* === Install prompt === */
-#install-btn {
-  display: none;
-  padding: 6px 14px;
-  border: 1px solid var(--accent-dim);
-  border-radius: 4px;
-  background: transparent;
-  color: var(--accent);
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-/* === Control state overlay === */
+/* === Patcher overlay === */
 .ctrl-overlay {
   display: none;
   position: fixed;
@@ -418,7 +377,7 @@ footer a { color: var(--accent); }
   left: 50%;
   transform: translateX(-50%);
   padding: 8px 20px;
-  background: rgba(30, 41, 59, 0.92);
+  background: rgba(30, 41, 59, 0.95);
   border: 1px solid var(--border-light);
   border-radius: 6px;
   color: var(--text-muted);
@@ -429,7 +388,5 @@ footer a { color: var(--accent); }
   z-index: 100;
   pointer-events: none;
 }
+
 .ctrl-overlay.show { display: block; }
-.controls.inactive, .bank-bar.inactive { opacity: 0.3; pointer-events: none; }
-.controls.inactive .fader-fill,
-.controls.inactive .fader-thumb { background: var(--text-muted) !important; }
