@@ -101,7 +101,7 @@ async function bleConnect() {
         }
 
         connected = true;
-        connectBtn.textContent = 'DISCONNECT';
+        connectBtn.textContent = 'CONNECTED';
         connectBtn.classList.remove('connecting');
         connectBtn.classList.add('connected');
         deviceNameEl.textContent = 'Connected to: ' + (device.name || 'Unknown');

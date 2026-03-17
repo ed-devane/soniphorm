@@ -1,4 +1,4 @@
-const CACHE_NAME = 'soniphorm-ble-midi-v12';
+const CACHE_NAME = 'soniphorm-ble-midi-v13';
 const ASSETS = [
   './',
   './index.html',
