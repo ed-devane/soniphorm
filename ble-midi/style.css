@@ -206,13 +206,11 @@ body {
 .fader-cc { font-size: 9px; color: var(--text-muted); flex-shrink: 0; }
 
 /* === Buttons === */
-.button-row { display: flex; gap: 10px; flex-shrink: 0; }
+.button-row { display: flex; gap: 10px; flex-shrink: 0; padding: 0; }
 
 .trigger-btn {
   flex: 1;
-  aspect-ratio: 1;
-  max-width: 70px;
-  height: auto;
+  height: 50px;
   border: 2px solid var(--border-light);
   border-radius: 50%;
   background: var(--bg-card);
@@ -326,16 +324,17 @@ footer a { color: var(--accent); }
     flex: 1;
     flex-direction: column;
     padding: 6px 8px;
-    gap: 4px;
+    gap: 2px;
   }
 
-  .fader-row { flex: 1; gap: 6px; }
-  .fader-track { min-height: 40px; }
+  .fader-row { flex: 1; gap: 6px; min-height: 0; }
+  .fader-track { min-height: 20px; }
   .fader-label, .fader-cc { font-size: 8px; }
   .fader-value { font-size: 9px; }
-  .fader-channel { gap: 2px; }
+  .fader-channel { gap: 1px; }
 
-  .trigger-btn { max-width: 50px; font-size: 9px; }
+  .button-row { gap: 6px; }
+  .trigger-btn { height: 36px; font-size: 9px; }
 
   footer { display: none; }
   .ctrl-overlay { bottom: 10px; font-size: 10px; }
