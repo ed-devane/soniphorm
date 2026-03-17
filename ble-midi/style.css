@@ -189,6 +189,33 @@ header {
 .bank-btn[data-bank="4"].active { background: var(--bank-4); }
 .bank-btn[data-bank="5"].active { background: var(--bank-5); }
 
+/* === Mute bar === */
+.mute-bar {
+  padding: 6px 12px;
+  flex-shrink: 0;
+}
+
+.mute-btn {
+  width: 100%;
+  padding: 10px 0;
+  border: 2px solid var(--border-light);
+  border-radius: 6px;
+  background: var(--bg-card);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+
+.mute-btn.muted {
+  background: var(--error);
+  border-color: var(--error);
+  color: white;
+}
+
 /* === Main control area === */
 .controls {
   flex: 1;

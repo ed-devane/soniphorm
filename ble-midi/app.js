@@ -312,6 +312,18 @@ faderChannels.forEach((ch) => {
     track.addEventListener('pointercancel', () => { dragging = false; });
 });
 
+// === Mute button ===
+const muteBtn = document.getElementById('mute-btn');
+let muted = false;
+
+muteBtn.addEventListener('click', () => {
+    muted = !muted;
+    muteBtn.classList.toggle('muted', muted);
+    muteBtn.textContent = muted ? 'MUTED' : 'MUTE';
+    // CC 127: value 127 = mute on, 0 = mute off
+    sendBLEPacket(0xB0 | MIDI_CHANNEL, 127, muted ? 127 : 0);
+});
+
 // === Button interaction ===
 
 triggerBtns.forEach((btn) => {
