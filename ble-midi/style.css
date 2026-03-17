@@ -38,8 +38,16 @@ body {
   flex-direction: column;
 }
 
-/* === Header === */
-header {
+/* === App shell: portrait=column, landscape=row === */
+.app-shell {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* === Sidebar (header in portrait, left column in landscape) === */
+.sidebar {
   background: var(--bg-card);
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -70,24 +78,12 @@ header {
   margin-bottom: 6px;
   font-size: 10px;
   line-height: 1.6;
-  min-height: 32px;
+  min-height: 16px;
 }
 
-#device-name {
-  color: var(--text-muted);
-  font-weight: 600;
-}
-
-#device-name.connected {
-  color: var(--success);
-}
-
-#patch-name {
-  color: var(--text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+#device-name { color: var(--text-muted); font-weight: 600; }
+#device-name.connected { color: var(--success); }
+#patch-name { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .header-actions {
   display: flex;
@@ -112,57 +108,15 @@ header {
   white-space: nowrap;
 }
 
-.mute-btn.muted {
-  background: var(--error);
-  border-color: var(--error);
-  color: white;
-}
+.mute-btn.muted { background: var(--error); border-color: var(--error); color: white; }
+.connect-btn.connected { background: var(--success); border-color: var(--success); color: var(--bg-dark); }
+.connect-btn.connecting { opacity: 0.5; pointer-events: none; }
 
-.connect-btn.connected {
-  background: var(--success);
-  border-color: var(--success);
-  color: var(--bg-dark);
-}
-
-.connect-btn.connecting {
-  opacity: 0.5;
-  pointer-events: none;
-}
-
-.fs-btn {
-  flex: none !important;
-  width: 36px;
-  padding: 6px !important;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-/* === Main area (everything that greys out) === */
-.main-area {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  transition: opacity 0.2s;
-}
-
-.main-area.inactive {
-  opacity: 0.25;
-  pointer-events: none;
-}
-
-.main-area.inactive .fader-fill,
-.main-area.inactive .fader-thumb {
-  background: var(--text-muted) !important;
-}
-
-/* === Bank selector === */
-.bank-bar {
+/* === Bank bar (portrait: horizontal below sidebar) === */
+.sidebar-banks {
   display: flex;
   gap: 4px;
-  padding: 8px 12px;
-  flex-shrink: 0;
+  margin-top: 8px;
 }
 
 .bank-btn {
@@ -179,24 +133,32 @@ header {
   text-align: center;
 }
 
-.bank-btn.active {
-  color: var(--bg-dark);
-  font-weight: 800;
-}
-
+.bank-btn.active { color: var(--bg-dark); font-weight: 800; }
 .bank-btn[data-bank="0"] { border-color: var(--bank-0); }
 .bank-btn[data-bank="1"] { border-color: var(--bank-1); }
 .bank-btn[data-bank="2"] { border-color: var(--bank-2); }
 .bank-btn[data-bank="3"] { border-color: var(--bank-3); }
 .bank-btn[data-bank="4"] { border-color: var(--bank-4); }
 .bank-btn[data-bank="5"] { border-color: var(--bank-5); }
-
 .bank-btn[data-bank="0"].active { background: var(--bank-0); }
 .bank-btn[data-bank="1"].active { background: var(--bank-1); }
 .bank-btn[data-bank="2"].active { background: var(--bank-2); }
 .bank-btn[data-bank="3"].active { background: var(--bank-3); }
 .bank-btn[data-bank="4"].active { background: var(--bank-4); }
 .bank-btn[data-bank="5"].active { background: var(--bank-5); }
+
+/* === Main area === */
+.main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  transition: opacity 0.2s;
+}
+
+.main-area.inactive { opacity: 0.25; pointer-events: none; }
+.main-area.inactive .fader-fill,
+.main-area.inactive .fader-thumb { background: var(--text-muted) !important; }
 
 /* === Controls === */
 .controls {
@@ -208,12 +170,7 @@ header {
   min-height: 0;
 }
 
-.fader-row {
-  flex: 1;
-  display: flex;
-  gap: 10px;
-  min-height: 0;
-}
+.fader-row { flex: 1; display: flex; gap: 10px; min-height: 0; }
 
 .fader-channel {
   flex: 1;
@@ -224,21 +181,8 @@ header {
   min-height: 0;
 }
 
-.fader-label {
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  flex-shrink: 0;
-}
-
-.fader-value {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
-}
+.fader-label { font-size: 10px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; flex-shrink: 0; }
+.fader-value { font-size: 11px; font-weight: 600; color: var(--text-secondary); font-variant-numeric: tabular-nums; flex-shrink: 0; }
 
 .fader-track {
   flex: 1;
@@ -253,105 +197,49 @@ header {
   min-height: 80px;
 }
 
-.fader-fill {
-  position: absolute;
-  bottom: 0; left: 0; right: 0;
-  background: var(--accent);
-  opacity: 0.35;
-  transition: height 0.05s;
-  pointer-events: none;
-}
-
-.fader-thumb {
-  position: absolute;
-  left: 4px; right: 4px;
-  height: 6px;
-  background: var(--accent);
-  border-radius: 3px;
-  pointer-events: none;
-  transition: bottom 0.05s;
-  box-shadow: 0 0 8px rgba(14, 165, 233, 0.4);
-}
-
-.fader-cc {
-  font-size: 9px;
-  color: var(--text-muted);
-  flex-shrink: 0;
-}
+.fader-fill { position: absolute; bottom: 0; left: 0; right: 0; background: var(--accent); opacity: 0.35; transition: height 0.05s; pointer-events: none; }
+.fader-thumb { position: absolute; left: 4px; right: 4px; height: 6px; background: var(--accent); border-radius: 3px; pointer-events: none; transition: bottom 0.05s; box-shadow: 0 0 8px rgba(14,165,233,0.4); }
+.fader-cc { font-size: 9px; color: var(--text-muted); flex-shrink: 0; }
 
 /* === Buttons === */
-.button-row {
-  display: flex;
-  gap: 10px;
-  flex-shrink: 0;
-  justify-content: center;
-}
+.button-row { display: flex; gap: 10px; flex-shrink: 0; justify-content: space-around; }
 
 .trigger-btn {
-  width: 60px;
-  height: 60px;
+  width: 56px; height: 56px;
   border: 2px solid var(--border-light);
   border-radius: 50%;
   background: var(--bg-card);
   color: var(--text-secondary);
-  font-size: 12px;
-  font-weight: 700;
+  font-size: 12px; font-weight: 700;
   cursor: pointer;
   transition: all 0.08s;
   touch-action: none;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 2px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
 }
 
-.trigger-btn .btn-cc {
-  font-size: 9px;
-  color: var(--text-muted);
-  font-weight: 400;
-}
-
-.trigger-btn.pressed {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--bg-dark);
-  transform: scale(0.96);
-}
-
-.trigger-btn.pressed .btn-cc {
-  color: var(--bg-dark);
-  opacity: 0.7;
-}
+.trigger-btn .btn-cc { font-size: 9px; color: var(--text-muted); font-weight: 400; }
+.trigger-btn.pressed { background: var(--accent); border-color: var(--accent); color: var(--bg-dark); transform: scale(0.96); }
+.trigger-btn.pressed .btn-cc { color: var(--bg-dark); opacity: 0.7; }
 
 /* === Bank colour accents === */
-.controls[data-bank="0"] .fader-fill,
-.controls[data-bank="0"] .fader-thumb { background: var(--bank-0); }
+.controls[data-bank="0"] .fader-fill, .controls[data-bank="0"] .fader-thumb { background: var(--bank-0); }
 .controls[data-bank="0"] .trigger-btn.pressed { background: var(--bank-0); border-color: var(--bank-0); }
-.controls[data-bank="1"] .fader-fill,
-.controls[data-bank="1"] .fader-thumb { background: var(--bank-1); }
+.controls[data-bank="1"] .fader-fill, .controls[data-bank="1"] .fader-thumb { background: var(--bank-1); }
 .controls[data-bank="1"] .trigger-btn.pressed { background: var(--bank-1); border-color: var(--bank-1); }
-.controls[data-bank="2"] .fader-fill,
-.controls[data-bank="2"] .fader-thumb { background: var(--bank-2); }
+.controls[data-bank="2"] .fader-fill, .controls[data-bank="2"] .fader-thumb { background: var(--bank-2); }
 .controls[data-bank="2"] .trigger-btn.pressed { background: var(--bank-2); border-color: var(--bank-2); }
-.controls[data-bank="3"] .fader-fill,
-.controls[data-bank="3"] .fader-thumb { background: var(--bank-3); }
+.controls[data-bank="3"] .fader-fill, .controls[data-bank="3"] .fader-thumb { background: var(--bank-3); }
 .controls[data-bank="3"] .trigger-btn.pressed { background: var(--bank-3); border-color: var(--bank-3); }
-.controls[data-bank="4"] .fader-fill,
-.controls[data-bank="4"] .fader-thumb { background: var(--bank-4); }
+.controls[data-bank="4"] .fader-fill, .controls[data-bank="4"] .fader-thumb { background: var(--bank-4); }
 .controls[data-bank="4"] .trigger-btn.pressed { background: var(--bank-4); border-color: var(--bank-4); }
-.controls[data-bank="5"] .fader-fill,
-.controls[data-bank="5"] .fader-thumb { background: var(--bank-5); }
+.controls[data-bank="5"] .fader-fill, .controls[data-bank="5"] .fader-thumb { background: var(--bank-5); }
 .controls[data-bank="5"] .trigger-btn.pressed { background: var(--bank-5); border-color: var(--bank-5); }
 
 /* === Footer === */
 footer {
   padding: 6px 12px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  font-size: 10px;
-  color: var(--text-muted);
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 10px; color: var(--text-muted);
   border-top: 1px solid var(--border);
   flex-shrink: 0;
 }
@@ -369,61 +257,39 @@ footer a { color: var(--accent); }
   cursor: pointer;
 }
 
-/* === Compat warning === */
+/* === Overlays === */
 .compat-warning {
-  display: none;
-  padding: 16px;
-  margin: 12px;
-  background: #3b1a1a;
-  border: 1px solid var(--error);
-  border-radius: 6px;
-  color: var(--text-primary);
-  font-size: 13px;
-  line-height: 1.5;
+  display: none; padding: 16px; margin: 12px;
+  background: #3b1a1a; border: 1px solid var(--error); border-radius: 6px;
+  color: var(--text-primary); font-size: 13px; line-height: 1.5;
 }
-
 .compat-warning.show { display: block; }
 
-/* === Patcher overlay === */
 .ctrl-overlay {
-  display: none;
-  position: fixed;
-  bottom: 40px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 8px 20px;
-  background: rgba(30, 41, 59, 0.95);
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  z-index: 100;
-  pointer-events: none;
+  display: none; position: fixed; bottom: 40px; left: 50%; transform: translateX(-50%);
+  padding: 8px 20px; background: rgba(30,41,59,0.95); border: 1px solid var(--border-light);
+  border-radius: 6px; color: var(--text-muted); font-size: 12px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.5px; z-index: 100; pointer-events: none;
 }
-
 .ctrl-overlay.show { display: block; }
 
-/* === Landscape === */
+/* ============================================================
+   LANDSCAPE: sidebar left, controls right, full height
+   ============================================================ */
 @media (orientation: landscape) and (max-height: 500px) {
-  body {
-    display: grid;
-    grid-template-columns: 25% 75%;
-    grid-template-rows: 1fr;
-    height: 100vh;
+  .app-shell {
+    flex-direction: row;
   }
 
-  /* Left column: header + banks stacked */
-  header {
-    grid-column: 1;
-    grid-row: 1;
-    display: flex;
-    flex-direction: column;
+  .sidebar {
+    width: 25%;
+    max-width: 200px;
+    flex-shrink: 0;
     border-bottom: none;
     border-right: 1px solid var(--border);
     padding: 6px 8px;
+    display: flex;
+    flex-direction: column;
     overflow-y: auto;
   }
 
@@ -431,34 +297,21 @@ footer a { color: var(--accent); }
   .header-logo { height: 14px; }
   .header-title { font-size: 9px; }
   .header-info { margin-bottom: 4px; font-size: 9px; line-height: 1.3; min-height: auto; }
-  .header-actions { gap: 4px; }
+  .header-actions { gap: 4px; margin-bottom: 6px; }
   .header-actions .action-btn { padding: 5px 0; font-size: 9px; letter-spacing: 0.5px; }
 
-  /* Banks inside header column via order trick - need JS or restructure */
-  /* Instead: hide main-area bank-bar, put banks at bottom of header */
-
-  /* Right column: controls full height */
-  .main-area {
-    grid-column: 2;
-    grid-row: 1;
-    display: flex;
-    flex-direction: row;
-    min-height: 0;
-  }
-
-  .bank-bar {
-    /* In landscape: vertical strip on left edge of controls */
-    flex-direction: column;
-    padding: 6px 4px;
+  .sidebar-banks {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
     gap: 3px;
-    flex-shrink: 0;
-    width: auto;
+    margin-top: auto;
   }
 
-  .bank-btn {
-    padding: 4px 8px;
-    font-size: 9px;
+  .bank-btn { padding: 5px 0; font-size: 9px; }
+
+  .main-area {
     flex: 1;
+    min-width: 0;
   }
 
   .controls {
@@ -466,10 +319,13 @@ footer a { color: var(--accent); }
     flex-direction: row;
     padding: 6px 8px;
     gap: 6px;
-    min-height: 0;
   }
 
-  .fader-row { flex: 1; }
+  .fader-row { flex: 1; gap: 6px; }
+  .fader-track { min-height: 40px; }
+  .fader-label, .fader-cc { font-size: 8px; }
+  .fader-value { font-size: 9px; }
+  .fader-channel { gap: 2px; }
 
   .button-row {
     flex-direction: column;
@@ -478,12 +334,7 @@ footer a { color: var(--accent); }
   }
 
   .trigger-btn { width: 44px; height: 44px; font-size: 9px; flex-shrink: 0; }
-  .fader-label, .fader-cc { font-size: 8px; }
-  .fader-value { font-size: 9px; }
-  .fader-channel { gap: 2px; }
-  .fader-track { min-height: 40px; }
 
   footer { display: none; }
   .ctrl-overlay { bottom: 10px; font-size: 10px; }
-  .compat-warning { grid-column: 1 / -1; margin: 4px; padding: 8px; font-size: 11px; }
 }

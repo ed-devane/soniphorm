@@ -354,16 +354,6 @@ installBtn.addEventListener('click', () => {
     deferredInstallPrompt.userChoice.then(() => { deferredInstallPrompt = null; installBtn.style.display = 'none'; });
 });
 
-// === Fullscreen ===
-const fsBtn = document.getElementById('fs-btn');
-fsBtn.addEventListener('click', () => {
-    if (document.fullscreenElement) {
-        document.exitFullscreen();
-    } else {
-        document.documentElement.requestFullscreen().catch(() => {});
-    }
-});
-
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 
 // Re-acquire wake lock when returning to tab
