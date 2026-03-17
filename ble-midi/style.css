@@ -278,6 +278,57 @@ footer a { color: var(--accent); }
 }
 .ctrl-overlay.show { display: block; }
 
+/* === Transport picker === */
+.transport-picker {
+  position: fixed; inset: 0; z-index: 200;
+  background: rgba(0,0,0,0.7);
+  display: flex; align-items: center; justify-content: center;
+}
+
+.transport-picker-inner {
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 12px;
+  padding: 20px;
+  width: 280px;
+  display: flex; flex-direction: column; gap: 10px;
+}
+
+.transport-title {
+  font-size: 14px; font-weight: 700;
+  text-align: center; color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.transport-option {
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 14px 12px;
+  border: 2px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.12s;
+}
+
+.transport-option:active {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.transport-icon { font-size: 20px; }
+.transport-label { font-size: 13px; font-weight: 700; }
+.transport-desc { font-size: 10px; color: var(--text-muted); }
+
+.transport-cancel {
+  padding: 8px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+}
+
 /* ============================================================
    LANDSCAPE: sidebar left (25%), controls right (75%)
    ============================================================ */

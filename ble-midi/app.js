@@ -1,16 +1,16 @@
 /**
- * Soniphorm BLE MIDI Controller
- * Connects to ESP32-S3 "Soniphorm" device over BLE MIDI.
+ * Soniphorm MIDI Controller
+ * Connects to ESP32-S3 via USB MIDI (cable) or BLE MIDI (wireless).
+ * USB MIDI preferred for piezo patches (no RF interference with preamp).
  */
 
-// === BLE MIDI constants ===
+// === Constants ===
 const BLE_SERVICE  = '03b80e5a-ede8-4b33-a751-6ce34ec4c700';
 const BLE_CHAR     = '7772e5db-3868-4112-a1a9-f2669d106bf3';
 const BLE_PATCH_SERVICE = '4f6e6950-686f-726d-5061-746368496e66';
 const BLE_PATCH_CHAR    = '4f6e6950-686f-726d-4c61-62656c730000';
 const BLE_CTRL_STATE_CHAR = '4f6e6950-686f-726d-4374-726c53746174';
 const MIDI_CHANNEL = 0;
-
 const POT_CC_BASE = 20;
 const BTN_CC = [44, 45, 46, 47];
 const BTN_NOTE_BASE = 60;
@@ -18,17 +18,24 @@ const BANK_SELECT_CC = 48;
 const NUM_BANKS = 6;
 
 // === State ===
-let device = null;
-let characteristic = null;
 let connected = false;
+let transport = null;  // 'usb' or 'ble'
 let currentBank = 0;
 let faderValues = new Array(NUM_BANKS * 4).fill(0);
 let patchLabels = {};
 let patchName = '';
 let bleActive = true;
-let ctrlStateChar = null;
 let muted = false;
 let wakeLock = null;
+
+// BLE state
+let bleDevice = null;
+let bleCharacteristic = null;
+let ctrlStateChar = null;
+
+// USB MIDI state
+let midiOutput = null;
+let midiAccess = null;
 
 // === DOM refs ===
 const connectBtn   = document.getElementById('connect-btn');
@@ -44,147 +51,43 @@ const compatWarn   = document.getElementById('compat-warning');
 const installBtn   = document.getElementById('install-btn');
 const ctrlOverlay  = document.getElementById('ctrl-overlay');
 
-if (!navigator.bluetooth) compatWarn.classList.add('show');
+// === Transport abstraction ===
 
-// === BLE Connection ===
-
-async function bleConnect() {
-    if (connected) { bleDisconnect(); return; }
-    if (!navigator.bluetooth) { compatWarn.classList.add('show'); return; }
-
-    try {
-        connectBtn.textContent = 'CONNECTING...';
-        connectBtn.classList.add('connecting');
-
-        device = await navigator.bluetooth.requestDevice({
-            filters: [{ namePrefix: 'SCM' }, { namePrefix: 'Eurorack' }],
-            optionalServices: [BLE_SERVICE, BLE_PATCH_SERVICE]
-        });
-        device.addEventListener('gattserverdisconnected', onDisconnected);
-
-        const server = await device.gatt.connect();
-        const service = await server.getPrimaryService(BLE_SERVICE);
-        characteristic = await service.getCharacteristic(BLE_CHAR);
-
-        // Read patch info
-        let patchService = null;
-        try {
-            patchService = await server.getPrimaryService(BLE_PATCH_SERVICE);
-            const patchChar = await patchService.getCharacteristic(BLE_PATCH_CHAR);
-            const value = await patchChar.readValue();
-            const info = JSON.parse(new TextDecoder().decode(value));
-            patchName = info.name || '';
-            patchLabels = info.labels || {};
-            patchNameEl.textContent = patchName ? 'Patch: ' + patchName : '';
-            applyLabels();
-        } catch (e) {
-            console.warn('Could not read patch info:', e);
-            patchLabels = {};
-            patchName = '';
-            patchNameEl.textContent = '';
-        }
-
-        // Read control state
-        try {
-            if (patchService) {
-                ctrlStateChar = await patchService.getCharacteristic(BLE_CTRL_STATE_CHAR);
-                const stateVal = await ctrlStateChar.readValue();
-                bleActive = stateVal.getUint8(0) === 1;
-                await ctrlStateChar.startNotifications();
-                ctrlStateChar.addEventListener('characteristicvaluechanged', (event) => {
-                    bleActive = event.target.value.getUint8(0) === 1;
-                    updateActiveState();
-                });
-            }
-        } catch (e) {
-            console.warn('Could not read control state:', e);
-            bleActive = true;
-        }
-
-        connected = true;
-        connectBtn.textContent = 'CONNECTED';
-        connectBtn.classList.remove('connecting');
-        connectBtn.classList.add('connected');
-        deviceNameEl.textContent = 'Connected to: ' + (device.name || 'Unknown');
-        deviceNameEl.classList.add('connected');
-        updateActiveState();
-
-        await sendBLEPacket(0xB0 | MIDI_CHANNEL, BANK_SELECT_CC, currentBank);
-
-    } catch (e) {
-        console.warn('BLE connect failed:', e);
-        connectBtn.textContent = 'CONNECT';
-        connectBtn.classList.remove('connecting', 'connected');
-        connected = false;
+function sendMidi(status, data1, data2) {
+    if (!connected || !bleActive) return;
+    if (transport === 'usb' && midiOutput) {
+        midiOutput.send([status, data1, data2]);
+    } else if (transport === 'ble' && bleCharacteristic) {
+        const packet = new Uint8Array([0x80, 0x80, status, data1, data2]);
+        bleCharacteristic.writeValueWithoutResponse(packet).catch(() => {});
     }
 }
 
-function bleDisconnect() {
-    if (device && device.gatt.connected) device.gatt.disconnect();
-    onDisconnected();
-}
-
-function onDisconnected() {
-    connected = false;
-    characteristic = null;
-    ctrlStateChar = null;
-    bleActive = true;
-    connectBtn.textContent = 'CONNECT';
-    connectBtn.classList.remove('connecting', 'connected');
-    deviceNameEl.textContent = 'Not connected';
-    deviceNameEl.classList.remove('connected');
-    patchNameEl.textContent = '';
-    updateActiveState();
-}
-
-connectBtn.addEventListener('click', bleConnect);
-
-// === Active/inactive state ===
-
-async function updateActiveState() {
-    const inactive = !bleActive && connected;
-    ctrlOverlay.classList.toggle('show', inactive);
-    mainArea.classList.toggle('inactive', inactive);
-
-    // Wake lock: keep screen on when connected and active
-    const shouldWake = connected && bleActive;
-    if (shouldWake && !wakeLock && 'wakeLock' in navigator) {
-        try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
-    } else if (!shouldWake && wakeLock) {
-        try { await wakeLock.release(); } catch (e) {}
-        wakeLock = null;
+function sendMidi2(s1, d1a, d1b, s2, d2a, d2b) {
+    if (!connected || !bleActive) return;
+    if (transport === 'usb' && midiOutput) {
+        midiOutput.send([s1, d1a, d1b]);
+        midiOutput.send([s2, d2a, d2b]);
+    } else if (transport === 'ble' && bleCharacteristic) {
+        const packet = new Uint8Array([0x80, 0x80, s1, d1a, d1b, 0x80, s2, d2a, d2b]);
+        bleCharacteristic.writeValueWithoutResponse(packet).catch(() => {});
     }
 }
 
-// === BLE MIDI send ===
-
-function sendBLEPacket(status, data1, data2) {
-    if (!characteristic || !connected || !bleActive) return Promise.resolve();
-    const packet = new Uint8Array([0x80, 0x80, status, data1, data2]);
-    return characteristic.writeValueWithoutResponse(packet).catch((e) => {
-        console.warn('BLE send error:', e);
-    });
-}
-
-// Mute bypasses bleActive check (always allowed)
-function sendMutePacket(muteOn) {
-    if (!characteristic || !connected) return Promise.resolve();
-    const packet = new Uint8Array([0x80, 0x80, 0xB0 | MIDI_CHANNEL, 127, muteOn ? 127 : 0]);
-    return characteristic.writeValueWithoutResponse(packet).catch((e) => {
-        console.warn('BLE send error:', e);
-    });
-}
-
-function sendBLEPacket2(status1, d1a, d1b, status2, d2a, d2b) {
-    if (!characteristic || !connected || !bleActive) return Promise.resolve();
-    const packet = new Uint8Array([0x80, 0x80, status1, d1a, d1b, 0x80, status2, d2a, d2b]);
-    return characteristic.writeValueWithoutResponse(packet).catch((e) => {
-        console.warn('BLE send error:', e);
-    });
+// Mute bypasses bleActive check
+function sendMuteMsg(muteOn) {
+    if (!connected) return;
+    const msg = [0xB0 | MIDI_CHANNEL, 127, muteOn ? 127 : 0];
+    if (transport === 'usb' && midiOutput) {
+        midiOutput.send(msg);
+    } else if (transport === 'ble' && bleCharacteristic) {
+        const packet = new Uint8Array([0x80, 0x80, ...msg]);
+        bleCharacteristic.writeValueWithoutResponse(packet).catch(() => {});
+    }
 }
 
 function sendCC(cc, value) {
-    sendBLEPacket(0xB0 | MIDI_CHANNEL, cc & 0x7F, value & 0x7F);
+    sendMidi(0xB0 | MIDI_CHANNEL, cc & 0x7F, value & 0x7F);
 }
 
 function sendBankSelect(bank) { sendCC(BANK_SELECT_CC, bank); }
@@ -195,13 +98,230 @@ function sendAllFadersForBank(bank) {
     }
 }
 
+// === Connection ===
+
+connectBtn.addEventListener('click', handleConnect);
+
+async function handleConnect() {
+    if (connected) { disconnect(); return; }
+
+    // Show transport picker
+    const hasWebMidi = !!navigator.requestMIDIAccess;
+    const hasWebBle = !!navigator.bluetooth;
+
+    if (hasWebMidi && hasWebBle) {
+        // Offer both options
+        const choice = await showTransportPicker();
+        if (choice === 'usb') await connectUSB();
+        else if (choice === 'ble') await connectBLE();
+    } else if (hasWebMidi) {
+        await connectUSB();
+    } else if (hasWebBle) {
+        await connectBLE();
+    } else {
+        compatWarn.classList.add('show');
+    }
+}
+
+function showTransportPicker() {
+    return new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.className = 'transport-picker';
+        overlay.innerHTML = `
+            <div class="transport-picker-inner">
+                <div class="transport-title">Connect via</div>
+                <button class="transport-option usb-option" data-transport="usb">
+                    <span class="transport-icon">&#x1F50C;</span>
+                    <span class="transport-label">USB Cable</span>
+                    <span class="transport-desc">No interference with piezo</span>
+                </button>
+                <button class="transport-option ble-option" data-transport="ble">
+                    <span class="transport-icon">&#x1F4F6;</span>
+                    <span class="transport-label">Bluetooth</span>
+                    <span class="transport-desc">Wireless (may affect preamp)</span>
+                </button>
+                <button class="transport-cancel">Cancel</button>
+            </div>
+        `;
+        document.body.appendChild(overlay);
+        overlay.addEventListener('click', (e) => {
+            const opt = e.target.closest('[data-transport]');
+            if (opt) { document.body.removeChild(overlay); resolve(opt.dataset.transport); }
+            if (e.target.classList.contains('transport-cancel') || e.target === overlay) {
+                document.body.removeChild(overlay); resolve(null);
+            }
+        });
+    });
+}
+
+// === USB MIDI Connection ===
+
+async function connectUSB() {
+    try {
+        connectBtn.textContent = 'CONNECTING...';
+        connectBtn.classList.add('connecting');
+
+        midiAccess = await navigator.requestMIDIAccess({ sysex: false });
+
+        // Find Soniphorm output
+        midiOutput = null;
+        for (const output of midiAccess.outputs.values()) {
+            if (output.name && output.name.includes('Soniphorm')) {
+                midiOutput = output;
+                break;
+            }
+        }
+
+        if (!midiOutput) {
+            // No Soniphorm found, try first available
+            const outputs = Array.from(midiAccess.outputs.values());
+            if (outputs.length > 0) midiOutput = outputs[0];
+        }
+
+        if (!midiOutput) {
+            throw new Error('No MIDI output device found. Is the USB cable connected?');
+        }
+
+        midiOutput.open();
+
+        // Listen for disconnect
+        midiAccess.onstatechange = (e) => {
+            if (e.port === midiOutput && e.port.state === 'disconnected') {
+                disconnect();
+            }
+        };
+
+        transport = 'usb';
+        connected = true;
+        bleActive = true;  // USB always active (no patcher conflict)
+        connectBtn.textContent = 'CONNECTED';
+        connectBtn.classList.remove('connecting');
+        connectBtn.classList.add('connected');
+        deviceNameEl.textContent = 'USB: ' + (midiOutput.name || 'MIDI Device');
+        deviceNameEl.classList.add('connected');
+        updateActiveState();
+
+        sendCC(BANK_SELECT_CC, currentBank);
+
+    } catch (e) {
+        console.warn('USB MIDI connect failed:', e);
+        connectBtn.textContent = 'CONNECT';
+        connectBtn.classList.remove('connecting', 'connected');
+        alert(e.message || 'USB MIDI connection failed');
+    }
+}
+
+// === BLE Connection ===
+
+async function connectBLE() {
+    if (!navigator.bluetooth) { compatWarn.classList.add('show'); return; }
+
+    try {
+        connectBtn.textContent = 'CONNECTING...';
+        connectBtn.classList.add('connecting');
+
+        bleDevice = await navigator.bluetooth.requestDevice({
+            filters: [{ namePrefix: 'SCM' }, { namePrefix: 'Eurorack' }],
+            optionalServices: [BLE_SERVICE, BLE_PATCH_SERVICE]
+        });
+        bleDevice.addEventListener('gattserverdisconnected', disconnect);
+
+        const server = await bleDevice.gatt.connect();
+        const service = await server.getPrimaryService(BLE_SERVICE);
+        bleCharacteristic = await service.getCharacteristic(BLE_CHAR);
+
+        // Read patch info
+        try {
+            const patchService = await server.getPrimaryService(BLE_PATCH_SERVICE);
+            const patchChar = await patchService.getCharacteristic(BLE_PATCH_CHAR);
+            const value = await patchChar.readValue();
+            const info = JSON.parse(new TextDecoder().decode(value));
+            patchName = info.name || '';
+            patchLabels = info.labels || {};
+            patchNameEl.textContent = patchName ? 'Patch: ' + patchName : '';
+            applyLabels();
+
+            // Control state
+            ctrlStateChar = await patchService.getCharacteristic(BLE_CTRL_STATE_CHAR);
+            const stateVal = await ctrlStateChar.readValue();
+            bleActive = stateVal.getUint8(0) === 1;
+            await ctrlStateChar.startNotifications();
+            ctrlStateChar.addEventListener('characteristicvaluechanged', (event) => {
+                bleActive = event.target.value.getUint8(0) === 1;
+                updateActiveState();
+            });
+        } catch (e) {
+            console.warn('Could not read patch info:', e);
+            patchLabels = {};
+            patchName = '';
+            patchNameEl.textContent = '';
+            bleActive = true;
+        }
+
+        transport = 'ble';
+        connected = true;
+        connectBtn.textContent = 'CONNECTED';
+        connectBtn.classList.remove('connecting');
+        connectBtn.classList.add('connected');
+        deviceNameEl.textContent = 'BLE: ' + (bleDevice.name || 'Unknown');
+        deviceNameEl.classList.add('connected');
+        updateActiveState();
+
+        sendCC(BANK_SELECT_CC, currentBank);
+
+    } catch (e) {
+        console.warn('BLE connect failed:', e);
+        connectBtn.textContent = 'CONNECT';
+        connectBtn.classList.remove('connecting', 'connected');
+    }
+}
+
+// === Disconnect ===
+
+function disconnect() {
+    if (transport === 'ble' && bleDevice && bleDevice.gatt.connected) {
+        bleDevice.gatt.disconnect();
+    }
+    if (transport === 'usb' && midiOutput) {
+        try { midiOutput.close(); } catch(e) {}
+    }
+    connected = false;
+    transport = null;
+    bleCharacteristic = null;
+    ctrlStateChar = null;
+    midiOutput = null;
+    bleActive = true;
+    connectBtn.textContent = 'CONNECT';
+    connectBtn.classList.remove('connecting', 'connected');
+    deviceNameEl.textContent = 'Not connected';
+    deviceNameEl.classList.remove('connected');
+    patchNameEl.textContent = '';
+    updateActiveState();
+}
+
+// === Active/inactive state ===
+
+async function updateActiveState() {
+    const inactive = !bleActive && connected;
+    ctrlOverlay.classList.toggle('show', inactive);
+    mainArea.classList.toggle('inactive', inactive);
+
+    const shouldWake = connected && bleActive;
+    if (shouldWake && !wakeLock && 'wakeLock' in navigator) {
+        try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+    } else if (!shouldWake && wakeLock) {
+        try { await wakeLock.release(); } catch (e) {}
+        wakeLock = null;
+    }
+}
+
 // === Mute ===
 
 muteBtn.addEventListener('click', () => {
     muted = !muted;
     muteBtn.classList.toggle('muted', muted);
     muteBtn.textContent = muted ? 'MUTED' : 'MUTE';
-    sendMutePacket(muted);
+    sendMuteMsg(muted);
 });
 
 // === Bank switching ===
@@ -300,13 +420,13 @@ triggerBtns.forEach((btn) => {
         e.preventDefault();
         btn.classList.add('pressed');
         const note = BTN_NOTE_BASE + currentBank * 4 + idx;
-        sendBLEPacket2(0xB0 | MIDI_CHANNEL, BTN_CC[idx], 127, 0x90 | MIDI_CHANNEL, note, 127);
+        sendMidi2(0xB0 | MIDI_CHANNEL, BTN_CC[idx], 127, 0x90 | MIDI_CHANNEL, note, 127);
     }
     function release(e) {
         e.preventDefault();
         btn.classList.remove('pressed');
         const note = BTN_NOTE_BASE + currentBank * 4 + idx;
-        sendBLEPacket2(0xB0 | MIDI_CHANNEL, BTN_CC[idx], 0, 0x80 | MIDI_CHANNEL, note, 0);
+        sendMidi2(0xB0 | MIDI_CHANNEL, BTN_CC[idx], 0, 0x80 | MIDI_CHANNEL, note, 0);
     }
     btn.addEventListener('pointerdown', press);
     btn.addEventListener('pointerup', release);
@@ -340,7 +460,7 @@ function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(saveSt
 faderChannels.forEach((ch) => ch.querySelector('.fader-track').addEventListener('pointerup', scheduleSave));
 bankBtns.forEach((btn) => btn.addEventListener('click', scheduleSave));
 
-// === PWA install ===
+// === PWA ===
 
 let deferredInstallPrompt = null;
 window.addEventListener('beforeinstallprompt', (e) => {
@@ -354,15 +474,8 @@ installBtn.addEventListener('click', () => {
     deferredInstallPrompt.userChoice.then(() => { deferredInstallPrompt = null; installBtn.style.display = 'none'; });
 });
 
-// === Fullscreen ===
-document.getElementById('fs-btn').addEventListener('click', () => {
-    if (document.fullscreenElement) document.exitFullscreen();
-    else document.documentElement.requestFullscreen().catch(() => {});
-});
-
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 
-// Re-acquire wake lock when returning to tab
 document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible' && connected && bleActive) updateActiveState();
 });
