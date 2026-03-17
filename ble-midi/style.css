@@ -129,6 +129,15 @@ header {
   pointer-events: none;
 }
 
+.fs-btn {
+  flex: none !important;
+  width: 36px;
+  padding: 6px !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 /* === Main area (everything that greys out) === */
 .main-area {
   flex: 1;
@@ -399,49 +408,68 @@ footer a { color: var(--accent); }
 
 /* === Landscape === */
 @media (orientation: landscape) and (max-height: 500px) {
+  body {
+    display: grid;
+    grid-template-columns: 25% 75%;
+    grid-template-rows: 1fr;
+    height: 100vh;
+  }
+
+  /* Left column: header + banks stacked */
   header {
-    padding: 4px 12px;
+    grid-column: 1;
+    grid-row: 1;
+    display: flex;
+    flex-direction: column;
+    border-bottom: none;
+    border-right: 1px solid var(--border);
+    padding: 6px 8px;
+    overflow-y: auto;
   }
 
-  .header-brand { margin-bottom: 0; }
+  .header-brand { margin-bottom: 2px; }
+  .header-logo { height: 14px; }
+  .header-title { font-size: 9px; }
+  .header-info { margin-bottom: 4px; font-size: 9px; line-height: 1.3; min-height: auto; }
+  .header-actions { gap: 4px; }
+  .header-actions .action-btn { padding: 5px 0; font-size: 9px; letter-spacing: 0.5px; }
 
-  .header-info {
-    display: none;
+  /* Banks inside header column via order trick - need JS or restructure */
+  /* Instead: hide main-area bank-bar, put banks at bottom of header */
+
+  /* Right column: controls full height */
+  .main-area {
+    grid-column: 2;
+    grid-row: 1;
+    display: flex;
+    flex-direction: row;
+    min-height: 0;
   }
-
-  .header-actions {
-    position: absolute;
-    top: 4px;
-    right: 12px;
-    width: auto;
-    gap: 6px;
-  }
-
-  .header-actions .action-btn {
-    padding: 4px 10px;
-    font-size: 10px;
-  }
-
-  header { position: relative; }
 
   .bank-bar {
-    padding: 4px 12px;
+    /* In landscape: vertical strip on left edge of controls */
+    flex-direction: column;
+    padding: 6px 4px;
+    gap: 3px;
+    flex-shrink: 0;
+    width: auto;
   }
 
   .bank-btn {
-    padding: 4px 0;
-    font-size: 10px;
+    padding: 4px 8px;
+    font-size: 9px;
+    flex: 1;
   }
 
   .controls {
+    flex: 1;
     flex-direction: row;
-    padding: 4px 12px 8px;
-    gap: 8px;
+    padding: 6px 8px;
+    gap: 6px;
+    min-height: 0;
   }
 
-  .fader-row {
-    flex: 1;
-  }
+  .fader-row { flex: 1; }
 
   .button-row {
     flex-direction: column;
@@ -449,15 +477,13 @@ footer a { color: var(--accent); }
     justify-content: center;
   }
 
-  .trigger-btn {
-    width: 48px;
-    height: 48px;
-    font-size: 10px;
-  }
-
+  .trigger-btn { width: 44px; height: 44px; font-size: 9px; flex-shrink: 0; }
   .fader-label, .fader-cc { font-size: 8px; }
   .fader-value { font-size: 9px; }
   .fader-channel { gap: 2px; }
+  .fader-track { min-height: 40px; }
 
-  footer { padding: 2px 12px; font-size: 9px; }
+  footer { display: none; }
+  .ctrl-overlay { bottom: 10px; font-size: 10px; }
+  .compat-warning { grid-column: 1 / -1; margin: 4px; padding: 8px; font-size: 11px; }
 }
