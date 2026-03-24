@@ -1,5 +1,5 @@
 {
-    "version": "1.7.9",
+    "version": "1.8.0",
     "file": "GenRuntime.ino.bin",
     "date": "2026-03-24",
     "notes": "Looper rewrite: clean overdub (no tanh/clamp), feedback control, loop start/size CV, new modules, bug fixes",
