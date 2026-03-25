@@ -427,15 +427,24 @@ a:hover {
 }
 
 .slideshow-container .slide {
-    display: none;
+    position: absolute;
+    top: 0;
+    left: 0;
     width: 100%;
     height: auto;
     border-radius: 8px;
     border: none;
+    opacity: 0;
+    transition: opacity 0.8s ease;
+}
+
+.slideshow-container .slide:first-child {
+    position: relative;
 }
 
 .slideshow-container .slide.active {
-    display: block;
+    opacity: 1;
+    z-index: 1;
 }
 
 .slideshow-dots {
