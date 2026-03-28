@@ -765,6 +765,16 @@ class App {
         $('reverse-btn').addEventListener('click', () => this.rec.applyEdit('reverse'));
         $('norm-btn').addEventListener('click', () => this.rec.applyEdit('normalise'));
 
+        // Edit expander (cut/copy/paste)
+        $('edit-btn').addEventListener('click', () => {
+            const bar = document.getElementById('edit-group');
+            bar.hidden = !bar.hidden;
+            $('edit-btn').classList.toggle('active', !bar.hidden);
+        });
+        $('cut-btn').addEventListener('click', () => this.rec.applyEdit('cut'));
+        $('copy-btn').addEventListener('click', () => this.rec.copySelection());
+        $('paste-btn').addEventListener('click', () => this.rec.applyEdit('paste'));
+
         // Process expander
         $('process-btn').addEventListener('click', () => {
             const bar = document.getElementById('process-group');
@@ -1197,6 +1207,10 @@ class App {
         document.getElementById('trim-btn').disabled = !hasSel;
         document.getElementById('reverse-btn').disabled = !hasAudio;
         document.getElementById('norm-btn').disabled = !hasAudio;
+        document.getElementById('edit-btn').disabled = !hasAudio;
+        document.getElementById('cut-btn').disabled = !hasSel;
+        document.getElementById('copy-btn').disabled = !hasSel;
+        document.getElementById('paste-btn').disabled = !this.clipboard;
         document.getElementById('process-btn').disabled = !hasAudio;
         document.getElementById('save-btn').disabled = !hasAudio;
         document.getElementById('load-btn').disabled = false;

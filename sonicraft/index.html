@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="../favicon.png">
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=171">
+    <link rel="stylesheet" href="style.css?v=172">
 </head>
 <body>
     <header id="header">
@@ -57,7 +57,7 @@
                 <button data-action="load-project">Load project</button>
                 <button data-action="delete-all" class="danger">Delete all</button>
                 <button data-action="install" id="install-btn" hidden>Install app</button>
-                <span class="menu-version">v171</span>
+                <span class="menu-version">v172</span>
             </div>
         </div>
     </header>
@@ -101,6 +101,15 @@
                 <button id="norm-btn" class="tb rec-only" title="Normalise">NORM</button>
                 <span class="tb-sep rec-only"></span>
                 <button id="reverse-btn" class="tb rec-only" title="Reverse">REV</button>
+                <span class="tb-sep rec-only"></span>
+                <!-- Edit expander -->
+                <button id="edit-btn" class="tb rec-only" title="Cut / Copy / Paste">EDIT</button>
+                <div id="edit-group" hidden>
+                    <span class="tb-sep"></span>
+                    <button id="cut-btn" class="tb" title="Cut selection">CUT</button>
+                    <button id="copy-btn" class="tb" title="Copy selection">COPY</button>
+                    <button id="paste-btn" class="tb" title="Paste at cursor">PASTE</button>
+                </div>
                 <span class="tb-sep rec-only"></span>
                 <!-- Noise Gate (mic-input specific) -->
                 <button id="gate-btn" class="tb rec-only" title="Noise gate">GATE</button>

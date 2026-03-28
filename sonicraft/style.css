@@ -232,6 +232,10 @@ main {
     padding: 0 8px 6px;
 }
 
+#edit-group { display: flex; align-items: center; gap: 4px; }
+#edit-group[hidden] { display: none; }
+#edit-btn { color: var(--blue, #3b82f6); border-color: var(--blue, #3b82f6); }
+#edit-btn.active { background: var(--blue, #3b82f6); color: #fff; border-color: var(--blue, #3b82f6); }
 #process-group { display: flex; align-items: center; gap: 4px; }
 #process-group[hidden] { display: none; }
 #process-btn { color: var(--green); border-color: var(--green); }
