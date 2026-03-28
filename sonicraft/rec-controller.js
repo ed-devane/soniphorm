@@ -1427,6 +1427,7 @@ class RecController {
             this._showProgress('Compressing...');
             const blob = await zip.generateAsync({
                 type: 'blob',
+                mimeType: 'application/zip',
                 compression: 'DEFLATE',
                 compressionOptions: { level: 1 }
             });
