@@ -268,6 +268,8 @@ class App {
                         longPressTimer = setTimeout(() => {
                             longPressTimer = null;
                             el._longPressFired = true;
+                            // Suppress the click fired on mouseup so it doesn't immediately close the menu
+                            document.addEventListener('click', (ev) => { ev.stopPropagation(); }, { capture: true, once: true });
                             this.onSlotContext(i, { preventDefault: () => {}, clientX: e.clientX, clientY: e.clientY });
                         }, 500);
                     }
@@ -299,6 +301,7 @@ class App {
                         const touch = e.touches[0];
                         longPressTimer = setTimeout(() => {
                             longPressTimer = null;
+                            document.addEventListener('click', (ev) => { ev.stopPropagation(); }, { capture: true, once: true });
                             this.onSlotContext(i, { preventDefault: () => {}, clientX: touch.clientX, clientY: touch.clientY });
                         }, 500);
                     }
@@ -1712,6 +1715,7 @@ class App {
             });
 
             el.addEventListener('click', (e) => {
+                if (el._longPressFired) { el._longPressFired = false; e.stopPropagation(); return; }
                 if (this._kitPlayMode && !this._sampleMode && !this._seqMode) return; // handled by pointerdown
                 if (this._sampleMode) return;
                 if (this._seqMode) {
@@ -1725,14 +1729,26 @@ class App {
 
             el.addEventListener('mousedown', (e) => {
                 if (usedTouch) return;
-                if (this._sampleMode && e.button === 0) this.sample.samplePadTap(i);
+                if (e.button !== 0) return;
+                if (this._sampleMode) this.sample.samplePadTap(i);
+                else if (!this._seqMode && !this._genMode) {
+                    // Long-press for context menu on desktop without right-click (e.g. macOS single-button)
+                    longPressTimer = setTimeout(() => {
+                        longPressTimer = null;
+                        el._longPressFired = true;
+                        document.addEventListener('click', (ev) => { ev.stopPropagation(); }, { capture: true, once: true });
+                        this.onSlotContext(i, { preventDefault: () => {}, clientX: e.clientX, clientY: e.clientY });
+                    }, 500);
+                }
             });
             el.addEventListener('mouseup', () => {
                 if (usedTouch) return;
+                if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
                 if (this._sampleMode) this.sample.samplePadRelease(i);
             });
             el.addEventListener('mouseleave', () => {
                 if (usedTouch) return;
+                if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
                 if (this._sampleMode) this.sample.samplePadRelease(i);
             });
             el.addEventListener('touchstart', (e) => {
@@ -1745,6 +1761,7 @@ class App {
                     const touch = e.touches[0];
                     longPressTimer = setTimeout(() => {
                         longPressTimer = null;
+                        document.addEventListener('click', (ev) => { ev.stopPropagation(); }, { capture: true, once: true });
                         this.onSlotContext(i, { preventDefault: () => {}, clientX: touch.clientX, clientY: touch.clientY });
                     }, 500);
                 }
