@@ -1454,10 +1454,25 @@ class RecController {
                 }
             }
 
-            // Fallback: trigger download via <a> click
+            // Fallback: Web Share API (reliable on mobile), then <a> download
+            const filename = `${safeName}.sonicraft`;
+            if (navigator.canShare && navigator.canShare({ files: [new File([blob], filename)] })) {
+                try {
+                    await navigator.share({
+                        files: [new File([blob], filename, { type: 'application/zip' })],
+                        title: safeName
+                    });
+                    this._hideProgress();
+                    return;
+                } catch (err) {
+                    if (err.name === 'AbortError') { this._hideProgress(); return; }
+                    // Fall through to <a> download
+                }
+            }
+
             const a = document.createElement('a');
             a.href = URL.createObjectURL(blob);
-            a.download = `${safeName}.sonicraft`;
+            a.download = filename;
             a.click();
             URL.revokeObjectURL(a.href);
 
@@ -1495,10 +1510,19 @@ class RecController {
 
             this._showProgress('Reading project file...');
 
+            // Debug: check file header
+            const headerBuf = await file.slice(0, 4).arrayBuffer();
+            const header = new Uint8Array(headerBuf);
+            const isZip = header[0] === 0x50 && header[1] === 0x4B; // PK signature
+            if (!isZip) {
+                throw new Error(`Not a valid project file (header: ${Array.from(header).map(b => b.toString(16)).join(' ')}). File may be corrupted or saved incorrectly.`);
+            }
+
             const zip = await JSZip.loadAsync(file);
             const manifestFile = zip.file('project.json');
             if (!manifestFile) {
-                throw new Error('Invalid project file: missing project.json');
+                const files = Object.keys(zip.files);
+                throw new Error('Invalid project file: missing project.json. Contents: ' + (files.length ? files.join(', ') : 'empty'));
             }
             const manifest = JSON.parse(await manifestFile.async('string'));
 
