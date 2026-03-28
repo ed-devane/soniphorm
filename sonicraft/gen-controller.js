@@ -646,6 +646,7 @@ class GenController {
 
             el.className = 'slot';
             el.dataset.bank = slot.bank;
+            if (i === this.app._resampleTargetSlot) el.classList.add('resampling');
             if (i === this._genSelectedPad) el.classList.add('pad-selected');
             if (targeted.has(i)) el.classList.add('gen-modulated');
 

@@ -114,6 +114,66 @@ class RecController {
         this.app.updateToolbarState();
     }
 
+    // === Resample (capture master output to slot) ===
+
+    async startResample(index) {
+        await this.app.ensureAudioInit();
+        this.app._resampleTargetSlot = index;
+        this.app.audio.startResample();
+
+        // Track elapsed time for display
+        this._resampleStart = performance.now();
+        this._resampleChunks = [];
+        this._resampleTotalLen = 0;
+
+        this.app.audio.onResampleChunk = (chunk) => {
+            this._resampleChunks.push(chunk);
+            this._resampleTotalLen += chunk.length;
+        };
+
+        // Animate timer on info-duration
+        const animate = () => {
+            if (this.app._resampleTargetSlot < 0) return;
+            const elapsed = (performance.now() - this._resampleStart) / 1000;
+            document.getElementById('info-duration').textContent = 'RES ' + this.app.formatTime(elapsed);
+            this.app.animFrameId = requestAnimationFrame(animate);
+        };
+        animate();
+
+        this.app.renderSlotGrid();
+    }
+
+    async stopResample() {
+        this.app.audio.onResampleChunk = null;
+        const result = this.app.audio.stopResample();
+        const index = this.app._resampleTargetSlot;
+        this.app._resampleTargetSlot = -1;
+        this._resampleChunks = [];
+        this._resampleTotalLen = 0;
+        this.cancelAnimationLoop();
+
+        if (!result || result.channels[0].length === 0) {
+            this.app.renderSlotGrid();
+            return;
+        }
+
+        this.app.channels = result.channels;
+        this.app.bufferSampleRate = result.sampleRate;
+
+        await this.app.slots.saveSlotAudio(index, this.app.channels, this.app.bufferSampleRate);
+        delete this.app._slotBuffers[index];
+
+        // Switch to rec mode viewing the new slot
+        this.app.slots.selectSlot(index);
+        await this.app.switchMode('rec');
+        this.app.waveform.setAudio(this.app.channels, this.app.bufferSampleRate);
+        document.getElementById('waveform-empty').hidden = true;
+        this.showRenameDialog(index);
+        this.app.renderSlotGrid();
+        this.app.updateTransportInfo();
+        this.app.updateToolbarState();
+    }
+
     // === Rename ===
 
     showRenameDialog(index) {

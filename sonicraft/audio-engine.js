@@ -15,6 +15,16 @@ class AudioEngine {
         this._playbackEndSample = 0;
         this._playbackSampleRate = 0;
         this.onRecordChunk = null; // callback(Float32Array chunk)
+        this.onResampleChunk = null; // callback(Float32Array chunk)
+
+        // Resample state
+        this._isResampling = false;
+        this._resampleChunks = [];
+        this._resampleDest = null;
+        this._resampleSource = null;
+        this._resampleWorklet = null;
+        this._resampleSink = null;
+        this._resampleProcessor = null;
 
         // AudioWorklet support (replaces deprecated ScriptProcessor)
         this._workletReady = false;
@@ -247,6 +257,89 @@ class AudioEngine {
 
     getInputLevel() {
         return this._inputLevel;
+    }
+
+    // === Resample (record from master output) ===
+
+    startResample() {
+        this._resampleChunks = [];
+
+        if (this._workletReady) {
+            // Direct connection: _liveGain → worklet → silent sink
+            // Avoids MediaStream round-trip which introduces noise floor
+            this._resampleWorklet = new AudioWorkletNode(this.audioContext, 'recorder-processor');
+            this._resampleWorklet.port.onmessage = (e) => {
+                const { chunk } = e.data;
+                this._resampleChunks.push(chunk);
+                if (this.onResampleChunk) this.onResampleChunk(chunk);
+            };
+            this._resampleWorklet.port.postMessage({ gate: false, gateThreshold: 0 });
+            this._liveGain.connect(this._resampleWorklet);
+            // Worklet needs to be connected to destination to process; use silent sink
+            this._resampleSink = this.audioContext.createGain();
+            this._resampleSink.gain.value = 0;
+            this._resampleSink.connect(this.audioContext.destination);
+            this._resampleWorklet.connect(this._resampleSink);
+        } else {
+            // ScriptProcessor fallback: needs MediaStream round-trip
+            this._resampleDest = this.audioContext.createMediaStreamDestination();
+            this._liveGain.connect(this._resampleDest);
+            this._resampleSource = this.audioContext.createMediaStreamSource(this._resampleDest.stream);
+            this._resampleProcessor = this.audioContext.createScriptProcessor(4096, 1, 1);
+            this._resampleProcessor.onaudioprocess = (e) => {
+                const inputData = e.inputBuffer.getChannelData(0);
+                const chunk = new Float32Array(inputData.length);
+                chunk.set(inputData);
+                this._resampleChunks.push(chunk);
+                if (this.onResampleChunk) this.onResampleChunk(chunk);
+            };
+            this._resampleSource.connect(this._resampleProcessor);
+            this._resampleProcessor.connect(this.audioContext.destination);
+        }
+        this._isResampling = true;
+    }
+
+    stopResample() {
+        this._isResampling = false;
+
+        if (this._resampleWorklet) {
+            this._resampleWorklet.port.postMessage('stop');
+            this._liveGain.disconnect(this._resampleWorklet);
+            this._resampleWorklet.disconnect();
+            this._resampleWorklet = null;
+        }
+        if (this._resampleSink) {
+            this._resampleSink.disconnect();
+            this._resampleSink = null;
+        }
+        if (this._resampleProcessor) {
+            this._resampleProcessor.disconnect();
+            this._resampleProcessor.onaudioprocess = null;
+            this._resampleProcessor = null;
+        }
+        if (this._resampleSource) {
+            this._resampleSource.disconnect();
+            this._resampleSource = null;
+        }
+        if (this._resampleDest) {
+            this._liveGain.disconnect(this._resampleDest);
+            this._resampleDest = null;
+        }
+
+        const totalLength = this._resampleChunks.reduce((sum, c) => sum + c.length, 0);
+        const merged = new Float32Array(totalLength);
+        let offset = 0;
+        for (const chunk of this._resampleChunks) {
+            merged.set(chunk, offset);
+            offset += chunk.length;
+        }
+        this._resampleChunks = [];
+
+        return { channels: [merged], sampleRate: this.audioContext.sampleRate };
+    }
+
+    get isResampling() {
+        return !!this._isResampling;
     }
 
     // === Master bus for external routing (sampler/sequencer) ===

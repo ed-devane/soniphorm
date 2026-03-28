@@ -18,6 +18,7 @@ class App {
 
         // State
         this.recordingSlotIndex = -1;
+        this._resampleTargetSlot = -1;
         this.animFrameId = null;
         this._recChunks = null;    // Array of Float32Array chunks for live recording
         this._recTotalLen = 0;    // Total sample count across all chunks
@@ -369,6 +370,7 @@ class App {
             const isSelected = i === this.slots.selectedIndex;
             el.classList.toggle('selected', isSelected);
             el.classList.toggle('recording', i === this.recordingSlotIndex);
+            el.classList.toggle('resampling', i === this._resampleTargetSlot);
 
             // Draw mini waveform
             const miniCanvas = el.querySelector('.slot-mini canvas');
@@ -391,6 +393,11 @@ class App {
     }
 
     async onSlotTap(index) {
+        // Stop resample from any mode by tapping the target slot
+        if (this._resampleTargetSlot === index) {
+            await this.rec.stopResample();
+            return;
+        }
         // In sequencer mode, tap opens step config
         if (this._seqMode) {
             this.seq.seqStepTap(index);
@@ -425,8 +432,9 @@ class App {
             return;
         }
 
-        // If we're recording into a different slot, ignore
+        // If we're recording into a different slot, or resampling, ignore
         if (this.recordingSlotIndex >= 0) return;
+        if (this._resampleTargetSlot >= 0) return;
 
         // If a selection exists and this is an empty slot, offer to copy
         if (!slot.hasAudio && this.channels && this.waveform.getSelection()) {
@@ -516,6 +524,7 @@ class App {
             menu.querySelector('[data-action="make-kit"]').hidden = true;
             menu.querySelector('[data-action="unmake-kit"]').hidden = true;
             menu.querySelector('[data-action="duplicate"]').hidden = true;
+            menu.querySelector('[data-action="resample"]').hidden = true;
             menu.querySelector('[data-action="rename"]').hidden = false;
             menu.querySelector('[data-action="save"]').hidden = false;
             menu.querySelector('[data-action="clear"]').hidden = false;
@@ -537,7 +546,7 @@ class App {
             return;
         }
 
-        // Empty slot with no audio and not a kit — only show "Make Drum Kit"
+        // Empty slot with no audio and not a kit — show "Make Drum Kit" and "Resample"
         if (!slot.hasAudio && slot.type !== 'kit') {
             const menu = document.getElementById('context-menu');
             menu.querySelector('[data-action="rename"]').hidden = true;
@@ -546,6 +555,7 @@ class App {
             menu.querySelector('[data-action="clear"]').hidden = true;
             menu.querySelector('[data-action="make-kit"]').hidden = false;
             menu.querySelector('[data-action="unmake-kit"]').hidden = true;
+            menu.querySelector('[data-action="resample"]').hidden = false;
             const x = e.clientX || e.pageX;
             const y = e.clientY || e.pageY;
             menu.style.left = Math.min(x, window.innerWidth - 170) + 'px';
@@ -571,6 +581,7 @@ class App {
         menu.querySelector('[data-action="clear"]').hidden = false;
         menu.querySelector('[data-action="make-kit"]').hidden = isKit;
         menu.querySelector('[data-action="unmake-kit"]').hidden = !isKit;
+        menu.querySelector('[data-action="resample"]').hidden = true;
 
         const x = e.clientX || e.pageX;
         const y = e.clientY || e.pageY;
@@ -692,6 +703,9 @@ class App {
                         this.renderSlotGrid();
                         this.updateToolbarState();
                     }
+                    break;
+                case 'resample':
+                    await this.rec.startResample(index);
                     break;
             }
         });

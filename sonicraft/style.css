@@ -414,6 +414,20 @@ main {
     opacity: 0;
 }
 
+.slot.resampling {
+    animation: pulse-slot 1s ease-in-out infinite;
+    background: var(--amber, #f59e0b) !important;
+    border-color: var(--amber, #f59e0b) !important;
+    box-shadow: 0 0 12px rgba(245,158,11,0.4) !important;
+}
+.slot.resampling .slot-name,
+.slot.resampling .slot-number {
+    color: #000 !important;
+}
+.slot.resampling .slot-mini canvas {
+    opacity: 0;
+}
+
 @keyframes pulse-slot {
     0%, 100% { opacity: 1; }
     50% { opacity: 0.65; }

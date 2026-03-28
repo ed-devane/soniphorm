@@ -134,6 +134,7 @@ class SampleController {
             // Base class
             el.className = 'slot';
             el.dataset.bank = slot.bank;
+            if (i === this.app._resampleTargetSlot) el.classList.add('resampling');
             if (i === this._sampleSelectedPad) el.classList.add('pad-selected');
             if (pad.mode === 'morph' && pad.morphTarget !== null) el.classList.add('pad-morph');
             if (this.app.sampler.isPlaying(i)) el.classList.add('pad-playing');
