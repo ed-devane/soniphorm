@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="SoniCraft Documentation - Browser-based audio recorder, sample editor, sampler, sequencer, and generative video engine.">
+    <title>SoniCraft Docs - Soniphorm</title>
+    <link rel="icon" href="favicon.png">
+    <link rel="stylesheet" href="css/styles.css?v=1">
+    <style>
+        .docs-page { padding: 3rem 0 6rem; }
+        .docs-page .container { max-width: 820px; }
+        .docs-hero { padding: 4rem 0 2rem; text-align: center; background: var(--bg-secondary); }
+        .docs-hero p { max-width: 600px; margin: 1rem auto 1.5rem; color: var(--text-secondary); line-height: 1.8; }
+        .docs-toc { margin: 0 0 3rem; padding: 1.5rem 2rem; background: var(--bg-card); border-radius: 8px; border: 1px solid var(--border); }
+        .docs-toc h3 { font-size: 1rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-muted); margin-bottom: 0.75rem; }
+        .docs-toc ul { list-style: none; columns: 2; column-gap: 2rem; }
+        .docs-toc li { margin-bottom: 0.4rem; }
+        .docs-toc a { color: var(--accent); font-size: 0.95rem; }
+        @media (max-width: 600px) { .docs-toc ul { columns: 1; } }
+
+        .docs-section { margin-bottom: 3rem; }
+        .docs-section h2 { font-size: 1.75rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; margin-bottom: 1.25rem; }
+        .docs-section h3 { font-size: 1.2rem; color: var(--text-primary); margin: 1.5rem 0 0.75rem; }
+        .docs-section p, .docs-section li { color: var(--text-secondary); line-height: 1.8; }
+        .docs-section ul { padding-left: 1.25rem; margin-bottom: 1rem; }
+        .docs-section li { margin-bottom: 0.35rem; }
+
+        kbd { display: inline-block; padding: 2px 7px; font-size: 0.85em; font-family: monospace; background: var(--bg-card); border: 1px solid var(--border-light); border-radius: 4px; color: var(--text-primary); }
+        .docs-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+        .docs-grid-item { padding: 1rem; background: var(--bg-card); border-radius: 6px; border: 1px solid var(--border); }
+        .docs-grid-item h4 { margin-bottom: 0.5rem; font-size: 1rem; }
+        .docs-grid-item p { font-size: 0.9rem; margin: 0; }
+        @media (max-width: 600px) { .docs-grid { grid-template-columns: 1fr; } }
+
+        .shortcut-table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        .shortcut-table th, .shortcut-table td { text-align: left; padding: 0.5rem 0.75rem; border-bottom: 1px solid var(--border); font-size: 0.9rem; }
+        .shortcut-table th { color: var(--text-muted); font-weight: 600; text-transform: uppercase; font-size: 0.8rem; letter-spacing: 0.04em; }
+        .shortcut-table td { color: var(--text-secondary); }
+    </style>
+</head>
+<body>
+    <header class="header">
+        <div class="container">
+            <h1 class="logo"><a href="index.html"><img src="images/soniphormLogo.png" alt="Soniphorm"></a></h1>
+            <nav class="nav">
+                <a href="index.html">Home</a>
+                <a href="products.html">Products</a>
+                <a href="software.html">Software</a>
+                <a href="workshops.html">Workshops</a>
+                <a href="mentoring.html">Mentoring</a>
+                <a href="podcast.html">Podcast</a>
+                <a href="https://discord.gg/yAFWg4eQXQ" target="_blank">Discord</a>
+                <a href="contact.html">Contact</a>
+            </nav>
+        </div>
+    </header>
+
+    <section class="docs-hero">
+        <div class="container">
+            <h1>SoniCraft Documentation</h1>
+            <p>Browser-based audio recorder, sample editor, sampler, step sequencer, and generative video engine. Works on any device, online or offline.</p>
+            <a href="sonicraft/index.html" class="btn-launch">Launch SoniCraft</a>
+        </div>
+    </section>
+
+    <main class="docs-page">
+        <div class="container">
+
+            <!-- Table of Contents -->
+            <nav class="docs-toc">
+                <h3>Contents</h3>
+                <ul>
+                    <li><a href="#getting-started">Getting Started</a></li>
+                    <li><a href="#slots">Slots &amp; Banks</a></li>
+                    <li><a href="#rec-mode">REC Mode</a></li>
+                    <li><a href="#editing">Editing &amp; Processing</a></li>
+                    <li><a href="#sample-mode">SAMPLE Mode</a></li>
+                    <li><a href="#seq-mode">SEQ Mode</a></li>
+                    <li><a href="#gen-mode">GEN Mode</a></li>
+                    <li><a href="#kits">Drum Kits</a></li>
+                    <li><a href="#resample">Resample</a></li>
+                    <li><a href="#midi">MIDI</a></li>
+                    <li><a href="#projects">Projects &amp; Export</a></li>
+                    <li><a href="#tips">Tips</a></li>
+                </ul>
+            </nav>
+
+            <!-- Getting Started -->
+            <section id="getting-started" class="docs-section">
+                <h2>Getting Started</h2>
+                <p>SoniCraft is a progressive web app (PWA) that runs entirely in your browser. No downloads, no sign-ups. It works on phones, tablets, and desktops.</p>
+                <h3>Install as an app</h3>
+                <p>For the best experience, install SoniCraft to your home screen. Open the hamburger menu and tap <b>Install app</b>, or use your browser's "Add to Home Screen" option. This enables offline use and removes the browser chrome.</p>
+                <h3>Interface overview</h3>
+                <p>The app has four modes, selectable from the tabs at the top of the screen:</p>
+                <ul>
+                    <li><b>REC</b> -- Record audio and edit waveforms</li>
+                    <li><b>SAMPLE</b> -- Play slots as a 16-pad sampler/drum machine</li>
+                    <li><b>SEQ</b> -- Program and play step sequences</li>
+                    <li><b>GEN</b> -- Use video or camera analysis to drive the sampler</li>
+                </ul>
+                <p>Below the mode tabs is a 4x4 slot grid. Each slot holds one audio sample (or a drum kit). The toolbar sits below the waveform and changes depending on the active mode.</p>
+            </section>
+
+            <!-- Slots & Banks -->
+            <section id="slots" class="docs-section">
+                <h2>Slots &amp; Banks</h2>
+                <p>SoniCraft has 16 audio slots arranged in a 4x4 grid. Slots are grouped into 4 banks of 4, each colour-coded (red, green, blue, yellow).</p>
+                <h3>Slot actions</h3>
+                <ul>
+                    <li><b>Tap</b> an empty slot to select it, tap again to start recording</li>
+                    <li><b>Tap</b> a filled slot to select it, tap again to play/stop</li>
+                    <li><b>Long-press</b> (or right-click) a slot for the context menu: Rename, Duplicate, Save to device, Resample, Make Drum Kit, Clear</li>
+                    <li><b>Double-tap</b> a kit slot to enter drum kit mode</li>
+                </ul>
+                <p>Each slot shows a mini waveform thumbnail, its name, and its number (01-16).</p>
+            </section>
+
+            <!-- REC Mode -->
+            <section id="rec-mode" class="docs-section">
+                <h2>REC Mode</h2>
+                <p>Record audio from your device's microphone or an external audio input. The toolbar provides transport controls and editing tools.</p>
+                <h3>Recording</h3>
+                <ul>
+                    <li>Select an empty slot, then tap <b>REC</b> to start recording</li>
+                    <li>Tap the slot again (or REC) to stop</li>
+                    <li>A live waveform and timer display while recording</li>
+                    <li>After recording, a rename dialog appears</li>
+                </ul>
+                <h3>Noise gate</h3>
+                <p>Tap <b>GATE</b> to enable the noise gate. A threshold slider appears (-60 to 0 dB). Audio below the threshold is silenced, useful for cutting background noise between sounds. The REC button dims when the gate is closed.</p>
+                <h3>Input selection</h3>
+                <p>Open the hamburger menu and tap <b>Audio input</b> to choose between available microphones or USB audio interfaces.</p>
+                <h3>Playback</h3>
+                <ul>
+                    <li><b>PLAY</b> -- Play the current slot from the cursor or start of selection</li>
+                    <li><b>LOOP</b> -- Toggle looped playback of the selection or full sample</li>
+                </ul>
+                <h3>Waveform interaction</h3>
+                <ul>
+                    <li><b>Drag</b> on the waveform to make a selection</li>
+                    <li><b>Tap</b> to position the playback cursor</li>
+                    <li><b>Long-press</b> (right-click) the waveform for a context menu with Cut, Copy, Paste, Silence, Fade In, Fade Out, and more</li>
+                    <li>Use the zoom buttons to zoom in/out, or <b>FIT</b> to show the full sample</li>
+                </ul>
+                <h3>Loading files</h3>
+                <p>Tap <b>LOAD</b> in the toolbar to import a WAV or other audio file from your device into the selected slot.</p>
+            </section>
+
+            <!-- Editing & Processing -->
+            <section id="editing" class="docs-section">
+                <h2>Editing &amp; Processing</h2>
+                <h3>Toolbar tools</h3>
+                <ul>
+                    <li><b>TRIM</b> -- Trim the audio to the current selection</li>
+                    <li><b>NORM</b> -- Normalise the audio to peak amplitude</li>
+                    <li><b>REV</b> -- Reverse the audio (or just the selection)</li>
+                </ul>
+                <h3>Edit group</h3>
+                <p>Tap <b>EDIT</b> in the toolbar to expand the clipboard tools:</p>
+                <ul>
+                    <li><b>CUT</b> -- Cut the selection to the clipboard</li>
+                    <li><b>COPY</b> -- Copy the selection to the clipboard</li>
+                    <li><b>PASTE</b> -- Paste the clipboard at the cursor position</li>
+                </ul>
+                <h3>Process group</h3>
+                <p>Tap <b>PROCESS</b> to expand the time/spectral processing tools. Each opens a dialog with parameter sliders and a preview button:</p>
+                <div class="docs-grid">
+                    <div class="docs-grid-item">
+                        <h4>PAUL</h4>
+                        <p>Paulstretch. Extreme time-stretch for ambient textures. Stretch: 2-50x, Window: 0.1-1.0s.</p>
+                    </div>
+                    <div class="docs-grid-item">
+                        <h4>GRAIN</h4>
+                        <p>Granular Freeze. Freeze a moment and scatter it. Position, grain size, density, duration.</p>
+                    </div>
+                    <div class="docs-grid-item">
+                        <h4>SPEC</h4>
+                        <p>Spectral Freeze. Hold the frequency spectrum at a point. Position, duration, smoothing.</p>
+                    </div>
+                    <div class="docs-grid-item">
+                        <h4>STRETCH</h4>
+                        <p>Time Stretch. Speed up or slow down without changing pitch. Rate: 0.25x-4x.</p>
+                    </div>
+                    <div class="docs-grid-item">
+                        <h4>PITCH</h4>
+                        <p>Pitch Shift. Shift pitch without changing speed. Range: -12 to +12 semitones.</p>
+                    </div>
+                    <div class="docs-grid-item">
+                        <h4>FOLD</h4>
+                        <p>Wavefolding. Adds harmonic distortion by folding the waveform. Threshold and gain controls.</p>
+                    </div>
+                    <div class="docs-grid-item">
+                        <h4>RING</h4>
+                        <p>Ring Modulation. Multiply by a sine wave for metallic/bell tones. Frequency and mix.</p>
+                    </div>
+                    <div class="docs-grid-item">
+                        <h4>GLITCH</h4>
+                        <p>Stutter / Glitch. Chop and repeat slices. Slice size, repeat count, scatter amount.</p>
+                    </div>
+                </div>
+                <h3>Cross-slot processing</h3>
+                <p>Available from the waveform context menu or SAMPLE mode FX panel:</p>
+                <ul>
+                    <li><b>Cross</b> -- Convolve, ring modulate, or vocode one slot with another</li>
+                    <li><b>Layer</b> -- Mix multiple slots together with per-slot volume and pan, then bounce to a new slot</li>
+                    <li><b>Bounce</b> -- Flatten the current audio (including effects) to a new slot</li>
+                </ul>
+                <h3>Undo / Redo</h3>
+                <p>Up to 5 levels of undo. Use the arrow buttons in the toolbar. The counter shows how many undo steps are available.</p>
+            </section>
+
+            <!-- SAMPLE Mode -->
+            <section id="sample-mode" class="docs-section">
+                <h2>SAMPLE Mode</h2>
+                <p>Turns the 16 slots into a playable sampler/drum machine. Each pad has its own playback mode, envelope, filter, LFO, and pitch controls.</p>
+                <h3>Playing pads</h3>
+                <p>Tap pads on screen or use the keyboard:</p>
+                <table class="shortcut-table">
+                    <tr><th>Row</th><th>Keys</th><th>Pads</th></tr>
+                    <tr><td>1</td><td><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd></td><td>1-4</td></tr>
+                    <tr><td>2</td><td><kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd></td><td>5-8</td></tr>
+                    <tr><td>3</td><td><kbd>A</kbd> <kbd>S</kbd> <kbd>D</kbd> <kbd>F</kbd></td><td>9-12</td></tr>
+                    <tr><td>4</td><td><kbd>Z</kbd> <kbd>X</kbd> <kbd>C</kbd> <kbd>V</kbd></td><td>13-16</td></tr>
+                </table>
+                <h3>Pad modes</h3>
+                <ul>
+                    <li><b>ONE</b> -- One-shot. Plays the sample once from start to end. Retrigger restarts.</li>
+                    <li><b>LOOP</b> -- Loops continuously between the loop markers.</li>
+                    <li><b>GATE</b> -- Hold to play, release to stop (with release envelope).</li>
+                    <li><b>MORPH</b> -- Blend between two samples using spectral or ring modulation algorithms.</li>
+                </ul>
+                <p>Toggle <b>REV</b> to play any pad in reverse.</p>
+                <h3>AMP envelope (ADSR)</h3>
+                <p>Each pad has independent Attack, Decay, Sustain, and Release controls. Adjust these to shape the volume curve of each sample -- from punchy drum hits (short attack/decay) to swelling pads (long attack).</p>
+                <h3>Pitch</h3>
+                <p>Shift each pad's pitch from -24 to +24 semitones. An optional pitch envelope adds pitch sweep over time.</p>
+                <h3>Filter</h3>
+                <p>Per-pad biquad filter with lowpass, highpass, and bandpass types. Control frequency (20 Hz - 20 kHz) and resonance (Q).</p>
+                <h3>LFO</h3>
+                <p>Per-pad low-frequency oscillator that modulates a target parameter:</p>
+                <ul>
+                    <li><b>Filter</b> -- Wobble the filter cutoff</li>
+                    <li><b>Volume</b> -- Tremolo effect</li>
+                    <li><b>Pitch</b> -- Vibrato effect</li>
+                    <li><b>Position</b> -- Scrub the playback position for granular-like textures</li>
+                </ul>
+                <p>Choose from sine, triangle, square, or sawtooth shapes. Adjust rate (1-200 Hz) and depth (0-100%).</p>
+                <h3>Morph</h3>
+                <p>Select a target slot and a morph algorithm (Ring Mod, AM, Spectral Morph, Phase Swap, Spectral Gate). The amount slider blends between the original and the morphed result.</p>
+                <h3>Chromatic keyboard</h3>
+                <p>Tap <b>KEYS</b> to overlay a chromatic piano keyboard on the waveform. Click keys to trigger the selected pad at different pitches. Adjust the base octave to change the range.</p>
+                <h3>Region and loop markers</h3>
+                <p>In SAMPLE mode, dragging a selection on the waveform sets the playback region (for one-shot/gate) or the loop points (for loop mode). Changes apply in real-time to playing voices.</p>
+            </section>
+
+            <!-- SEQ Mode -->
+            <section id="seq-mode" class="docs-section">
+                <h2>SEQ Mode</h2>
+                <p>A step sequencer for programming rhythmic patterns with your samples.</p>
+                <h3>Transport</h3>
+                <ul>
+                    <li><b>PLAY</b> -- Start/stop the sequence</li>
+                    <li><b>REC</b> -- Enable live recording: play pads or keys while the sequence runs and your input is captured to steps</li>
+                    <li><b>UNDO</b> -- Remove the last recording layer</li>
+                </ul>
+                <h3>BPM</h3>
+                <p>Tap the BPM display to type a value (20-300). Use the +/- buttons for fine adjustment, or tap <b>TAP</b> repeatedly to set tempo by feel.</p>
+                <h3>Pattern editing</h3>
+                <ul>
+                    <li>The grid shows slots as rows and steps as columns</li>
+                    <li>Tap a step to toggle a sample on/off</li>
+                    <li>Long-press a step for per-step options: playback mode (one-shot/loop), direction (forward/reverse), and pitch offset</li>
+                    <li>Multiple samples can play on the same step</li>
+                </ul>
+                <h3>Pattern length</h3>
+                <p>Patterns can be 16, 32, 48, or 64 steps. Longer patterns scroll vertically.</p>
+                <h3>Pattern tools</h3>
+                <ul>
+                    <li><b>REV</b> -- Play the pattern backwards</li>
+                    <li><b>SPEED</b> -- Playback speed: 0.5x, 1x, 2x, 4x</li>
+                    <li><b>RAND</b> -- Randomise the pattern</li>
+                    <li><b>CLEAR</b> -- Clear all steps</li>
+                </ul>
+                <h3>Stutter and Mutate</h3>
+                <ul>
+                    <li><b>STUT</b> -- Add stutter/glitch effects to the pattern. Amount slider controls intensity. Can be toggled per-slot.</li>
+                    <li><b>MUTATE</b> -- Evolve the pattern over time. Small random changes accumulate at each loop. Amount slider controls how much changes. Per-slot control available.</li>
+                </ul>
+                <h3>Pattern banks</h3>
+                <p>16 pattern banks (A1-D4) let you store different patterns. Switch banks to change the pattern. Banks can be queued to switch at the next loop boundary for seamless transitions.</p>
+                <h3>Per-slot controls</h3>
+                <p>Each slot row has mute and solo buttons, plus per-slot stutter (ST) and mutate (MT) toggles.</p>
+                <h3>Bounce sequence</h3>
+                <p>Record the sequencer output to a slot. Set the number of loops to capture, then the result is saved as a new audio slot you can edit or process further.</p>
+            </section>
+
+            <!-- GEN Mode -->
+            <section id="gen-mode" class="docs-section">
+                <h2>GEN Mode</h2>
+                <p>Use video files or your device camera as a controller for the sampler. Analyse regions of the video frame and map visual properties to sound parameters.</p>
+                <h3>Video source</h3>
+                <ul>
+                    <li><b>FILE</b> -- Load a video file from your device</li>
+                    <li><b>CAM</b> -- Use a live camera feed (select from available cameras with the dropdown)</li>
+                </ul>
+                <h3>Video controls</h3>
+                <ul>
+                    <li><b>PLAY / STOP</b> -- Control video playback</li>
+                    <li><b>LOOP</b> -- Toggle loop mode</li>
+                    <li><b>IN / OUT sliders</b> -- Set the loop region within the video</li>
+                    <li><b>Expand</b> -- Toggle full-screen video view</li>
+                </ul>
+                <h3>Sensor regions</h3>
+                <p>Draw rectangular regions on the video overlay. Each sensor analyses a visual metric and maps it to a sampler parameter on a selected pad.</p>
+                <p><b>Metrics:</b></p>
+                <ul>
+                    <li><b>Brightness</b> -- Average luminance of the region</li>
+                    <li><b>Hue</b> -- Dominant colour tone</li>
+                    <li><b>Saturation</b> -- Colour intensity</li>
+                    <li><b>Contrast</b> -- Variation in pixel brightness</li>
+                    <li><b>Motion</b> -- Frame-to-frame movement detection</li>
+                </ul>
+                <p><b>Targets:</b></p>
+                <ul>
+                    <li><b>Volume</b> -- Control pad volume</li>
+                    <li><b>Pitch</b> -- Control pad pitch</li>
+                    <li><b>Filter</b> -- Control filter frequency</li>
+                    <li><b>Trigger</b> -- Trigger/gate the pad when threshold is crossed</li>
+                    <li><b>V-POS</b> -- Drive the video loop position itself</li>
+                    <li><b>V-SIZE</b> -- Drive the video loop size</li>
+                </ul>
+                <h3>Threshold</h3>
+                <p>Each mapping has a threshold slider (0-0.99). For trigger targets, this sets the activation point. For continuous targets, it sets a floor -- values below the threshold are ignored and values above are rescaled.</p>
+                <h3>Drum zones (kit mode)</h3>
+                <p>When a kit slot is active, Gen mode can use <b>Zones</b> -- rectangular regions on the video that trigger specific kit pads when motion is detected. Draw zones on the overlay, assign each to a kit sub-slot, and set a motion threshold. Zones are saved per kit slot.</p>
+                <h3>Camera recording</h3>
+                <p>In CAM mode, tap the <b>REC</b> button to capture a video clip from the camera for analysis.</p>
+            </section>
+
+            <!-- Drum Kits -->
+            <section id="kits" class="docs-section">
+                <h2>Drum Kits</h2>
+                <p>Any slot can be converted into a drum kit containing 16 sub-samples.</p>
+                <h3>Creating a kit</h3>
+                <p>Long-press an empty slot and choose <b>Make Drum Kit</b>. The slot becomes a kit container. Double-tap it to enter kit mode.</p>
+                <h3>Kit mode</h3>
+                <p>Inside a kit, the 16-pad grid represents the kit's sub-samples. Record, import, or edit each pad individually. All sampler features (ADSR, filter, LFO, pitch) apply per kit pad.</p>
+                <ul>
+                    <li>Use <b>PAD PLAY</b> for single-tap triggering with velocity from touch pressure</li>
+                    <li>Tap <b>BACK</b> to exit kit mode</li>
+                </ul>
+                <h3>Kits in the sequencer</h3>
+                <p>When sequencing a kit slot, the grid shows a drum-style view with each kit pad as a row. Steps can reference specific kit sub-samples.</p>
+                <h3>Removing a kit</h3>
+                <p>Long-press the kit slot and choose <b>Unmake Drum Kit</b>. This deletes all sub-samples and converts the slot back to a regular empty slot.</p>
+            </section>
+
+            <!-- Resample -->
+            <section id="resample" class="docs-section">
+                <h2>Resample</h2>
+                <p>Capture the master audio output into a slot. Useful for bouncing live performances, recording loop manipulations, or freezing effects.</p>
+                <h3>How to resample</h3>
+                <ol style="padding-left: 1.25rem; color: var(--text-secondary); line-height: 2;">
+                    <li>Long-press an <b>empty slot</b> and choose <b>Resample</b></li>
+                    <li>The slot turns amber and pulses -- recording has started</li>
+                    <li>Switch to any mode (SAMPLE, SEQ, GEN) and perform</li>
+                    <li>Tap the pulsing amber slot to stop -- the audio is saved and you're returned to REC mode</li>
+                </ol>
+                <p>Resampling captures everything going through the master output, including live effects (reverb, delay, filter). The recording is clean -- it taps the audio graph directly with no mic noise.</p>
+            </section>
+
+            <!-- MIDI -->
+            <section id="midi" class="docs-section">
+                <h2>MIDI</h2>
+                <p>SoniCraft supports MIDI input and output for pads, sequencer, and clock sync.</p>
+                <h3>Setup</h3>
+                <p>Open the hamburger menu and tap <b>MIDI</b>. Select your input and output ports, and set the MIDI channel (1-16, or Omni to receive on all channels).</p>
+                <h3>Note mapping</h3>
+                <ul>
+                    <li><b>GM Drums</b> -- Notes 36-51 map to pads 1-16 (standard General MIDI drum layout)</li>
+                    <li><b>Launchpad</b> -- Custom mapping for Novation Launchpad Mini (4x4 grid)</li>
+                </ul>
+                <h3>Clock sync</h3>
+                <ul>
+                    <li><b>Off</b> -- No clock sync</li>
+                    <li><b>Send</b> -- SoniCraft sends MIDI clock to external gear</li>
+                    <li><b>Receive</b> -- SoniCraft follows external MIDI clock for sequencer tempo</li>
+                </ul>
+            </section>
+
+            <!-- Projects & Export -->
+            <section id="projects" class="docs-section">
+                <h2>Projects &amp; Export</h2>
+                <p>All data is saved automatically in your browser's storage. Use project files to back up or transfer between devices.</p>
+                <h3>Save project</h3>
+                <p>Hamburger menu > <b>Save project</b>. Creates a .sonicraft file (ZIP) containing all slots, kit samples, sequencer patterns, sampler settings, and Gen configuration. On mobile, the share sheet opens so you can save to Files, cloud storage, or send directly.</p>
+                <h3>Load project</h3>
+                <p>Hamburger menu > <b>Load project</b>. Select a .sonicraft file to restore. This replaces all current data.</p>
+                <h3>Export individual slots</h3>
+                <ul>
+                    <li><b>SAVE</b> button in toolbar -- Export the current slot as a WAV file</li>
+                    <li>Long-press a slot > <b>Save to device</b> -- Same as above</li>
+                    <li>Hamburger menu > <b>Export all slots</b> -- Batch export all non-empty slots as individual WAV files</li>
+                </ul>
+            </section>
+
+            <!-- Tips -->
+            <section id="tips" class="docs-section">
+                <h2>Tips</h2>
+                <ul>
+                    <li><b>Offline use:</b> Install as a PWA for full offline support. All audio is stored locally in your browser.</li>
+                    <li><b>Copy selections to slots:</b> In REC mode, select a region on the waveform, then tap an empty slot to copy the selection there. Great for slicing samples.</li>
+                    <li><b>Live effects:</b> In SAMPLE mode, the FX panel provides real-time reverb, delay, filter, and more that apply to pad playback and sequencer output.</li>
+                    <li><b>Resample your performance:</b> Use Resample to capture a live jam into a slot, then edit it, process it, or slice it into a kit.</li>
+                    <li><b>Generative drums:</b> Load a video, set up motion-triggered zones mapped to a drum kit, and let the video play your drums.</li>
+                    <li><b>Mutate patterns:</b> In SEQ mode, enable MUTATE with a low amount for subtle evolving patterns, or high for chaos.</li>
+                    <li><b>Paulstretch everything:</b> Record a short sound, use PAUL with high stretch values, and you have an ambient drone.</li>
+                    <li><b>Browser storage:</b> Your data lives in the browser. Clearing site data will delete everything -- use Save Project to back up regularly.</li>
+                </ul>
+            </section>
+
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2026 Soniphorm. Handcrafted in Donegal, Ireland.</p>
+            <p><a href="https://www.instagram.com/soniphorm" target="_blank">@soniphorm</a></p>
+        </div>
+    </footer>
+</body>
+</html>
