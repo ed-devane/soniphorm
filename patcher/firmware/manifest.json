@@ -1,8 +1,8 @@
 {
-    "version": "1.8.1-dev",
+    "version": "1.8.1",
     "file": "GenRuntime.ino.bin",
-    "date": "2026-03-28",
-    "notes": "SD-backed looper overdub, GeneLooper pan, BPMLooper fixes, AudioRecorder folder playback",
+    "date": "2026-04-14",
+    "notes": "AudioRecorder playback fix: Play button now correctly opens the recorded file instead of generating a fresh RTC-timestamped path that doesn't exist on disk.",
     "flashAddress": "0x10000",
     "board": "ESP32-S3-WROOM-1-N16R8"
 }
