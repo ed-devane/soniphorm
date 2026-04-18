@@ -1,8 +1,8 @@
 {
-    "version": "1.8.1",
+    "version": "1.9.0",
     "file": "GenRuntime.ino.bin",
-    "date": "2026-04-14",
-    "notes": "AudioRecorder playback fix: Play button now correctly opens the recorded file instead of generating a fresh RTC-timestamped path that doesn't exist on disk.",
+    "date": "2026-04-18",
+    "notes": "PiezoInputSCM pitch detection overhaul: detection-branch band-pass filter (2-pole HPF+LPF derived from user range), YIN confidence gating + median-of-5 smoothing, centre-biased octave correction, auto-derived pitch_window. /48 pitch CV encoding for compatibility with Oscillator note input. ADSR auto-banked with fader display in ms. LFO wave dropdown. PiezoInputSCM tuner UI (reference sine tone) for calibrating pitch centre by ear. DC-block always-on (removed user toggle). pitch_detect auto-derived from wiring.",
     "flashAddress": "0x10000",
     "board": "ESP32-S3-WROOM-1-N16R8"
 }
