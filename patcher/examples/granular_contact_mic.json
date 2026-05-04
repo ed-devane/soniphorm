@@ -1,0 +1,146 @@
+{
+  "version": "1.0",
+  "name": "Granular Contact Mic",
+  "description": "Piezo input into granular synthesis. Bank 1: density, grain size, position, feedback. Bank 2: pitch, stereo width, pan, dry/wet. Freeze and reverse on buttons.",
+  "author": "Soniphorm",
+  "created": "2026-04-04T09:34:28.595Z",
+  "clockSpeed": 240,
+  "clockMode": 1,
+  "modules": [
+    {
+      "id": "PiezoInputSCM1",
+      "type": "PiezoInputSCM",
+      "position": {
+        "x": 325,
+        "y": 120
+      },
+      "params": {
+        "gain": 15,
+        "threshold": 0.1,
+        "sensitivity": 0.5,
+        "pitch_smooth": 0,
+        "pitch_window": 0.5,
+        "dc_block": true,
+        "pitch_detect": false
+      }
+    },
+    {
+      "id": "GranularSynth1",
+      "type": "GranularSynth",
+      "position": {
+        "x": 624,
+        "y": 74
+      },
+      "params": {
+        "grain_density": 16,
+        "grain_size_ms": 120,
+        "position": 0.2,
+        "position_spread": 0,
+        "pitch": 0,
+        "pitch_spread": 0,
+        "dry_wet": 1,
+        "feedback": 0,
+        "freeze": 0,
+        "reverse_prob": 0,
+        "stereo_width": 0.5,
+        "cloud_pan": 0.5,
+        "envelope": "hann",
+        "cc_bindings": {
+          "density": 20,
+          "grainSize": 21,
+          "position": 22,
+          "feedback": 23,
+          "pitch": 24,
+          "mix": 27,
+          "cloud_pan": 26,
+          "stereo_width": 25
+        },
+        "gate_bindings": {
+          "freeze": 60,
+          "reverse": 61
+        }
+      }
+    },
+    {
+      "id": "out1",
+      "type": "I2SOut",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "params": {}
+    }
+  ],
+  "connections": [
+    {
+      "from": {
+        "module": "PiezoInputSCM1",
+        "output": "outL"
+      },
+      "to": {
+        "module": "GranularSynth1",
+        "input": "inL"
+      }
+    },
+    {
+      "from": {
+        "module": "PiezoInputSCM1",
+        "output": "outL"
+      },
+      "to": {
+        "module": "GranularSynth1",
+        "input": "inR"
+      }
+    },
+    {
+      "from": {
+        "module": "GranularSynth1",
+        "output": "outL"
+      },
+      "to": {
+        "module": "out1",
+        "input": "inL"
+      }
+    },
+    {
+      "from": {
+        "module": "GranularSynth1",
+        "output": "outR"
+      },
+      "to": {
+        "module": "out1",
+        "input": "inR"
+      }
+    }
+  ],
+  "bleLabels": {
+    "1": {
+      "pots": [
+        "grain_density",
+        "grain_size_ms",
+        "position",
+        "feedback"
+      ],
+      "btns": [
+        "freeze",
+        "reverse",
+        "Btn 3",
+        "Btn 4"
+      ]
+    },
+    "2": {
+      "pots": [
+        "pitch",
+        "stereo_width",
+        "cloud_pan",
+        "dry_wet"
+      ],
+      "btns": [
+        "Btn 1",
+        "Btn 2",
+        "Btn 3",
+        "Btn 4"
+      ]
+    }
+  }
+}

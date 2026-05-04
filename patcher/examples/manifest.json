@@ -1,0 +1,44 @@
+[
+  {
+    "file": "passthrough.json",
+    "name": "Passthrough",
+    "description": "Piezo input straight to stereo output. Minimal patch for verifying signal path.",
+    "tags": ["scm", "passthrough"]
+  },
+  {
+    "file": "exciter.json",
+    "name": "Exciter",
+    "description": "Piezo through a lowpass filter into the on-board exciter speaker. Pot1=cutoff.",
+    "tags": ["scm", "exciter", "filter"]
+  },
+  {
+    "file": "delay.json",
+    "name": "Delay",
+    "description": "Piezo into stereo delay. Bank 1: time, feedback, pingpong, mix. Btn1=freeze.",
+    "tags": ["scm", "delay", "fx"]
+  },
+  {
+    "file": "sd_recorder.json",
+    "name": "SD Recorder",
+    "description": "Piezo into AudioRecorder writing 24-bit WAVs to SD. Btn1=record, Btn2=play, Btn3/4=prev/next file.",
+    "tags": ["scm", "recorder", "sd"]
+  },
+  {
+    "file": "trigger_synth.json",
+    "name": "Trigger Synth",
+    "description": "Piezo strikes trigger an ADSR-shaped wavetable osc. LFO + Scale wander the pitch. Bank 1: A/D/S/R.",
+    "tags": ["scm", "synth", "trigger"]
+  },
+  {
+    "file": "portasampler.json",
+    "name": "PortaSampler",
+    "description": "Piezo records into PortaSampler. StepSequencer gates 1-4 trigger slots in a 16-step pattern.",
+    "tags": ["scm", "sampler", "sequencer"]
+  },
+  {
+    "file": "granular_contact_mic.json",
+    "name": "Granular Contact Mic",
+    "description": "Piezo into granular synthesis with freeze and reverse",
+    "tags": ["scm", "granular", "piezo"]
+  }
+]

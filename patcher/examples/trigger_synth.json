@@ -1,0 +1,266 @@
+{
+  "version": "1.0",
+  "name": "Trigger Synth",
+  "description": "Piezo strikes trigger an ADSR-shaped wavetable osc. LFO + Scale quantizer wander the pitch. Bank 1: A/D/S/R on Pot1-4.",
+  "author": "Soniphorm",
+  "created": "2026-05-04T11:09:05.824Z",
+  "clockSpeed": 240,
+  "clockMode": 1,
+  "modules": [
+    {
+      "id": "PiezoInputSCM1",
+      "type": "PiezoInputSCM",
+      "position": {
+        "x": 145,
+        "y": 120
+      },
+      "params": {
+        "gain": 15,
+        "threshold": 0.1,
+        "sensitivity": 0.5,
+        "pitch_smooth": 0,
+        "pitch_center_note": 60,
+        "pitch_span_oct": 2,
+        "pitch_detect": false
+      }
+    },
+    {
+      "id": "Wavetable1",
+      "type": "Oscillator",
+      "position": {
+        "x": 376,
+        "y": 98
+      },
+      "params": {
+        "freq": 440,
+        "gain": 0.25,
+        "gate": 1,
+        "pitch_range": 24,
+        "freq_min": 20,
+        "freq_max": 1000,
+        "fm_amount": 0,
+        "fm_tracking": false,
+        "fm_ratio": 1,
+        "fm_ratio_mode": "zones",
+        "show_fm_inputs": false,
+        "wavetables": [],
+        "current_table": 0,
+        "adsr_morph": false,
+        "attack_table": 0,
+        "decay_table": 1,
+        "sustain_table": 2,
+        "release_table": 3,
+        "editor_settings": {
+          "table_size": 512,
+          "draw_mode": "sine",
+          "current_editing": 0
+        }
+      }
+    },
+    {
+      "id": "ADSR1",
+      "type": "ADSR",
+      "position": {
+        "x": 549,
+        "y": 207
+      },
+      "params": {
+        "attack_ms": 0,
+        "decay_ms": 74,
+        "sustain": 0.7,
+        "release_ms": 63,
+        "loop_mode": "oneshot",
+        "timescale": 0.2,
+        "trigger_mode": "gate",
+        "bank": 1,
+        "breakpoints": [
+          {
+            "time": 0,
+            "level": 0,
+            "curve": 0.5
+          },
+          {
+            "time": 0.1,
+            "level": 1,
+            "curve": 0.3
+          },
+          {
+            "time": 0.3,
+            "level": 0.7,
+            "curve": 0.7
+          },
+          {
+            "time": 0.8,
+            "level": 0.7,
+            "curve": 0.5
+          },
+          {
+            "time": 1,
+            "level": 0,
+            "curve": 0.8
+          }
+        ],
+        "cc_bindings": {
+          "attack_ms": 20,
+          "decay_ms": 21,
+          "sustain": 22,
+          "release_ms": 23
+        }
+      }
+    },
+    {
+      "id": "VCA1",
+      "type": "VCA",
+      "position": {
+        "x": 551,
+        "y": 83
+      },
+      "params": {
+        "gain": 0.4
+      }
+    },
+    {
+      "id": "Scale1",
+      "type": "Scale",
+      "position": {
+        "x": 180,
+        "y": 279
+      },
+      "params": {
+        "mode": "select",
+        "scale": "major",
+        "root_note": "C",
+        "octave_range": 2,
+        "base_octave": 4,
+        "snap_amount": 1,
+        "tuning": "12-TET"
+      }
+    },
+    {
+      "id": "LFO1",
+      "type": "LFO",
+      "position": {
+        "x": 106,
+        "y": 389
+      },
+      "params": {
+        "rate_hz": 1,
+        "rate_min_hz": 0.01,
+        "rate_max_hz": 40,
+        "wave": "sine",
+        "sync_to_clock": false,
+        "clock_div": 4,
+        "phase": 0,
+        "depth": 1,
+        "offset": 0
+      }
+    },
+    {
+      "id": "out1",
+      "type": "I2SOut",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "params": {}
+    }
+  ],
+  "connections": [
+    {
+      "from": {
+        "module": "Wavetable1",
+        "output": "outL"
+      },
+      "to": {
+        "module": "VCA1",
+        "input": "inL"
+      }
+    },
+    {
+      "from": {
+        "module": "Wavetable1",
+        "output": "outR"
+      },
+      "to": {
+        "module": "VCA1",
+        "input": "inR"
+      }
+    },
+    {
+      "from": {
+        "module": "VCA1",
+        "output": "outL"
+      },
+      "to": {
+        "module": "out1",
+        "input": "inL"
+      }
+    },
+    {
+      "from": {
+        "module": "VCA1",
+        "output": "outR"
+      },
+      "to": {
+        "module": "out1",
+        "input": "inR"
+      }
+    },
+    {
+      "from": {
+        "module": "ADSR1",
+        "output": "out"
+      },
+      "to": {
+        "module": "VCA1",
+        "input": "gain"
+      }
+    },
+    {
+      "from": {
+        "module": "PiezoInputSCM1",
+        "output": "trigger"
+      },
+      "to": {
+        "module": "ADSR1",
+        "input": "trigger"
+      }
+    },
+    {
+      "from": {
+        "module": "Scale1",
+        "output": "out"
+      },
+      "to": {
+        "module": "Wavetable1",
+        "input": "freqMod"
+      }
+    },
+    {
+      "from": {
+        "module": "LFO1",
+        "output": "out"
+      },
+      "to": {
+        "module": "Scale1",
+        "input": "in"
+      }
+    }
+  ],
+  "bleLabels": {
+    "1": {
+      "pots": [
+        "Attack",
+        "Decay",
+        "Sustain",
+        "Release"
+      ],
+      "btns": [
+        "Btn 1",
+        "Btn 2",
+        "Btn 3",
+        "Btn 4"
+      ]
+    }
+  }
+}

@@ -1,0 +1,261 @@
+{
+  "version": "1.0",
+  "name": "PortaSampler",
+  "description": "Piezo records into PortaSampler. StepSequencer gates 1-4 trigger slots in a 16-step pattern. Bank 1: threshold/length, Bank 2: per-slot vol/pitch/pan/aux, Bank 3: start/end/filter.",
+  "author": "Soniphorm",
+  "created": "2026-05-04T11:12:28.459Z",
+  "clockSpeed": 240,
+  "clockMode": 1,
+  "modules": [
+    {
+      "id": "PiezoInputSCM1",
+      "type": "PiezoInputSCM",
+      "position": {
+        "x": 145,
+        "y": 120
+      },
+      "params": {
+        "gain": 15,
+        "threshold": 0.1,
+        "sensitivity": 0.5,
+        "pitch_smooth": 0,
+        "pitch_center_note": 60,
+        "pitch_span_oct": 2,
+        "pitch_detect": false
+      }
+    },
+    {
+      "id": "PortaSampler1",
+      "type": "PortaSampler",
+      "position": {
+        "x": 538,
+        "y": 138
+      },
+      "params": {
+        "bank": 1,
+        "threshold": 0.47,
+        "max_length": 0.6,
+        "master_level": 0.8,
+        "input_monitor": 0,
+        "max_poly": 4,
+        "kit_folder": "",
+        "show_gates_5_8": true,
+        "cc_bindings": {
+          "threshold": 20,
+          "max_length": 21
+        }
+      }
+    },
+    {
+      "id": "StepSequencer1",
+      "type": "StepSequencer",
+      "position": {
+        "x": 351,
+        "y": 153
+      },
+      "params": {
+        "show_gate_outputs": true,
+        "show_velocity_outputs": false,
+        "running": false,
+        "gate_length": 0.5,
+        "bpm": 120,
+        "use_self_clock": true,
+        "clock_div": 4,
+        "bar_length": 16,
+        "step_resolution": 16,
+        "direction": 0,
+        "trigger_mode": true,
+        "direction1": -1,
+        "direction2": -1,
+        "direction3": -1,
+        "direction4": -1,
+        "direction5": -1,
+        "direction6": -1,
+        "direction7": -1,
+        "direction8": -1,
+        "resolution1": -1,
+        "resolution2": -1,
+        "resolution3": -1,
+        "resolution4": -1,
+        "resolution5": -1,
+        "resolution6": -1,
+        "resolution7": -1,
+        "resolution8": -1,
+        "trigger_mode1": -1,
+        "trigger_mode2": -1,
+        "trigger_mode3": -1,
+        "trigger_mode4": -1,
+        "trigger_mode5": -1,
+        "trigger_mode6": -1,
+        "trigger_mode7": -1,
+        "trigger_mode8": -1,
+        "snapshot": null,
+        "snapshot_alt": null,
+        "snapshot_active": false,
+        "active_pattern": 0,
+        "patterns": null,
+        "launch_quantize": "1bar",
+        "mute1": false,
+        "mute2": false,
+        "mute3": false,
+        "mute4": false,
+        "mute5": false,
+        "mute6": false,
+        "mute7": false,
+        "mute8": false,
+        "loop_start1": 0,
+        "loop_end1": 15,
+        "loop_start2": 0,
+        "loop_end2": 15,
+        "loop_start3": 0,
+        "loop_end3": 15,
+        "loop_start4": 0,
+        "loop_end4": 15,
+        "loop_start5": 0,
+        "loop_end5": 15,
+        "loop_start6": 0,
+        "loop_end6": 15,
+        "loop_start7": 0,
+        "loop_end7": 15,
+        "loop_start8": 0,
+        "loop_end8": 15,
+        "midi_out": false,
+        "midi_note_base": 36,
+        "midi_channel": 9,
+        "steps1": "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0",
+        "steps2": "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0",
+        "steps3": "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0",
+        "steps4": "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0",
+        "steps5": "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0",
+        "steps6": "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0",
+        "steps7": "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0",
+        "steps8": "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0"
+      }
+    },
+    {
+      "id": "out1",
+      "type": "I2SOut",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "params": {}
+    }
+  ],
+  "connections": [
+    {
+      "from": {
+        "module": "PortaSampler1",
+        "output": "outL"
+      },
+      "to": {
+        "module": "out1",
+        "input": "inL"
+      }
+    },
+    {
+      "from": {
+        "module": "PortaSampler1",
+        "output": "outR"
+      },
+      "to": {
+        "module": "out1",
+        "input": "inR"
+      }
+    },
+    {
+      "from": {
+        "module": "PiezoInputSCM1",
+        "output": "outL"
+      },
+      "to": {
+        "module": "PortaSampler1",
+        "input": "inL"
+      }
+    },
+    {
+      "from": {
+        "module": "StepSequencer1",
+        "output": "gate1"
+      },
+      "to": {
+        "module": "PortaSampler1",
+        "input": "gate1"
+      }
+    },
+    {
+      "from": {
+        "module": "StepSequencer1",
+        "output": "gate2"
+      },
+      "to": {
+        "module": "PortaSampler1",
+        "input": "gate2"
+      }
+    },
+    {
+      "from": {
+        "module": "StepSequencer1",
+        "output": "gate3"
+      },
+      "to": {
+        "module": "PortaSampler1",
+        "input": "gate3"
+      }
+    },
+    {
+      "from": {
+        "module": "StepSequencer1",
+        "output": "gate4"
+      },
+      "to": {
+        "module": "PortaSampler1",
+        "input": "gate4"
+      }
+    }
+  ],
+  "bleLabels": {
+    "1": {
+      "pots": [
+        "Threshold",
+        "Length",
+        "Mode",
+        "Layer Lvl"
+      ],
+      "btns": [
+        "Arm",
+        "Clear",
+        "Prev",
+        "Next"
+      ]
+    },
+    "2": {
+      "pots": [
+        "Volume",
+        "Pitch",
+        "Pan",
+        "Aux Send"
+      ],
+      "btns": [
+        "Trig",
+        "Mute",
+        "Prev",
+        "Next"
+      ]
+    },
+    "3": {
+      "pots": [
+        "Start",
+        "End",
+        "Filter",
+        "Flt Type"
+      ],
+      "btns": [
+        "Trig",
+        "Apply Flt",
+        "Prev",
+        "Next"
+      ]
+    }
+  }
+}

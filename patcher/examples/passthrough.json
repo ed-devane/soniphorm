@@ -1,0 +1,59 @@
+{
+  "version": "1.0",
+  "name": "Passthrough",
+  "description": "Piezo input straight to stereo output. Minimal patch for verifying signal path.",
+  "author": "Soniphorm",
+  "created": "2026-05-04T10:58:30.076Z",
+  "clockSpeed": 240,
+  "clockMode": 1,
+  "modules": [
+    {
+      "id": "PiezoInputSCM1",
+      "type": "PiezoInputSCM",
+      "position": {
+        "x": 145,
+        "y": 120
+      },
+      "params": {
+        "gain": 15,
+        "threshold": 0.1,
+        "sensitivity": 0.5,
+        "pitch_smooth": 0,
+        "pitch_center_note": 60,
+        "pitch_span_oct": 2,
+        "pitch_detect": false
+      }
+    },
+    {
+      "id": "out1",
+      "type": "I2SOut",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "params": {}
+    }
+  ],
+  "connections": [
+    {
+      "from": {
+        "module": "PiezoInputSCM1",
+        "output": "outL"
+      },
+      "to": {
+        "module": "out1",
+        "input": "inL"
+      }
+    },
+    {
+      "from": {
+        "module": "PiezoInputSCM1",
+        "output": "outL"
+      },
+      "to": {
+        "module": "out1",
+        "input": "inR"
+      }
+    }
+  ]
+}

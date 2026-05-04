@@ -1,0 +1,121 @@
+{
+  "version": "1.0",
+  "name": "SD Recorder",
+  "description": "Piezo into AudioRecorder writing 24-bit WAVs to SD. Pot1=in gain, Pot2=monitor. Btn1=record, Btn2=play, Btn3/4=prev/next file.",
+  "author": "Soniphorm",
+  "created": "2026-05-04T11:05:10.099Z",
+  "clockSpeed": 240,
+  "clockMode": 1,
+  "modules": [
+    {
+      "id": "PiezoInputSCM1",
+      "type": "PiezoInputSCM",
+      "position": {
+        "x": 145,
+        "y": 120
+      },
+      "params": {
+        "gain": 15,
+        "threshold": 0.1,
+        "sensitivity": 0.5,
+        "pitch_smooth": 0,
+        "pitch_center_note": 60,
+        "pitch_span_oct": 2,
+        "pitch_detect": false
+      }
+    },
+    {
+      "id": "AudioRecorder1",
+      "type": "AudioRecorder",
+      "position": {
+        "x": 481,
+        "y": 125
+      },
+      "params": {
+        "bank": 1,
+        "file_prefix": "rec",
+        "playback_folder": "",
+        "trigger_mode": 0,
+        "input_gain": 1,
+        "monitor_level": 0.5,
+        "cc_bindings": {
+          "input_gain": 20,
+          "monitor_level": 21
+        },
+        "gate_bindings": {
+          "gate": 60,
+          "play": 61,
+          "prev_file": 62,
+          "next_file": 63
+        }
+      }
+    },
+    {
+      "id": "out1",
+      "type": "I2SOut",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "params": {}
+    }
+  ],
+  "connections": [
+    {
+      "from": {
+        "module": "PiezoInputSCM1",
+        "output": "outL"
+      },
+      "to": {
+        "module": "AudioRecorder1",
+        "input": "inL"
+      }
+    },
+    {
+      "from": {
+        "module": "PiezoInputSCM1",
+        "output": "outL"
+      },
+      "to": {
+        "module": "AudioRecorder1",
+        "input": "inR"
+      }
+    },
+    {
+      "from": {
+        "module": "AudioRecorder1",
+        "output": "outL"
+      },
+      "to": {
+        "module": "out1",
+        "input": "inL"
+      }
+    },
+    {
+      "from": {
+        "module": "AudioRecorder1",
+        "output": "outR"
+      },
+      "to": {
+        "module": "out1",
+        "input": "inR"
+      }
+    }
+  ],
+  "bleLabels": {
+    "1": {
+      "pots": [
+        "In Gain",
+        "Monitor",
+        "Pot 3",
+        "Pot 4"
+      ],
+      "btns": [
+        "Record",
+        "Play",
+        "Prev",
+        "Next"
+      ]
+    }
+  }
+}

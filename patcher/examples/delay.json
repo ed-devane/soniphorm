@@ -1,0 +1,120 @@
+{
+  "version": "1.0",
+  "name": "Delay",
+  "description": "Piezo into stereo delay. Bank 1: time, feedback, pingpong, mix. Btn1=freeze.",
+  "author": "Soniphorm",
+  "created": "2026-05-04T11:03:59.940Z",
+  "clockSpeed": 240,
+  "clockMode": 1,
+  "modules": [
+    {
+      "id": "PiezoInputSCM1",
+      "type": "PiezoInputSCM",
+      "position": {
+        "x": 145,
+        "y": 120
+      },
+      "params": {
+        "gain": 5,
+        "threshold": 0.1,
+        "sensitivity": 0.5,
+        "pitch_smooth": 0,
+        "pitch_center_note": 60,
+        "pitch_span_oct": 2,
+        "pitch_detect": false
+      }
+    },
+    {
+      "id": "Delay1",
+      "type": "Delay",
+      "position": {
+        "x": 434,
+        "y": 112
+      },
+      "params": {
+        "time_ms": 380,
+        "feedback": 0.35,
+        "mix": 0.3,
+        "pingpong": 0,
+        "freeze": 0,
+        "bank": 1,
+        "cc_bindings": {
+          "time": 20,
+          "feedback": 21,
+          "pingpong": 22,
+          "mix": 23
+        },
+        "gate_bindings": {
+          "freeze": 60
+        }
+      }
+    },
+    {
+      "id": "out1",
+      "type": "I2SOut",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "params": {}
+    }
+  ],
+  "connections": [
+    {
+      "from": {
+        "module": "PiezoInputSCM1",
+        "output": "outL"
+      },
+      "to": {
+        "module": "Delay1",
+        "input": "inL"
+      }
+    },
+    {
+      "from": {
+        "module": "PiezoInputSCM1",
+        "output": "outL"
+      },
+      "to": {
+        "module": "Delay1",
+        "input": "inR"
+      }
+    },
+    {
+      "from": {
+        "module": "Delay1",
+        "output": "outL"
+      },
+      "to": {
+        "module": "out1",
+        "input": "inL"
+      }
+    },
+    {
+      "from": {
+        "module": "Delay1",
+        "output": "outR"
+      },
+      "to": {
+        "module": "out1",
+        "input": "inR"
+      }
+    }
+  ],
+  "bleLabels": {
+    "1": {
+      "pots": [
+        "Time",
+        "Feedback",
+        "PingPong",
+        "Mix"
+      ],
+      "btns": [
+        "Freeze",
+        "Btn 2",
+        "Btn 3",
+        "Btn 4"
+      ]
+    }
+  }
+}

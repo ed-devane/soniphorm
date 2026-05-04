@@ -1,0 +1,111 @@
+{
+  "version": "1.0",
+  "name": "Exciter",
+  "description": "Piezo through a lowpass filter into the on-board exciter speaker. Pot1=cutoff.",
+  "author": "Soniphorm",
+  "created": "2026-05-04T11:01:33.666Z",
+  "clockSpeed": 240,
+  "clockMode": 1,
+  "modules": [
+    {
+      "id": "PiezoInputSCM1",
+      "type": "PiezoInputSCM",
+      "position": {
+        "x": 145,
+        "y": 120
+      },
+      "params": {
+        "gain": 5,
+        "threshold": 0.1,
+        "sensitivity": 0.5,
+        "pitch_smooth": 0,
+        "pitch_center_note": 60,
+        "pitch_span_oct": 2,
+        "pitch_detect": false
+      }
+    },
+    {
+      "id": "Filter1",
+      "type": "Filter",
+      "position": {
+        "x": 484,
+        "y": 207
+      },
+      "params": {
+        "mode": "lowpass",
+        "cutoff_hz": 1200,
+        "resonance": 0.2,
+        "lfo_min_hz": 100,
+        "lfo_max_hz": 4000,
+        "map": {
+          "cutMin": 60,
+          "cutMax": 16000,
+          "resMin": 0,
+          "resMax": 1
+        },
+        "cc_bindings": {
+          "cutoffMod": 20
+        }
+      }
+    },
+    {
+      "id": "out1",
+      "type": "I2SOut",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "params": {
+        "speaker_enabled": true
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": {
+        "module": "PiezoInputSCM1",
+        "output": "outL"
+      },
+      "to": {
+        "module": "Filter1",
+        "input": "inL"
+      }
+    },
+    {
+      "from": {
+        "module": "PiezoInputSCM1",
+        "output": "outL"
+      },
+      "to": {
+        "module": "Filter1",
+        "input": "inR"
+      }
+    },
+    {
+      "from": {
+        "module": "Filter1",
+        "output": "outL"
+      },
+      "to": {
+        "module": "out1",
+        "input": "inR"
+      }
+    }
+  ],
+  "bleLabels": {
+    "1": {
+      "pots": [
+        "cutoff_hz",
+        "Pot 2",
+        "Pot 3",
+        "Pot 4"
+      ],
+      "btns": [
+        "Btn 1",
+        "Btn 2",
+        "Btn 3",
+        "Btn 4"
+      ]
+    }
+  }
+}

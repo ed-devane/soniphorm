@@ -1,8 +1,8 @@
 {
-    "version": "1.9.0",
+    "version": "1.9.1",
     "file": "GenRuntime.ino.bin",
-    "date": "2026-04-18",
-    "notes": "PiezoInputSCM pitch detection overhaul: detection-branch band-pass filter (2-pole HPF+LPF derived from user range), YIN confidence gating + median-of-5 smoothing, centre-biased octave correction, auto-derived pitch_window. /48 pitch CV encoding for compatibility with Oscillator note input. ADSR auto-banked with fader display in ms. LFO wave dropdown. PiezoInputSCM tuner UI (reference sine tone) for calibrating pitch centre by ear. DC-block always-on (removed user toggle). pitch_detect auto-derived from wiring.",
+    "date": "2026-04-24",
+    "notes": "StepSequencer firmware-driven UI playhead (SEQSTEP serial emit) + external-clock transport bypass restored + long-press PLAY-to-clear. PortaSampler max_poly voice-stealing cap (default 4), per-sample pitch math + voice-mix gains hoisted out of hot loop, end-of-sample fade-out click fix, filter preview scoped to selected slot, input_monitor param, Bank-3 trigger updates selectedSlot. AudioRecorder 24-bit playback underrun fix (ring-buffer race) + sdReaderTask priority bump to 3. UI-firmware state divergence fix: running=false forced on StepSequencer at upload, post-power-cycle warning when device uptime <60s. Patcher reconnect fix after explicit disconnect.",
     "flashAddress": "0x10000",
     "board": "ESP32-S3-WROOM-1-N16R8"
 }
