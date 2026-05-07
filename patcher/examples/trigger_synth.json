@@ -26,7 +26,7 @@
     },
     {
       "id": "Wavetable1",
-      "type": "Oscillator",
+      "type": "Wavetable",
       "position": {
         "x": 376,
         "y": 98
