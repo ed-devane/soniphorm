@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<!--
+  Porta in-box Quick Start label.
+  Self-contained: the QR is an inline SVG (points to https://soniphorm.com/docs/porta/),
+  so this prints correctly with no internet connection.
+  To print: open in Chrome/Edge, Ctrl+P, "Save as PDF" or print to a label/sticker sheet.
+  Card is sized ~90 x 130 mm. Adjust the .card width/height to match your label stock.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Porta Quick Start</title>
+<style>
+  :root {
+    --ink: #111418;
+    --muted: #5b636e;
+    --line: #d7dbe0;
+    --accent: #111418;
+  }
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  html, body { margin: 0; padding: 0; background: #f2f3f5; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    display: flex;
+    justify-content: center;
+    padding: 20px;
+  }
+  .card {
+    width: 90mm;
+    height: 130mm;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 4mm;
+    padding: 7mm 7mm 6mm;
+    display: flex;
+    flex-direction: column;
+  }
+  .brand {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    border-bottom: 1.5px solid var(--ink);
+    padding-bottom: 2.5mm;
+  }
+  .brand .name { font-size: 6mm; font-weight: 700; letter-spacing: 0.2mm; }
+  .brand .tag { font-size: 3mm; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5mm; }
+
+  .lead { font-size: 3.1mm; color: var(--muted); margin: 3mm 0 1mm; line-height: 1.35; }
+
+  ol.steps { margin: 1mm 0 0; padding: 0; list-style: none; counter-reset: step; }
+  ol.steps > li {
+    position: relative;
+    padding: 0 0 3mm 8mm;
+    counter-increment: step;
+  }
+  ol.steps > li::before {
+    content: counter(step);
+    position: absolute;
+    left: 0; top: 0;
+    width: 5.5mm; height: 5.5mm;
+    background: var(--ink); color: #fff;
+    border-radius: 50%;
+    font-size: 3.2mm; font-weight: 700;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .steps h3 { margin: 0 0 0.8mm; font-size: 3.5mm; font-weight: 700; }
+  .steps p { margin: 0; font-size: 2.95mm; color: var(--muted); line-height: 1.4; }
+  .steps b { color: var(--ink); }
+
+  .footer {
+    margin-top: auto;
+    display: flex;
+    align-items: center;
+    gap: 4mm;
+    border-top: 1px solid var(--line);
+    padding-top: 3.5mm;
+  }
+  .qr { width: 26mm; height: 26mm; flex: 0 0 auto; }
+  .qr svg { width: 100%; height: 100%; display: block; }
+  .footer .scan-title { font-size: 3.3mm; font-weight: 700; margin: 0 0 1mm; }
+  .footer .scan-sub { font-size: 2.8mm; color: var(--muted); margin: 0; line-height: 1.4; }
+  .footer .url { font-size: 2.8mm; font-weight: 700; margin: 1.5mm 0 0; }
+
+  @media print {
+    body { background: #fff; padding: 0; }
+    .card { border: none; }
+    @page { margin: 8mm; }
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">
+      <span class="name">Porta</span>
+      <span class="tag">Quick Start</span>
+    </div>
+
+    <p class="lead"><b>First, charge:</b> plug into USB-C for ~2-3 hours before first use. Then program your Porta in the browser (Chrome, Edge or Opera) with a data-capable USB-C cable.</p>
+
+    <ol class="steps">
+      <li>
+        <h3>Connect</h3>
+        <p>Plug in via <b>USB-C</b> and open <b>soniphorm.com/patcher</b>. Click <b>Connect</b> and pick your Porta from the list.</p>
+      </li>
+      <li>
+        <h3>Check firmware</h3>
+        <p>Click the <b>chip icon</b>. If it says <b>Update available</b>, click <b>Update</b> -- no buttons to hold. If it can't connect: <b>unplug &amp; replug USB-C, power-cycle the Porta</b>, then retry.</p>
+      </li>
+      <li>
+        <h3>Upload a patch</h3>
+        <p>Load an example or build your own, then click <b>Upload</b> (arrow icon). You'll hear it instantly. The patch stays on the device.</p>
+      </li>
+    </ol>
+
+    <div class="footer">
+      <div class="qr">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 37 37" shape-rendering="crispEdges"><path fill="#ffffff" d="M0 0h37v37H0z"/><path stroke="#000000" d="M4 4.5h7m2 0h2m4 0h2m1 0h3m1 0h7M4 5.5h1m5 0h1m4 0h2m7 0h1m1 0h1m5 0h1M4 6.5h1m1 0h3m1 0h1m1 0h4m2 0h1m1 0h1m1 0h3m1 0h1m1 0h3m1 0h1M4 7.5h1m1 0h3m1 0h1m1 0h1m1 0h1m3 0h2m1 0h1m2 0h1m1 0h3m1 0h1M4 8.5h1m1 0h3m1 0h1m1 0h3m1 0h4m1 0h3m2 0h1m1 0h3m1 0h1M4 9.5h1m5 0h1m1 0h3m2 0h5m2 0h1m1 0h1m5 0h1M4 10.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M12 11.5h1m1 0h2m1 0h1m1 0h1m4 0h1M4 12.5h1m1 0h5m3 0h2m2 0h2m1 0h1m1 0h1m2 0h5M4 13.5h5m2 0h1m2 0h1m4 0h2m1 0h3m1 0h3m3 0h1M9 14.5h2m10 0h2m1 0h2m1 0h2M4 15.5h2m2 0h1m4 0h2m1 0h1m1 0h1m1 0h1m2 0h3m3 0h1m1 0h1M4 16.5h1m5 0h1m2 0h2m6 0h1m1 0h1m5 0h2M4 17.5h1m1 0h2m3 0h1m1 0h1m1 0h5m3 0h6m3 0h1M4 18.5h2m1 0h2m1 0h5m2 0h6m1 0h3m2 0h2M6 19.5h1m1 0h1m2 0h2m1 0h1m2 0h1m2 0h1m2 0h1m1 0h1m1 0h1m3 0h1M4 20.5h1m2 0h2m1 0h1m2 0h1m4 0h1m2 0h2m6 0h2M4 21.5h3m1 0h1m2 0h2m1 0h1m6 0h8m1 0h1m1 0h1M4 22.5h1m3 0h1m1 0h2m1 0h1m1 0h2m2 0h3m4 0h2m2 0h1M4 23.5h1m4 0h1m2 0h2m1 0h1m2 0h2m3 0h2m1 0h2m3 0h1M4 24.5h1m2 0h2m1 0h6m3 0h1m1 0h1m1 0h6m1 0h3M12 25.5h2m2 0h3m1 0h1m3 0h1m3 0h5M4 26.5h7m2 0h2m2 0h3m2 0h3m1 0h1m1 0h3M4 27.5h1m5 0h1m1 0h1m1 0h1m1 0h2m1 0h2m1 0h1m1 0h1m3 0h1M4 28.5h1m1 0h3m1 0h1m1 0h4m2 0h4m2 0h5m1 0h2M4 29.5h1m1 0h3m1 0h1m1 0h1m1 0h4m2 0h4m5 0h4M4 30.5h1m1 0h3m1 0h1m1 0h1m4 0h1m1 0h1m1 0h1m1 0h2m1 0h6M4 31.5h1m5 0h1m2 0h1m1 0h4m5 0h2m1 0h1m1 0h1m1 0h1M4 32.5h7m1 0h5m2 0h3m1 0h1m1 0h2m1 0h3"/></svg>
+      </div>
+      <div>
+        <p class="scan-title">Full guide</p>
+        <p class="scan-sub">Scan for step-by-step instructions, examples and troubleshooting.</p>
+        <p class="url">soniphorm.com/docs/porta</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
