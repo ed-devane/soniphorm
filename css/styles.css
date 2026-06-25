@@ -405,6 +405,20 @@ a:hover {
     align-items: start;
 }
 
+/* Larger image column + narrower buy column for product photos */
+@media (min-width: 969px) {
+    #scm-porta-kit .product-layout,
+    #active-contact-mic .product-layout,
+    #active-exciter .product-layout {
+        grid-template-columns: 1.9fr 1fr;
+    }
+}
+
+/* Titles sit above the layout, so align every buy box top with its image top */
+.product-info-col .pricing-options {
+    margin-top: 0;
+}
+
 .product-image-col img {
     width: 100%;
     height: auto;
@@ -1332,5 +1346,70 @@ a:hover {
     .product-details-grid {
         grid-template-columns: 1fr;
         gap: 2rem;
+    }
+}
+
+/* Analytics consent banner */
+.consent-banner {
+    position: fixed;
+    left: 1rem;
+    right: 1rem;
+    bottom: 1rem;
+    max-width: 540px;
+    margin-left: auto;
+    padding: 1rem 1.25rem;
+    background-color: var(--bg-card);
+    border: 1px solid var(--border-light);
+    border-radius: 8px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+    line-height: 1.5;
+    z-index: 9999;
+}
+
+.consent-banner .consent-text {
+    margin: 0 0 0.75rem 0;
+}
+
+.consent-banner .consent-actions {
+    display: flex;
+    gap: 0.5rem;
+    justify-content: flex-end;
+}
+
+.consent-banner .consent-btn {
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    cursor: pointer;
+    border: 1px solid var(--border-light);
+    background-color: transparent;
+    color: var(--text-primary);
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.consent-banner .consent-btn:hover {
+    border-color: var(--accent);
+}
+
+.consent-banner .consent-accept {
+    background-color: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+
+.consent-banner .consent-accept:hover {
+    background-color: var(--accent-dim);
+    border-color: var(--accent-dim);
+}
+
+@media (max-width: 600px) {
+    .consent-banner {
+        left: 0.5rem;
+        right: 0.5rem;
+        bottom: 0.5rem;
+        padding: 0.85rem 1rem;
+        font-size: 0.85rem;
     }
 }
