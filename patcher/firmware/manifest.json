@@ -1,8 +1,8 @@
 {
-    "version": "1.9.1",
+    "version": "1.9.14",
     "file": "GenRuntime.ino.bin",
-    "date": "2026-04-24",
-    "notes": "StepSequencer firmware-driven UI playhead (SEQSTEP serial emit) + external-clock transport bypass restored + long-press PLAY-to-clear. PortaSampler max_poly voice-stealing cap (default 4), per-sample pitch math + voice-mix gains hoisted out of hot loop, end-of-sample fade-out click fix, filter preview scoped to selected slot, input_monitor param, Bank-3 trigger updates selectedSlot. AudioRecorder 24-bit playback underrun fix (ring-buffer race) + sdReaderTask priority bump to 3. UI-firmware state divergence fix: running=false forced on StepSequencer at upload, post-power-cycle warning when device uptime <60s. Patcher reconnect fix after explicit disconnect.",
+    "date": "2026-06-19",
+    "notes": "Button-free OTA: DOWNLOAD reboots straight into the USB-Serial/JTAG bootloader (no BOOT/RESET buttons), and the patcher flashes it over the browser. Includes the Porta MIDI UART RX/TX swap and prior 1.9.x fixes.",
     "flashAddress": "0x10000",
     "board": "ESP32-S3-WROOM-1-N16R8"
 }
