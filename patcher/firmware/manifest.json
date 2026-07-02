@@ -1,8 +1,8 @@
 {
-    "version": "1.9.14",
+    "version": "1.9.24",
     "file": "GenRuntime.ino.bin",
-    "date": "2026-06-19",
-    "notes": "Button-free OTA: DOWNLOAD reboots straight into the USB-Serial/JTAG bootloader (no BOOT/RESET buttons), and the patcher flashes it over the browser. Includes the Porta MIDI UART RX/TX swap and prior 1.9.x fixes.",
+    "date": "2026-07-02",
+    "notes": "AudioRecorder: solid red Btn1 during recording, solid red Btn2 during playback (50% brightness both), VU meter on Pot1 LED (green=monitoring/idle, red=recording). BLELINK compile fix (esp_bt_main.h headers).",
     "flashAddress": "0x10000",
     "board": "ESP32-S3-WROOM-1-N16R8"
 }

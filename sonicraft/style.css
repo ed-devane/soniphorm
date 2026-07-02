@@ -1869,6 +1869,73 @@ main {
     flex: 1;
     min-width: 0;
 }
+.midi-row button.menu-select {
+    flex: 1;
+    text-align: left;
+    background: var(--surface);
+    border: 1px solid var(--border-lt);
+    color: var(--text);
+    padding: 4px 8px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 11px;
+}
+.midi-row button.menu-select:hover { background: var(--panel); }
+
+/* === DMX channel test dialog === */
+#dmx-settings[hidden] { display: none !important; }
+.dmx-dialog { min-width: 320px; max-width: 520px; }
+.dmx-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 4px 0 10px;
+    font-size: 11px;
+    color: var(--text2);
+}
+.dmx-controls label { display: flex; align-items: center; gap: 4px; }
+.dmx-controls input[type=number] {
+    width: 58px;
+    background: var(--surface);
+    border: 1px solid var(--border-lt);
+    color: var(--text);
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: 11px;
+}
+.dmx-sliders {
+    max-height: 50vh;
+    overflow-y: auto;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 4px 10px;
+    padding: 4px;
+    border: 1px solid var(--border-lt);
+    border-radius: var(--radius);
+}
+.dmx-slider-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    color: var(--text2);
+}
+.dmx-ch-label {
+    min-width: 28px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+}
+.dmx-ch-val {
+    min-width: 28px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+.dmx-slider-row input[type=range] {
+    flex: 1;
+    min-width: 0;
+}
 /* === Kit Mode === */
 
 /* Kit slot badge in normal view */

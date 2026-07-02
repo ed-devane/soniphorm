@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="../favicon.png">
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=175">
+    <link rel="stylesheet" href="style.css?v=176">
 </head>
 <body>
     <header id="header">
@@ -51,13 +51,22 @@
                     <div class="midi-row"><span>Clock</span><select id="midi-clock-select" class="menu-select"><option value="off">Off</option><option value="send">Send</option><option value="receive">Receive</option></select></div>
                     <div class="midi-row"><span>Map</span><select id="midi-notemap-select" class="menu-select"><option value="gm">GM Drums</option><option value="launchpad">Launchpad</option></select></div>
                 </div>
+
+                <button id="dmx-btn" data-action="dmx">DMX</button>
+                <div id="dmx-settings" hidden>
+                    <div class="midi-row"><span>Port</span><button id="dmx-connect-btn" class="menu-select">Connect…</button></div>
+                    <div class="midi-row"><span>Status</span><span id="dmx-status" class="menu-hint">Not connected</span></div>
+                    <div class="midi-row"><span>Test</span><button id="dmx-test-btn" class="menu-select">Open channel test</button></div>
+                    <div class="midi-row"><span>All off</span><button id="dmx-blackout-btn" class="menu-select">Blackout</button></div>
+                </div>
+
                 <button data-action="bounce">Bounce to slot</button>
                 <button data-action="export-all">Export all slots</button>
                 <button data-action="save-project">Save project</button>
                 <button data-action="load-project">Load project</button>
                 <button data-action="delete-all" class="danger">Delete all</button>
                 <button data-action="install" id="install-btn" hidden>Install app</button>
-                <span class="menu-version">v175</span>
+                <span class="menu-version">v176</span>
             </div>
         </div>
     </header>
@@ -490,6 +499,23 @@
         </div>
     </div>
 
+    <!-- DMX channel test dialog -->
+    <div class="dialog-overlay" id="dmx-dialog" hidden>
+        <div class="dialog fx-dialog dmx-dialog">
+            <h3>DMX Channel Test</h3>
+            <div class="dmx-controls">
+                <label>First channel <input type="number" id="dmx-ch-start" value="1" min="1" max="512"></label>
+                <label>Count <input type="number" id="dmx-ch-count" value="24" min="1" max="512"></label>
+                <button id="dmx-ch-apply" class="dialog-btn">Show</button>
+                <button id="dmx-ch-zero" class="dialog-btn">Zero visible</button>
+            </div>
+            <div id="dmx-sliders" class="dmx-sliders"></div>
+            <div class="fx-actions">
+                <button id="dmx-dialog-close" class="dialog-btn primary">Close</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Hidden file input -->
     <input type="file" id="file-input" accept="audio/*" hidden>
     <input type="file" id="gen-file-input" accept="video/*" hidden>
@@ -504,6 +530,7 @@
     <script src="sampler.js"></script>
     <script src="sequencer.js"></script>
     <script src="midi.js"></script>
+    <script src="dmx.js"></script>
     <script src="gen.js"></script>
     <script src="rec-controller.js"></script>
     <script src="seq-controller.js"></script>

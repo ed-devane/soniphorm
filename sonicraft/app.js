@@ -65,6 +65,7 @@ class App {
         this.seq._initSequencer();
         this.sample._initSampler();
         this._initMidi();
+        this._initDmx();
         this.genCtrl._initGen();
 
         // Build UI (depends on controllers being available)
@@ -839,6 +840,19 @@ class App {
             });
         }
 
+        // DMX settings toggle
+        const dmxBtn = $('dmx-btn');
+        if (dmxBtn) {
+            dmxBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const panel = document.getElementById('dmx-settings');
+                const show = panel.hidden;
+                panel.hidden = !show;
+                e.target.classList.toggle('menu-active', show);
+                if (show) this._updateDmxStatus();
+            });
+        }
+
 
         document.getElementById('main-menu').addEventListener('click', async (e) => {
             const action = e.target.dataset.action;
@@ -867,6 +881,7 @@ class App {
                 return;
             }
             if (action === 'midi') return; // handled by direct listener
+            if (action === 'dmx') return; // handled by direct listener
             document.getElementById('main-menu').hidden = true;
             if (action === 'bounce') this.rec.bounceToSlot();
             if (action === 'export-all') this.rec.exportAllSlots();
@@ -1426,6 +1441,151 @@ class App {
         }
 
         this._refreshMidiPortUI();
+    }
+
+    // === DMX ===
+
+    async _initDmx() {
+        if (typeof DmxController === 'undefined') return;
+        this.dmx = new DmxController();
+
+        this.dmx.onConnect = () => this._updateDmxStatus();
+        this.dmx.onDisconnect = () => this._updateDmxStatus();
+        this.dmx.onError = (err) => {
+            console.warn('DMX error:', err);
+            this._updateDmxStatus();
+        };
+
+        // Wire menu buttons
+        const connectBtn = document.getElementById('dmx-connect-btn');
+        const testBtn = document.getElementById('dmx-test-btn');
+        const blackoutBtn = document.getElementById('dmx-blackout-btn');
+        if (connectBtn) {
+            connectBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (this.dmx.connected) {
+                    await this.dmx.disconnect();
+                } else {
+                    try {
+                        await this.dmx.connect();
+                    } catch (err) {
+                        alert('DMX connect failed: ' + err.message);
+                    }
+                }
+            });
+        }
+        if (testBtn) {
+            testBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._openDmxTestDialog();
+            });
+        }
+        if (blackoutBtn) {
+            blackoutBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (this.dmx) this.dmx.blackout();
+            });
+        }
+
+        // Dialog close / channel range controls
+        const closeBtn = document.getElementById('dmx-dialog-close');
+        const applyBtn = document.getElementById('dmx-ch-apply');
+        const zeroBtn = document.getElementById('dmx-ch-zero');
+        if (closeBtn) closeBtn.addEventListener('click', () => this._closeDmxTestDialog());
+        if (applyBtn) applyBtn.addEventListener('click', () => this._buildDmxSliders());
+        if (zeroBtn) zeroBtn.addEventListener('click', () => this._zeroDmxVisible());
+
+        // Attempt auto-connect if a port was previously authorized and we had
+        // been connected on last load.
+        const prefs = this.dmx.loadSettings();
+        if (prefs.autoConnect && this.dmx.isSupported()) {
+            this.dmx.tryAutoConnect().catch(() => {});
+        }
+
+        this._updateDmxStatus();
+    }
+
+    _updateDmxStatus() {
+        const status = document.getElementById('dmx-status');
+        const btn = document.getElementById('dmx-connect-btn');
+        if (!this.dmx) return;
+        if (!this.dmx.isSupported()) {
+            if (status) status.textContent = 'Web Serial not supported';
+            if (btn) btn.disabled = true;
+            return;
+        }
+        if (status) status.textContent = this.dmx.connected ? 'Connected' : 'Not connected';
+        if (btn) btn.textContent = this.dmx.connected ? 'Disconnect' : 'Connect…';
+    }
+
+    _openDmxTestDialog() {
+        const dlg = document.getElementById('dmx-dialog');
+        if (!dlg) return;
+        // Close the main menu so the dialog isn't obscured
+        document.getElementById('main-menu').hidden = true;
+        dlg.hidden = false;
+        this._buildDmxSliders();
+    }
+
+    _closeDmxTestDialog() {
+        const dlg = document.getElementById('dmx-dialog');
+        if (dlg) dlg.hidden = true;
+    }
+
+    _buildDmxSliders() {
+        const container = document.getElementById('dmx-sliders');
+        if (!container || !this.dmx) return;
+        const startInput = document.getElementById('dmx-ch-start');
+        const countInput = document.getElementById('dmx-ch-count');
+        const start = Math.max(1, Math.min(512, parseInt(startInput.value) || 1));
+        const count = Math.max(1, Math.min(512 - start + 1, parseInt(countInput.value) || 24));
+        startInput.value = start;
+        countInput.value = count;
+
+        container.innerHTML = '';
+        for (let i = 0; i < count; i++) {
+            const ch = start + i;
+            const row = document.createElement('div');
+            row.className = 'dmx-slider-row';
+
+            const label = document.createElement('span');
+            label.className = 'dmx-ch-label';
+            label.textContent = ch;
+
+            const slider = document.createElement('input');
+            slider.type = 'range';
+            slider.min = 0;
+            slider.max = 255;
+            slider.value = this.dmx.getChannel(ch);
+            slider.dataset.channel = ch;
+
+            const val = document.createElement('span');
+            val.className = 'dmx-ch-val';
+            val.textContent = slider.value;
+
+            slider.addEventListener('input', () => {
+                const v = parseInt(slider.value);
+                this.dmx.setChannel(ch, v);
+                val.textContent = v;
+            });
+
+            row.appendChild(label);
+            row.appendChild(slider);
+            row.appendChild(val);
+            container.appendChild(row);
+        }
+    }
+
+    _zeroDmxVisible() {
+        const container = document.getElementById('dmx-sliders');
+        if (!container || !this.dmx) return;
+        container.querySelectorAll('input[type=range]').forEach(s => {
+            const ch = parseInt(s.dataset.channel);
+            this.dmx.setChannel(ch, 0);
+            s.value = 0;
+            const val = s.nextElementSibling;
+            if (val) val.textContent = '0';
+        });
     }
 
     _updateMidiIndicator() {
