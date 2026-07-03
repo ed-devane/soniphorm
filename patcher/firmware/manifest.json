@@ -1,8 +1,8 @@
 {
-    "version": "1.9.24",
+    "version": "1.9.25",
     "file": "GenRuntime.ino.bin",
-    "date": "2026-07-02",
-    "notes": "AudioRecorder: solid red Btn1 during recording, solid red Btn2 during playback (50% brightness both), VU meter on Pot1 LED (green=monitoring/idle, red=recording). BLELINK compile fix (esp_bt_main.h headers).",
+    "date": "2026-07-03",
+    "notes": "Speaker output gain capped at 0.7 (-3 dB) when amp is active to protect exciter coil from sustained resonance overpower. Headphone output unaffected.",
     "flashAddress": "0x10000",
     "board": "ESP32-S3-WROOM-1-N16R8"
 }
