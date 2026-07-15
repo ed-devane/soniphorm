@@ -1,8 +1,8 @@
 {
-    "version": "1.9.25",
+    "version": "1.10.2",
     "file": "GenRuntime.ino.bin",
-    "date": "2026-07-03",
-    "notes": "Speaker output gain capped at 0.7 (-3 dB) when amp is active to protect exciter coil from sustained resonance overpower. Headphone output unaffected.",
+    "date": "2026-07-15",
+    "notes": "Porta Sampler: added Gate and Loop Gate playback modes, widened pitch range to 0.25x-4x, redesigned bank soft-takeover so switching banks no longer causes value jumps, and fixed several pot/LED/playback bugs. Added the Multi-Band Gate module. Fixed manually-placed Pot/Button modules not reading the physical control selected in the Inspector. AudioRecorder: added non-destructive trim/loop/reverse editing.",
     "flashAddress": "0x10000",
     "board": "ESP32-S3-WROOM-1-N16R8"
 }
