@@ -1400,8 +1400,7 @@ class RecController {
             // Gather localStorage configs
             const configKeys = {
                 sampler: 'soniphorm-sampler',
-                seqBanks: 'soniphorm-seq-banks',
-                gen: 'soniphorm-gen-config'
+                seqBanks: 'soniphorm-seq-banks'
             };
             for (const [key, lsKey] of Object.entries(configKeys)) {
                 try {
@@ -1606,7 +1605,6 @@ class RecController {
             const cfg = manifest.config || {};
             if (cfg.sampler) localStorage.setItem('soniphorm-sampler', JSON.stringify(cfg.sampler));
             if (cfg.seqBanks) localStorage.setItem('soniphorm-seq-banks', JSON.stringify(cfg.seqBanks));
-            if (cfg.gen) localStorage.setItem('soniphorm-gen-config', JSON.stringify(cfg.gen));
             if (cfg.kitPads) {
                 for (const [slotIdx, padCfg] of Object.entries(cfg.kitPads)) {
                     localStorage.setItem('soniphorm-kit-pads-' + slotIdx, JSON.stringify(padCfg));
@@ -1616,7 +1614,6 @@ class RecController {
             // Reload live configs
             if (this.app.sample) this.app.sample._loadSamplerConfig();
             if (this.app.seq) this.app.seq._loadSeqPattern();
-            if (this.app.genCtrl) this.app.genCtrl._loadGenConfig();
 
             // Reset app state
             this.app.channels = null;

@@ -114,6 +114,31 @@ html, body {
 }
 .icon-btn:hover { background: var(--surface); color: var(--text); }
 
+/* SCM connection indicator -- lives in the mode-toggle group (replaced GEN).
+   Grey (default .mode-btn look, "SCM") = disconnected or connected-normal,
+   yellow ("SD") = in mass storage mode, yellow+pulse ("LOAD") = actively
+   loading recordings. Text label changes alongside color -- color alone
+   wasn't a clear enough cue for the "actively working" moment specifically.
+   Doubles as a one-click cycle through the whole device workflow (connect ->
+   enter MSC -> load recordings -> reconnect) -- no longer a menu shortcut
+   (redundant with menu-btn next to it), but still genuinely clickable, so
+   keeps the default .mode-btn pointer/hover. */
+.scm-indicator.connected {
+    background: var(--green) !important;
+    color: #000 !important;
+}
+.scm-indicator.msc-mode {
+    background: var(--yellow) !important;
+    color: #000 !important;
+}
+.scm-indicator.loading {
+    animation: scm-indicator-loading-pulse 0.9s ease-in-out infinite;
+}
+@keyframes scm-indicator-loading-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+}
+
 /* Main menu dropdown */
 .header-right { position: relative; }
 #main-menu {
@@ -217,7 +242,6 @@ main {
 .toolbar-scroll::-webkit-scrollbar { display: none; }
 .toolbar.sample-mode .rec-only,
 .toolbar.seq-mode .rec-only { display: none; }
-.toolbar.gen-mode { display: none; }
 
 /* Sample FX panel */
 .fx-grid {
@@ -389,9 +413,38 @@ main {
     min-height: 56px;
     display: flex;
     flex-direction: column;
+    min-width: 0; /* grid/flex items default to min-width:auto (~= content's
+        min-content size), which lets a long unbroken slot name force this
+        item -- and therefore the whole 1fr grid column -- wider than intended,
+        regardless of .slot-name's own overflow:hidden/ellipsis (those only
+        affect painting, not the box's minimum size for layout purposes). This
+        is the actual fix for names breaking the 4-column layout; the length
+        cap below is a second, independent line of defense. */
     -webkit-touch-callout: none;
 }
 .slot:hover { background: var(--bg3); }
+
+/* Per-slot import fill -- left-to-right green wash showing how far this one
+   slot's pull-in has gotten (see _setSlotImporting()/_setSlotImportProgress()
+   in _importRecordingsFromDrive()). Doesn't touch layout at all -- absolutely
+   positioned inside the slot's own existing box (.slot is already position:
+   relative), translucent so the slot's text stays legible on top of it. */
+.slot.importing { pointer-events: none; }
+.slot-import-fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 0%;
+    background: var(--green);
+    opacity: 0.38;
+    border-radius: calc(var(--radius) - 1px);
+    /* Only 5 real data points (per-file await boundaries, not true byte
+       progress), so each jump is inherently a chunk, not smooth data -- a
+       longer, eased transition at least makes each chunk glide rather than
+       snap, without pretending there's more granular data than there is. */
+    transition: width 0.35s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
 
 /* Bank colours */
 .slot[data-bank="0"] { border-color: color-mix(in srgb, var(--bank0) 40%, var(--border)); }
@@ -417,6 +470,12 @@ main {
 .slot.recording .slot-mini canvas {
     opacity: 0;
 }
+
+.slot.device-recording {
+    border-color: var(--blue) !important;
+    box-shadow: 0 0 8px rgba(59,130,246,0.3) !important;
+}
+.slot-name.device-recording { color: var(--blue); }
 
 .slot.resampling {
     animation: pulse-slot 1s ease-in-out infinite;
@@ -752,6 +811,7 @@ main {
     background: var(--border);
     border-radius: 3px;
     overflow: hidden;
+    z-index: 2; /* #waveform canvas is explicitly z-index: 1 and would otherwise paint over this */
 }
 .level-meter-fill {
     position: absolute;
@@ -760,6 +820,9 @@ main {
     background: var(--green);
     border-radius: 3px;
     transition: height 0.05s;
+}
+.level-meter-fill.clip {
+    background: var(--red);
 }
 
 /* === Sequencer Mode === */
@@ -2039,237 +2102,6 @@ main {
     border-left: 1px solid var(--border-lt);
 }
 
-/* === Gen Mode === */
-.gen-transport {
-    display: none;
-    flex-direction: column;
-    gap: 4px;
-    padding: 6px 10px;
-    background: var(--bg2);
-    border-bottom: 1px solid var(--border);
-    flex-shrink: 0;
-}
-.gen-transport.active {
-    display: flex;
-}
-.gen-row-main {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-wrap: wrap;
-}
-.gen-pad-panel {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 3px 0;
-    min-height: 0;
-}
-.gen-pad-info {
-    color: var(--text2);
-    font-size: 10px;
-    flex-shrink: 0;
-    white-space: nowrap;
-}
-.gen-pad-info .gen-pad-name {
-    color: var(--accent);
-}
-.gen-mappings {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 3px 8px;
-    overflow-x: auto;
-    overflow-y: hidden;
-    scrollbar-width: thin;
-    flex: 1;
-    min-width: 0;
-}
-.gen-mapping-row {
-    display: flex;
-    align-items: center;
-    gap: 3px;
-    font-size: 10px;
-    flex-shrink: 0;
-}
-.gen-mapping-swatch {
-    width: 8px;
-    height: 8px;
-    border-radius: 2px;
-    flex-shrink: 0;
-}
-.gen-mapping-sel {
-    background: var(--surface);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 0 2px;
-    height: 20px;
-    font-family: var(--mono);
-    font-size: 9px;
-    cursor: pointer;
-}
-.gen-mapping-arrow {
-    color: var(--text3);
-    font-size: 9px;
-}
-.gen-mapping-value {
-    color: var(--green);
-    font-size: 9px;
-    min-width: 28px;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-}
-.gen-mapping-remove {
-    padding: 0 4px !important;
-    font-size: 10px !important;
-    min-width: 0 !important;
-    height: 20px !important;
-    color: var(--text3);
-    cursor: pointer;
-}
-#gen-add-mapping-btn {
-    flex-shrink: 0;
-    height: 22px !important;
-    padding: 0 8px !important;
-    font-size: 10px !important;
-}
-#gen-toggle-btn.gen-active {
-    background: var(--green);
-    color: #000;
-}
-.gen-time {
-    color: var(--text2);
-    font-size: 10px;
-    white-space: nowrap;
-    min-width: 60px;
-}
-.gen-loop-label {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 9px;
-    color: var(--text3);
-    white-space: nowrap;
-}
-.gen-loop-slider {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 60px;
-    height: 4px;
-    background: var(--border);
-    border-radius: 2px;
-    outline: none;
-    cursor: pointer;
-}
-.gen-loop-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 12px;
-    height: 12px;
-    background: var(--accent);
-    border-radius: 50%;
-    cursor: pointer;
-}
-.gen-loop-slider::-moz-range-thumb {
-    width: 12px;
-    height: 12px;
-    background: var(--accent);
-    border: none;
-    border-radius: 50%;
-    cursor: pointer;
-}
-#gen-loop-btn.loop-active {
-    color: var(--green);
-    border-color: var(--green);
-}
-.gen-video-wrap {
-    position: absolute;
-    inset: 0;
-    background: #000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-}
-.gen-video-wrap.gen-expanded {
-    position: fixed !important;
-    inset: 0 !important;
-    z-index: 200;
-}
-.gen-expand-btn.active { color: var(--accent); border-color: var(--accent); }
-.gen-video {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
-    transform-origin: center center;
-}
-.gen-thresh-label {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    font-size: 8px;
-    color: var(--text3);
-    white-space: nowrap;
-}
-.gen-thresh-slider {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 40px;
-    height: 3px;
-    background: var(--border);
-    border-radius: 2px;
-    outline: none;
-    cursor: pointer;
-}
-.gen-thresh-slider::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 10px;
-    height: 10px;
-    background: var(--yellow);
-    border-radius: 50%;
-    cursor: pointer;
-}
-.gen-thresh-slider::-moz-range-thumb {
-    width: 10px;
-    height: 10px;
-    background: var(--yellow);
-    border: none;
-    border-radius: 50%;
-    cursor: pointer;
-}
-.gen-cam-select {
-    background: var(--surface);
-    color: var(--text);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    font-family: var(--mono);
-    font-size: 10px;
-    padding: 2px 4px;
-    max-width: 100px;
-}
-.gen-overlay {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    cursor: crosshair;
-    transform-origin: center center;
-    touch-action: none;
-}
-.slot.gen-modulated {
-    box-shadow: 0 0 8px rgba(34, 197, 94, 0.5), inset 0 0 4px rgba(34, 197, 94, 0.15);
-    border-color: var(--green) !important;
-}
-.slot-grid.gen-mode .slot {
-    cursor: pointer;
-}
-.slot-grid.gen-mode .slot.pad-selected {
-    border-color: var(--accent);
-    box-shadow: 0 0 6px rgba(14, 165, 233, 0.4);
-}
-.slot-grid.gen-mode .slot .slot-key {
-    display: block;
-}
-
 /* === Project Progress Overlay === */
 .project-progress-overlay {
     position: fixed;
@@ -2293,60 +2125,3 @@ main {
     border-radius: var(--radius);
 }
 
-/* Gen Zone Panel */
-.gen-zone-panel {
-    display: flex;
-    align-items: flex-start;
-    gap: 6px;
-    padding: 4px 0;
-    flex-wrap: wrap;
-}
-.gen-zone-panel[hidden] { display: none; }
-.gen-zone-list {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    flex: 1;
-    min-width: 0;
-}
-.gen-zone-row {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    flex-wrap: wrap;
-}
-.gen-zone-swatch {
-    width: 8px;
-    height: 8px;
-    border-radius: 2px;
-    flex-shrink: 0;
-}
-.gen-zone-sel {
-    background: var(--surface);
-    color: var(--text);
-    border: 1px solid var(--border);
-    font-size: 10px;
-    font-family: inherit;
-    padding: 1px 2px;
-    border-radius: var(--radius);
-    cursor: pointer;
-    max-width: 100px;
-}
-.gen-zone-value {
-    color: var(--green);
-    font-size: 9px;
-    min-width: 28px;
-    text-align: right;
-    font-variant-numeric: tabular-nums;
-}
-#gen-zones-btn.active {
-    color: var(--accent);
-    border-color: var(--accent);
-}
-
-@media (max-width: 500px) {
-    .gen-row-main { gap: 4px; }
-    .gen-mapping-row { flex-wrap: wrap; }
-    .gen-mapping-sel { font-size: 9px; }
-    .gen-zone-row { flex-wrap: wrap; }
-}

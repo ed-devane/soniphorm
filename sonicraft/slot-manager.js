@@ -6,6 +6,16 @@ const STORE_NAME = 'slots';
 const KIT_STORE_NAME = 'kit-slots';
 const NUM_SLOTS = 16;
 const KIT_SUB_COUNT = 16;
+// Slot names live in fixed-width 1/4-screen grid cells -- an unbounded name
+// (rename-input's maxlength only constrains user typing, not programmatic
+// assignment: the "make copy" name-append, device-recording prefills, values
+// restored from storage) can force the grid column wider than its 1fr share
+// regardless of .slot-name's own CSS truncation (see .slot's min-width:0 in
+// style.css for the layout half of this fix -- this is the data half).
+const SLOT_NAME_MAX_LENGTH = 20;
+function capSlotName(name) {
+    return String(name || '').slice(0, SLOT_NAME_MAX_LENGTH);
+}
 
 // --- IDB Promise helpers ---
 
@@ -84,7 +94,7 @@ class SlotManager {
         for (let i = 0; i < NUM_SLOTS; i++) {
             const record = await idbGet(store, i);
             if (record) {
-                this.slots[i].name = record.name || '';
+                this.slots[i].name = capSlotName(record.name); // cap here too -- cleans up any name saved over-long before this cap existed
                 this.slots[i].duration = record.duration || 0;
                 this.slots[i].sampleRate = record.sampleRate || 0;
                 this.slots[i].hasAudio = !!record.audio;
@@ -136,7 +146,7 @@ class SlotManager {
                 try {
                     const rec = await idbGet(store, [slot.index, j]);
                     if (rec && rec.audio) {
-                        subs[j].name = rec.name || '';
+                        subs[j].name = capSlotName(rec.name);
                         subs[j].duration = rec.duration || 0;
                         subs[j].sampleRate = rec.sampleRate || 0;
                         subs[j].hasAudio = true;
@@ -224,6 +234,7 @@ class SlotManager {
     }
 
     async renameSlot(index, name) {
+        name = capSlotName(name);
         this.slots[index].name = name;
 
         const tx = this.db.transaction(STORE_NAME, 'readwrite');
@@ -386,6 +397,7 @@ class SlotManager {
     }
 
     async renameKitSlot(parentSlot, subIndex, name) {
+        name = capSlotName(name);
         if (this.kitSlots[parentSlot]) {
             this.kitSlots[parentSlot][subIndex].name = name;
         }

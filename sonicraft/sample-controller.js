@@ -38,8 +38,8 @@ class SampleController {
     }
 
     _onKeyDown(e) {
-        // Allow in sample mode, gen mode, or in seq mode during recording
-        if (!this.app._sampleMode && !this.app._genMode && !(this.app._seqMode && this.app._seqRecording)) return;
+        // Allow in sample mode, or in seq mode during recording
+        if (!this.app._sampleMode && !(this.app._seqMode && this.app._seqRecording)) return;
         // Ignore if typing in an input
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
         if (e.repeat) return; // ignore key repeat
@@ -57,7 +57,7 @@ class SampleController {
     }
 
     _onKeyUp(e) {
-        if (!this.app._sampleMode && !this.app._genMode && !(this.app._seqMode && this.app._seqRecording)) return;
+        if (!this.app._sampleMode && !(this.app._seqMode && this.app._seqRecording)) return;
         const padIdx = this.app.sampler.keyMap[e.code];
         if (padIdx !== undefined && this._keysDown.has(e.code)) {
             e.preventDefault();

@@ -50,10 +50,6 @@ class App {
         this._kitSelectedSub = 0;
         this._drumGridView = false; // true = drum grid, false = normal seq view
         this._kitPlayMode = false;  // PAD PLAY: immediate trigger on first tap with velocity
-
-        // Gen mode
-        this._genMode = false;
-        this.gen = null;
     }
 
     async init() {
@@ -61,12 +57,11 @@ class App {
         this.rec = new RecController(this);
         this.seq = new SeqController(this);
         this.sample = new SampleController(this);
-        this.genCtrl = new GenController(this);
         this.seq._initSequencer();
         this.sample._initSampler();
         this._initMidi();
         this._initDmx();
-        this.genCtrl._initGen();
+        this._initDevice();
 
         // Build UI (depends on controllers being available)
         this.buildSlotGrid();
@@ -117,7 +112,6 @@ class App {
             window.addEventListener('resize', () => {
                 this.waveform.resize();
                 this.waveform.render();
-                if (this._genMode) this.genCtrl._genResizeOverlay();
             });
         } catch (e) {
             console.error('Waveform init failed:', e);
@@ -127,6 +121,7 @@ class App {
         try {
             await this.slots.init();
             this.slots.onChange = () => this.renderSlotGrid();
+            this._restoreDeviceSlotState(); // device-recording markers live in localStorage, not IndexedDB -- must run after slots exist
             this.renderSlotGrid();
         } catch (e) {
             console.error('IndexedDB init failed:', e);
@@ -178,6 +173,161 @@ class App {
                 }
             }
         } catch (e) { console.warn('Audio init:', e); }
+    }
+
+    // Shared start/stop for both recording sources -- every existing gesture (toolbar
+    // REC button toggle, tapping the currently-recording slot to stop, tapping a
+    // selected empty slot to start) routes through these two so device recording
+    // shows up exactly like local mic recording: same recordingSlotIndex bookkeeping,
+    // same slot highlight, same rename-on-finish -- just a different backend.
+    async _beginRecording(index) {
+        if (this.device && this.device.isConnected()) {
+            // _deviceInMscMode survives a page refresh (persisted to localStorage) --
+            // catch this before wasting a 2s watchdog timeout on it. A device in MSC
+            // mode is running runMscMode()'s minimal loop, which recognizes only
+            // "MSCMODE OFF" and silently ignores everything else, including RECBTN.
+            if (this._deviceInMscMode) {
+                alert('SCM is in mass storage mode -- exit it first (device menu > "Exit mass storage mode...") before recording.');
+                return;
+            }
+            this.recordingSlotIndex = index;
+            document.getElementById('waveform-empty').hidden = true;
+            document.getElementById('rec-btn').classList.add('recording');
+            this.renderSlotGrid();
+            this._armDeviceRecordWatchdog();
+            try {
+                await this.device.toggleRecord();
+            } catch (err) {
+                this._clearDeviceRecordWatchdog();
+                this.recordingSlotIndex = -1;
+                document.getElementById('rec-btn').classList.remove('recording');
+                this.renderSlotGrid();
+                alert('Device record failed: ' + err.message);
+            }
+            return;
+        }
+        await this.rec.startRecording(index);
+    }
+
+    async _endRecording() {
+        if (this.device && this.device.isConnected() && this.recordingSlotIndex >= 0) {
+            this._armDeviceRecordWatchdog();
+            try {
+                await this.device.toggleRecord();
+            } catch (err) {
+                this._clearDeviceRecordWatchdog();
+                alert('Device record failed: ' + err.message);
+            }
+            return;
+        }
+        await this.rec.stopRecording();
+    }
+
+    // Shared by both play triggers (toolbar Play button, tapping a device-recorded
+    // slot). Remembers which slot so _handleDeviceState's 'playing' case can draw
+    // that slot's placeholder waveform in the main viewer -- same reused peaks
+    // data as the mini slot canvas, just not accumulated live since it's already
+    // complete by playback time.
+    _playDeviceSlot(index, slot) {
+        this._devicePlayingSlot = index;
+        const p = slot._devicePath ? this.device.playFile(slot._devicePath) : this.device.play();
+        p.catch(err => alert('Playback failed: ' + err.message));
+    }
+
+    // Every RECBTN send arms this. Cleared the instant ANY parsed line arrives
+    // (see _handleDeviceState) -- REC_STATE, REC ERR/WARN, busy, meter, whatever --
+    // since receiving literally anything proves the firmware is alive and responding.
+    // If nothing arrives at all within the timeout, the most likely explanation is
+    // there's no AudioRecorder module in the currently loaded patch at all: the
+    // firmware's RECBTN handler only acts (and only ever prints REC_STATE/REC ERR/
+    // REC WARN/etc.) from *inside* its per-module AudioRecorder loop, so with no such
+    // module present, sending RECBTN produces zero output whatsoever -- the two
+    // silent-rejection bugs already fixed this session (no SD card, triggerMode=1)
+    // both lived one level deeper than that and still printed *something*. This is
+    // the general catch-all for "nothing happens, nothing anywhere says why."
+    _armDeviceRecordWatchdog() {
+        this._clearDeviceRecordWatchdog();
+        this._deviceRecordWatchdog = setTimeout(() => {
+            this._deviceRecordWatchdog = null;
+            this._deviceRecordingActive = false;
+            this.recordingSlotIndex = -1;
+            document.getElementById('rec-btn').classList.remove('recording');
+            document.getElementById('device-level-meter').hidden = true;
+            this.device.disableMeter().catch(() => {});
+            this.renderSlotGrid();
+            alert('SCM: no response to record command (2s timeout). Most likely cause: no AudioRecorder module in the currently loaded patch, or the device is in mass storage mode. Could also mean the connection dropped.');
+        }, 2000);
+    }
+
+    _clearDeviceRecordWatchdog() {
+        if (this._deviceRecordWatchdog) {
+            clearTimeout(this._deviceRecordWatchdog);
+            this._deviceRecordWatchdog = null;
+        }
+    }
+
+    // Like slots.findEmptySlot(), but also skips slots holding a device recording --
+    // findEmptySlot() only knows about hasAudio/type, not the device-recording marker.
+    _findRecordableSlot() {
+        for (let i = 0; i < this.slots.slots.length; i++) {
+            const s = this.slots.slots[i];
+            if (!s.hasAudio && s.type !== 'kit' && !s._deviceRecording) return i;
+        }
+        return -1;
+    }
+
+    // Device-recording markers (_deviceRecording/_devicePath/name) live on the
+    // in-memory slot objects, not IndexedDB (there's no local audio to persist
+    // there) -- without this they'd vanish on every page reload while the actual
+    // files sit untouched on SCM's SD card. Small enough for localStorage, same
+    // pattern as DeviceController's own connection-preference persistence.
+    _saveDeviceSlotState() {
+        try {
+            const state = {};
+            this.slots.slots.forEach((s, i) => {
+                if (s._deviceRecording) {
+                    state[i] = { path: s._devicePath, name: s.name || null, peaks: s.peaks || null };
+                }
+            });
+            localStorage.setItem('soniphorm-device-slots', JSON.stringify(state));
+        } catch (_) {}
+    }
+
+    _restoreDeviceSlotState() {
+        let state;
+        try {
+            const json = localStorage.getItem('soniphorm-device-slots');
+            if (!json) return;
+            state = JSON.parse(json);
+        } catch (_) { return; }
+        for (const i of Object.keys(state)) {
+            const slot = this.slots.slots[i];
+            // A real local recording (from IndexedDB) takes precedence over a stale
+            // device marker -- shouldn't normally overlap, but don't fight it if it does.
+            if (!slot || slot.hasAudio) continue;
+            slot._deviceRecording = true;
+            slot._devicePath = state[i].path;
+            if (state[i].name) slot.name = capSlotName(state[i].name);
+            if (state[i].peaks) slot.peaks = state[i].peaks;
+        }
+    }
+
+    // Fully empties a slot: local audio (IndexedDB, via clearSlot()) AND any
+    // device-recording marker pointing at a file on the SCM's SD card. clearSlot()
+    // alone only clears the local-audio half -- _deviceRecording/_devicePath live
+    // entirely outside SlotManager (see _saveDeviceSlotState() above), so a slot
+    // whose device file no longer exists (e.g. the SD card got reformatted) would
+    // otherwise stay permanently marked as holding a device recording: skipped by
+    // _findRecordableSlot() forever, and its rec/play buttons routed at a dead
+    // file instead of allowing a new recording in. Always clear both halves together.
+    async _clearSlotFully(index) {
+        await this.slots.clearSlot(index);
+        const slot = this.slots.slots[index];
+        if (slot) {
+            slot._deviceRecording = false;
+            slot._devicePath = null;
+        }
+        this._saveDeviceSlotState();
     }
 
     // === Slot Grid ===
@@ -255,7 +405,7 @@ class App {
                 });
             }
 
-            // Sample/Gen mode: trigger on press, release on lift
+            // Sample mode: trigger on press, release on lift
             let usedTouch = false;
             let longPressTimer = null;
 
@@ -264,7 +414,6 @@ class App {
                     if (usedTouch) return;
                     if (e.button !== 0) return;
                     if (this._sampleMode) this.sample.samplePadTap(i);
-                    else if (this._genMode) this.genCtrl._genPadTrigger(i);
                     else {
                         // Long-press for context menu on desktop without right-click (e.g. macOS single-button)
                         longPressTimer = setTimeout(() => {
@@ -280,13 +429,11 @@ class App {
                     if (usedTouch) return;
                     if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
                     if (this._sampleMode) this.sample.samplePadRelease(i);
-                    else if (this._genMode) this.sampler.release(i);
                 });
                 el.addEventListener('mouseleave', () => {
                     if (usedTouch) return;
                     if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
                     if (this._sampleMode) this.sample.samplePadRelease(i);
-                    else if (this._genMode) this.sampler.release(i);
                 });
 
                 // Touch events
@@ -295,9 +442,6 @@ class App {
                     if (this._sampleMode) {
                         e.preventDefault();
                         this.sample.samplePadTap(i);
-                    } else if (this._genMode) {
-                        e.preventDefault();
-                        this.genCtrl._genPadTrigger(i);
                     } else {
                         // Long-press for context menu on iOS (contextmenu event not fired)
                         const touch = e.touches[0];
@@ -316,23 +460,19 @@ class App {
                     if (this._sampleMode) {
                         e.preventDefault();
                         this.sample.samplePadRelease(i);
-                    } else if (this._genMode) {
-                        e.preventDefault();
-                        this.sampler.release(i);
                     }
                     setTimeout(() => { usedTouch = false; }, 400);
                 });
                 el.addEventListener('touchcancel', () => {
                     if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
                     if (this._sampleMode) this.sample.samplePadRelease(i);
-                    else if (this._genMode) this.sampler.release(i);
                     setTimeout(() => { usedTouch = false; }, 400);
                 });
             }
 
             grid.appendChild(el);
         }
-        if (!this._seqMode && !this._genMode) this.renderSlotGrid();
+        if (!this._seqMode) this.renderSlotGrid();
     }
 
     renderSlotGrid() {
@@ -346,6 +486,12 @@ class App {
             if (isKit) {
                 nameEl.textContent = slot.name || 'Kit';
                 nameEl.className = 'slot-name';
+            } else if (slot._deviceRecording) {
+                // Recorded on SCM's SD card, not pulled into the browser yet (no local
+                // hasAudio) -- distinct from both "empty" and a real local recording so
+                // it's clear there's something here worth tapping to play, not record over.
+                nameEl.textContent = slot.name || 'on device';
+                nameEl.className = 'slot-name device-recording';
             } else {
                 nameEl.textContent = slot.hasAudio ? (slot.name || 'untitled') : 'empty';
                 nameEl.className = `slot-name ${slot.hasAudio ? '' : 'empty'}`;
@@ -355,6 +501,7 @@ class App {
             el.className = 'slot';
             el.dataset.bank = slot.bank;
             if (isKit) el.classList.add('slot-kit');
+            if (slot._deviceRecording) el.classList.add('device-recording');
 
             // Clean up seq/sample-mode elements
             const iconsEl = el.querySelector('.step-mode-icons');
@@ -384,6 +531,21 @@ class App {
             } else if (slot.hasAudio && slot.peaks) {
                 const color = isSelected ? 'rgba(255,255,255,0.8)' : 'rgba(14,165,233,0.6)';
                 WaveformRenderer.drawMiniFromPeaks(miniCanvas, slot.peaks, color);
+            } else if (slot._deviceRecording && slot.peaks) {
+                // Low-res placeholder built from streamed MTR levels, not real audio --
+                // same drawing code as a genuine recording, distinct color so it still
+                // reads as "not the real waveform yet" (replaced wholesale by real
+                // peaks once actual audio is ever pulled in, e.g. future MSC import).
+                const color = isSelected ? 'rgba(255,255,255,0.7)' : 'rgba(59,130,246,0.6)';
+                WaveformRenderer.drawMiniFromPeaks(miniCanvas, slot.peaks, color);
+            } else if (slot._deviceRecording) {
+                // No peaks captured for this one (e.g. meter stream dropped mid-take) --
+                // plain tint rather than a blank canvas so it doesn't read as truly empty.
+                const ctx = miniCanvas.getContext('2d');
+                miniCanvas.width = miniCanvas.clientWidth;
+                miniCanvas.height = miniCanvas.clientHeight;
+                ctx.fillStyle = 'rgba(59,130,246,0.25)';
+                ctx.fillRect(0, 0, miniCanvas.width, miniCanvas.height);
             } else if (!slot.hasAudio) {
                 const ctx = miniCanvas.getContext('2d');
                 miniCanvas.width = miniCanvas.clientWidth;
@@ -391,6 +553,23 @@ class App {
                 ctx.clearRect(0, 0, miniCanvas.width, miniCanvas.height);
             }
         });
+    }
+
+    // Shared by REC and SAMPLE mode's onSlotTap() -- if there's an active
+    // waveform selection and the tapped slot is empty, offers to copy that
+    // region into it. Returns true if it handled the tap (copy done), false
+    // if there was nothing to do or the user declined (caller falls through
+    // to its own normal tap handling in that case).
+    async _trySelectionCopyToSlot(index) {
+        const slot = this.slots.slots[index];
+        if (!slot || slot.hasAudio || !this.channels) return false;
+        const sel = this.waveform.getSelection();
+        if (!sel) return false;
+        if (!confirm(`Copy selection to slot ${index + 1}?`)) return false;
+        const copied = this.channels.map(ch => ch.slice(sel.start, sel.end));
+        await this.slots.saveSlotAudio(index, copied, this.bufferSampleRate);
+        this.renderSlotGrid();
+        return true;
     }
 
     async onSlotTap(index) {
@@ -404,13 +583,16 @@ class App {
             this.seq.seqStepTap(index);
             return;
         }
-        // In gen mode, select pad for mapping
-        if (this._genMode) {
-            this.genCtrl._genSelectPad(index);
-            return;
-        }
-        // In sampler mode, trigger is handled by mousedown/touchstart
+        // In sampler mode, trigger is handled by mousedown/touchstart -- but a
+        // selection-to-empty-slot copy (see _trySelectionCopyToSlot()) is still
+        // worth honoring here first: SAMPLE mode's own waveform view reuses the
+        // same shared this.channels/this.waveform REC mode does (see
+        // sample-controller.js's pad-select loading them), so a region selected
+        // while auditioning a pad's sample is just as real a selection as one
+        // made in REC mode -- it just never used to be checked here at all.
         if (this._sampleMode) {
+            await this.ensureAudioInit();
+            await this._trySelectionCopyToSlot(index);
             return;
         }
         await this.ensureAudioInit();
@@ -429,7 +611,7 @@ class App {
 
         // If we're recording into this slot, stop recording
         if (this.recordingSlotIndex === index) {
-            await this.rec.stopRecording();
+            await this._endRecording();
             return;
         }
 
@@ -438,20 +620,20 @@ class App {
         if (this._resampleTargetSlot >= 0) return;
 
         // If a selection exists and this is an empty slot, offer to copy
-        if (!slot.hasAudio && this.channels && this.waveform.getSelection()) {
-            const sel = this.waveform.getSelection();
-            if (sel && confirm(`Copy selection to slot ${index + 1}?`)) {
-                const copied = this.channels.map(ch => ch.slice(sel.start, sel.end));
-                await this.slots.saveSlotAudio(index, copied, this.bufferSampleRate);
+        if (await this._trySelectionCopyToSlot(index)) return;
 
-                this.renderSlotGrid();
-                return;
-            }
+        // Slot already holds a device recording (audio lives on SCM's SD card, not
+        // pulled into the browser yet) -- play it back instead of recording over it.
+        // Uses RECPLAY <path> (real slot-to-file linking) when the slot's path is
+        // known; falls back to RECBTN 2 (plays whatever's newest on SD) only for
+        // older slots that predate _devicePath tracking.
+        if (index === this.slots.selectedIndex && slot._deviceRecording) {
+            if (this.device && this.device.isConnected()) this._playDeviceSlot(index, slot);
+            return;
         }
-
         // If this slot is already selected and empty, start recording
         if (index === this.slots.selectedIndex && !slot.hasAudio) {
-            await this.rec.startRecording(index);
+            await this._beginRecording(index);
             return;
         }
 
@@ -608,7 +790,39 @@ class App {
         const dialog = document.getElementById('rename-dialog');
         const input = document.getElementById('rename-input');
         document.getElementById('rename-ok').addEventListener('click', async () => {
-            const name = input.value.trim() || 'untitled';
+            // maxlength on the input only constrains typing -- _showDeviceRenameDialog()
+            // prefills it with the device's raw filename via input.value = base, which
+            // maxlength doesn't retroactively truncate, so an untouched long prefill can
+            // still reach here uncapped without this.
+            const name = capSlotName(input.value.trim()) || 'untitled';
+            if (dialog._devicePath) {
+                // Take recorded on the SCM's own SD card -- rename in place via FMOVE
+                // rather than the local slot rename (there's no in-browser audio buffer
+                // for this take; it stays on-device until pulled off, e.g. via mass storage).
+                const oldPath = dialog._devicePath;
+                const slotIndex = dialog._deviceSlotIndex;
+                dialog._devicePath = null;
+                dialog._deviceSlotIndex = null;
+                dialog.hidden = true;
+                const dir = oldPath.substring(0, oldPath.lastIndexOf('/'));
+                const newPath = `${dir}/${name}.wav`;
+                try {
+                    await this.device.renameFile(oldPath, newPath);
+                    const status = document.getElementById('device-status');
+                    if (status) status.textContent = `Saved as ${name}.wav`;
+                    // renameFile only touches the file on SD -- the slot grid has no
+                    // idea a rename happened otherwise (no local hasAudio to key off).
+                    if (slotIndex >= 0 && this.slots.slots[slotIndex]) {
+                        this.slots.slots[slotIndex].name = name;
+                        this.slots.slots[slotIndex]._devicePath = newPath;
+                        this._saveDeviceSlotState();
+                        this.renderSlotGrid();
+                    }
+                } catch (err) {
+                    alert('Rename failed: ' + err.message);
+                }
+                return;
+            }
             if (dialog._isKitSlot) {
                 await this.slots.renameKitSlot(dialog._kitParentSlot, dialog._slotIndex, name);
                 dialog._isKitSlot = false;
@@ -625,6 +839,16 @@ class App {
             }
         });
         document.getElementById('rename-cancel').addEventListener('click', () => {
+            // Leave the device recording under its auto-generated name -- but still show
+            // that name on the slot (the input box is pre-filled with it) rather than
+            // falling back to the generic "on device" placeholder.
+            if (dialog._devicePath && dialog._deviceSlotIndex >= 0 && this.slots.slots[dialog._deviceSlotIndex]) {
+                this.slots.slots[dialog._deviceSlotIndex].name = capSlotName(input.value);
+                this._saveDeviceSlotState();
+                this.renderSlotGrid();
+            }
+            dialog._devicePath = null;
+            dialog._deviceSlotIndex = null;
             dialog.hidden = true;
         });
         input.addEventListener('keydown', (e) => {
@@ -676,7 +900,7 @@ class App {
                         }
                     } else {
                         if (confirm(`Clear slot ${index + 1}?`)) {
-                            await this.slots.clearSlot(index);
+                            await this._clearSlotFully(index);
                             if (index === this.slots.selectedIndex) {
                                 this.channels = null;
                                 this.waveform.clear();
@@ -720,20 +944,25 @@ class App {
         $('rec-btn').addEventListener('click', async () => {
             await this.ensureAudioInit();
             if (this.recordingSlotIndex >= 0) {
-                await this.rec.stopRecording();
+                await this._endRecording();
             } else if (this.slots.selectedIndex >= 0) {
                 const slot = this.slots.getSelectedSlot();
-                if (slot && !slot.hasAudio) {
-                    await this.rec.startRecording(this.slots.selectedIndex);
+                if (slot && slot._deviceRecording) {
+                    // Selected slot already holds a device recording -- play it back
+                    // (same rule as tapping it directly) rather than recording over it.
+                    if (this.device && this.device.isConnected()) this._playDeviceSlot(this.slots.selectedIndex, slot);
+                } else if (slot && !slot.hasAudio) {
+                    await this._beginRecording(this.slots.selectedIndex);
                 } else {
-                    // Find an empty slot
-                    const empty = this.slots.findEmptySlot();
+                    // Find an empty slot (skipping ones that hold a device recording,
+                    // which findEmptySlot() doesn't know about)
+                    const empty = this._findRecordableSlot();
                     if (empty >= 0) {
                         this.slots.selectSlot(empty);
                         this.channels = null;
                         this.waveform.clear();
                         this.renderSlotGrid();
-                        await this.rec.startRecording(empty);
+                        await this._beginRecording(empty);
                     } else {
                         alert('No empty slots available');
                     }
@@ -742,6 +971,11 @@ class App {
         });
 
         $('play-btn').addEventListener('click', () => {
+            const slot = this.slots.getSelectedSlot();
+            if (slot && slot._deviceRecording) {
+                if (this.device && this.device.isConnected()) this._playDeviceSlot(this.slots.selectedIndex, slot);
+                return;
+            }
             if ($('play-btn').classList.contains('playing')) this.rec.stopAudio();
             else this.rec.playAudio();
         });
@@ -826,6 +1060,68 @@ class App {
 
         // Main menu
         $('menu-btn').addEventListener('click', () => this._toggleMainMenu());
+        // scm-indicator is a one-click cycle through the whole device workflow --
+        // BLE-first (matches the phone-centric, cable-free story), not the menu's
+        // Serial-preferred connect(). Deliberately not a menu shortcut (redundant
+        // with menu-btn next to it). The explicit USB/Bluetooth/MSC buttons in the
+        // device menu stay as the fallback for anyone who wants to be specific or
+        // whose computer has no Bluetooth.
+        //
+        // States, purely derived from isConnected()/_deviceInMscMode except one
+        // extra bit (_scmBtnImportedThisMsc) needed because "in MSC mode,
+        // disconnected" looks identical whether this is the first click after
+        // entering (should load files) or a later one (should reconnect) --
+        // reset to false every time MSC mode is freshly entered (_enterMscMode()).
+        //   1. disconnected, not in MSC mode -> connect via BLE
+        //   2. connected, not in MSC mode     -> enter mass storage mode
+        //   3. in MSC mode, not yet loaded    -> load recordings from drive
+        //   4. in MSC mode, already loaded    -> reconnect (which also auto-exits
+        //                                        MSC mode, see onConnect above)
+        $('scm-indicator').addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (!this.device) return;
+
+            if (this._deviceInMscMode) {
+                if (!this._scmBtnImportedThisMsc) {
+                    this._scmBtnImportedThisMsc = true;
+                    this._scmBtnLoading = true;
+                    this._updateDeviceStatus();
+                    try {
+                        await this._importRecordingsFromDrive();
+                    } finally {
+                        this._scmBtnLoading = false;
+                        this._updateDeviceStatus();
+                    }
+                    return;
+                }
+                try {
+                    await this.device.connectBle();
+                } catch (err) {
+                    alert('Couldn\'t find your SCM. Check it\'s powered on and Bluetooth is enabled -- or connect via USB from the device menu.');
+                }
+                return;
+            }
+
+            if (this.device.isConnected()) {
+                if (!confirm('Reboot SCM into mass storage mode? The SD card will mount as a drive, and the device will disconnect until you reconnect.')) return;
+                try {
+                    await this._enterMscMode();
+                } catch (err) {
+                    alert('Failed to enter mass storage mode: ' + err.message);
+                }
+                return;
+            }
+
+            try {
+                await this.device.connectBle();
+            } catch (err) {
+                // Web Bluetooth doesn't distinguish "user cancelled the chooser"
+                // from "no device found" cleanly enough to stay silent on one and
+                // not the other (both can surface as NotFoundError) -- always show
+                // the friendly fallback rather than risk swallowing a real failure.
+                alert('Couldn\'t find your SCM. Check it\'s powered on and Bluetooth is enabled -- or connect via USB from the device menu.');
+            }
+        });
 
         // MIDI settings toggle (direct handler on menu button)
         const midiBtn = $('midi-btn');
@@ -853,6 +1149,18 @@ class App {
             });
         }
 
+        // Device (SCM) settings toggle
+        const deviceBtn = $('device-btn');
+        if (deviceBtn) {
+            deviceBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const panel = document.getElementById('device-settings');
+                const show = panel.hidden;
+                panel.hidden = !show;
+                e.target.classList.toggle('menu-active', show);
+                if (show) this._updateDeviceStatus();
+            });
+        }
 
         document.getElementById('main-menu').addEventListener('click', async (e) => {
             const action = e.target.dataset.action;
@@ -882,7 +1190,7 @@ class App {
             }
             if (action === 'midi') return; // handled by direct listener
             if (action === 'dmx') return; // handled by direct listener
-            document.getElementById('main-menu').hidden = true;
+            this._closeMainMenu();
             if (action === 'bounce') this.rec.bounceToSlot();
             if (action === 'export-all') this.rec.exportAllSlots();
             if (action === 'save-project') this.rec.saveProject();
@@ -895,12 +1203,11 @@ class App {
         $('mode-rec').addEventListener('click', () => this.switchMode('rec'));
         $('mode-sample').addEventListener('click', () => this.switchMode('sample'));
         $('mode-seq').addEventListener('click', () => this.switchMode('seq'));
-        $('mode-gen').addEventListener('click', () => this.switchMode('gen'));
 
         // Waveform context menu
         const wfCanvas = document.getElementById('waveform');
         wfCanvas.addEventListener('contextmenu', (e) => {
-            if (this._sampleMode || this._seqMode || this._genMode) return;
+            if (this._sampleMode || this._seqMode) return;
             e.preventDefault();
             this._showWaveformMenu(e.clientX, e.clientY);
         });
@@ -940,32 +1247,7 @@ class App {
             document.getElementById('waveform-menu').hidden = true;
         });
 
-        // Gen transport bindings
-        $('gen-source-file').addEventListener('click', () => this.genCtrl._genSetSource('file'));
-        $('gen-source-cam').addEventListener('click', () => this.genCtrl._genSetSource('camera'));
-        $('gen-cam-select').addEventListener('change', () => this.genCtrl._genSwitchCamera());
-        $('gen-load-btn').addEventListener('click', () => $('gen-file-input').click());
-        $('gen-file-input').addEventListener('change', (e) => this.genCtrl._genLoadVideo(e));
         $('project-file-input').addEventListener('change', (e) => this.rec.loadProject(e));
-        $('gen-play-btn').addEventListener('click', () => this.genCtrl._genTogglePlay());
-        $('gen-stop-btn').addEventListener('click', () => this.genCtrl._genStop());
-        $('gen-expand-btn').addEventListener('click', () => this.genCtrl._genToggleExpand());
-        $('gen-rec-btn').addEventListener('click', () => this.genCtrl._genToggleRec());
-        $('gen-toggle-btn').addEventListener('click', () => this.genCtrl._genToggleMaster());
-        $('gen-loop-btn').addEventListener('click', () => this.genCtrl._genToggleLoop());
-        $('gen-in-slider').addEventListener('input', (e) => this.genCtrl._genOnInSlider(e.target.value));
-        $('gen-out-slider').addEventListener('input', (e) => this.genCtrl._genOnOutSlider(e.target.value));
-        $('gen-add-mapping-btn').addEventListener('click', () => this.genCtrl._genAddMapping());
-        $('gen-clear-pad-maps-btn').addEventListener('click', () => this.genCtrl._genClearPadMappings());
-        $('gen-zones-btn').addEventListener('click', () => this.genCtrl._genToggleZonesMode());
-        $('gen-add-zone-btn').addEventListener('click', () => this.genCtrl._genAddZone());
-        $('gen-clear-zones-btn').addEventListener('click', () => {
-            this.gen.zones = [];
-            this.gen._nextZoneId = 100;
-            this.genCtrl._genUpdateZonePanel();
-            this.genCtrl._genDrawOverlay();
-            this.genCtrl._genSaveZones();
-        });
 
         // Kit mode back button
         $('kit-back-btn').addEventListener('click', () => this._exitKitMode());
@@ -1114,16 +1396,52 @@ class App {
 
     _toggleMainMenu() {
         const menu = document.getElementById('main-menu');
-        menu.hidden = !menu.hidden;
-        if (!menu.hidden) {
-            const close = (ev) => {
-                if (!menu.contains(ev.target) && ev.target.id !== 'menu-btn') {
-                    menu.hidden = true;
-                    document.removeEventListener('click', close);
-                }
-            };
-            setTimeout(() => document.addEventListener('click', close), 10);
+        if (menu.hidden) {
+            menu.hidden = false;
+            // Bound once and reused -- instance-scoped rather than a fresh closure
+            // per open, so _closeMainMenu() (called from other places too: the
+            // action-button dispatcher, the DMX test dialog) always cleans up
+            // exactly the listeners/timer that are actually live, regardless of
+            // which call opened the menu most recently. A fresh-closure-per-open
+            // version left old listeners/timers dangling whenever the menu was
+            // closed by one of those other direct-hide sites instead of this
+            // function's own outside-click/timeout path -- reopening would then
+            // layer a second live timer on top of the first, and the stale one
+            // could fire mid-interaction and close the menu unexpectedly.
+            if (!this._menuOutsideClickHandler) {
+                this._menuOutsideClickHandler = (ev) => {
+                    const m = document.getElementById('main-menu');
+                    if (!m.hidden && !m.contains(ev.target) && ev.target.id !== 'menu-btn') this._closeMainMenu();
+                };
+            }
+            if (!this._menuInteractionHandler) {
+                this._menuInteractionHandler = () => this._armMenuAutoClose();
+            }
+            setTimeout(() => document.addEventListener('click', this._menuOutsideClickHandler), 10);
+            menu.addEventListener('click', this._menuInteractionHandler);
+            menu.addEventListener('change', this._menuInteractionHandler); // <select> interactions inside the menu
+            this._armMenuAutoClose();
+        } else {
+            this._closeMainMenu();
         }
+    }
+
+    // Any interaction inside the menu (including opening a sub-panel like MIDI/
+    // DMX/device settings) resets this -- only genuine 10s inactivity closes it.
+    _armMenuAutoClose() {
+        if (this._menuAutoCloseTimer) clearTimeout(this._menuAutoCloseTimer);
+        this._menuAutoCloseTimer = setTimeout(() => this._closeMainMenu(), 10000);
+    }
+
+    _closeMainMenu() {
+        const menu = document.getElementById('main-menu');
+        menu.hidden = true;
+        if (this._menuOutsideClickHandler) document.removeEventListener('click', this._menuOutsideClickHandler);
+        if (this._menuInteractionHandler) {
+            menu.removeEventListener('click', this._menuInteractionHandler);
+            menu.removeEventListener('change', this._menuInteractionHandler);
+        }
+        if (this._menuAutoCloseTimer) { clearTimeout(this._menuAutoCloseTimer); this._menuAutoCloseTimer = null; }
     }
 
     async deleteAll() {
@@ -1147,9 +1465,8 @@ class App {
                 delete this.slots.kitSlots[i];
                 this.slots.slots[i].type = 'normal';
                 try { localStorage.removeItem('soniphorm-kit-pads-' + i); } catch (e) {}
-                try { localStorage.removeItem('soniphorm-gen-zones-' + i); } catch (e) {}
             }
-            await this.slots.clearSlot(i);
+            await this._clearSlotFully(i);
         }
 
         // Clear sequencer
@@ -1173,11 +1490,6 @@ class App {
                 Object.assign(this.sampler.pads[i], Sampler.defaultPad());
             }
             this.sample._saveSamplerConfig();
-        }
-
-        // Clear gen sensors
-        if (this.genCtrl) {
-            this.genCtrl._genClearAllSensors();
         }
 
         // Clear app state
@@ -1215,9 +1527,11 @@ class App {
     updateToolbarState() {
         const hasAudio = !!this.channels;
         const hasSel = hasAudio && !!this.waveform.getSelection();
+        const selectedSlot = this.slots.getSelectedSlot();
+        const deviceRecordingSelected = !!(selectedSlot && selectedSlot._deviceRecording);
 
         document.getElementById('rec-btn').disabled = false;
-        document.getElementById('play-btn').disabled = !hasAudio;
+        document.getElementById('play-btn').disabled = !hasAudio && !deviceRecordingSelected;
         document.getElementById('loop-btn').disabled = !hasAudio;
         document.getElementById('trim-btn').disabled = !hasSel;
         document.getElementById('reverse-btn').disabled = !hasAudio;
@@ -1276,9 +1590,6 @@ class App {
         if (this._seqMode) {
             this.seq.exit(mode);
         }
-        if (this._genMode) {
-            this.genCtrl.exit();
-        }
         if (this._sampleMode) {
             this.sample.exit(mode);
         }
@@ -1288,8 +1599,6 @@ class App {
             await this.seq.enter();
         } else if (mode === 'sample') {
             await this.sample.enter();
-        } else if (mode === 'gen') {
-            await this.genCtrl.enter();
         } else {
             // rec mode — rebuild grid (seq mode may have >16 slots)
             if (this._kitMode) {
@@ -1308,33 +1617,26 @@ class App {
         document.getElementById('mode-rec').classList.toggle('active', mode === 'rec');
         document.getElementById('mode-sample').classList.toggle('active', mode === 'sample');
         document.getElementById('mode-seq').classList.toggle('active', mode === 'seq');
-        document.getElementById('mode-gen').classList.toggle('active', mode === 'gen');
 
         // Show/hide transport bars and toolbar
         document.getElementById('seq-transport').classList.toggle('active', mode === 'seq' || (mode === 'sample' && this._seqShowTransportInSample));
         document.getElementById('sample-transport').classList.toggle('active', mode === 'sample');
-        document.getElementById('gen-transport').classList.toggle('active', mode === 'gen');
         document.getElementById('slot-grid').classList.toggle('seq-mode', mode === 'seq');
         document.getElementById('slot-grid').classList.toggle('sample-mode', mode === 'sample');
-        document.getElementById('slot-grid').classList.toggle('gen-mode', mode === 'gen');
         document.getElementById('toolbar').classList.toggle('sample-mode', mode === 'sample');
         document.getElementById('toolbar').classList.toggle('seq-mode', mode === 'seq');
-        document.getElementById('toolbar').classList.toggle('gen-mode', mode === 'gen');
 
         // Header title
         if (this._kitMode) {
             const kitName = this.slots.slots[this._kitParentSlot].name || 'Kit';
             document.querySelector('.header-title').textContent = 'KIT: ' + kitName;
         } else {
-            const titles = { rec: 'SONICRAFT', sample: 'SAMPLER', seq: 'SEQUENCER', gen: 'GENERATIVE' };
+            const titles = { rec: 'SONICRAFT', sample: 'SAMPLER', seq: 'SEQUENCER' };
             document.querySelector('.header-title').textContent = titles[mode];
         }
 
         // Show drum grid toggle button in SEQ mode when in kit mode
         document.getElementById('seq-drum-grid-btn').hidden = !(mode === 'seq' && this._kitMode);
-
-        // Zones button visibility is handled by genCtrl.enter() (after auto-kit-mode-entry)
-        if (mode !== 'gen') document.getElementById('gen-zones-btn').hidden = true;
 
         // Maintain kit-mode class on slot grid
         if (this._kitMode) {
@@ -1518,11 +1820,709 @@ class App {
         if (btn) btn.textContent = this.dmx.connected ? 'Disconnect' : 'Connect…';
     }
 
+    // === Smart Contact Mic (device recording) ===
+
+    _initDevice() {
+        if (typeof DeviceController === 'undefined') return;
+        this.device = new DeviceController();
+        this._deviceRecordingActive = false;
+        this._deviceRecordingPath = null;
+        this._devicePlayingSlot = -1;
+        this._deviceInMscMode = this._loadMscModeState();
+        this._updateMscButton();
+
+        this.device.onConnect = () => {
+            this._updateDeviceStatus();
+            this._updateMscButton();
+            // If still marked as in MSC mode, finish the job automatically -- unlike
+            // requestPort()/requestDevice() (which genuinely need a fresh user
+            // gesture, confirmed the hard way: a confirm() dialog's "OK" click does
+            // NOT count, Chrome rejected it with "must be handling a user gesture"),
+            // sending a command over an ALREADY-open connection has no such
+            // requirement. The click that triggered this connect (the real USB/
+            // Bluetooth button) is gesture enough to get here; nothing further is
+            // needed to also exit MSC mode right after.
+            if (this._deviceInMscMode) this._exitMscMode(true);
+            this.device.getSdSpace().then((space) => this._maybeWarnSdSpace(space)).catch(() => {});
+        };
+        this.device.onDisconnect = () => {
+            this._deviceRecordingActive = false;
+            if (this.recordingSlotIndex >= 0) {
+                this.recordingSlotIndex = -1;
+                this.renderSlotGrid();
+            }
+            document.getElementById('rec-btn').classList.remove('recording');
+            document.getElementById('device-level-meter').hidden = true;
+            // Used to unconditionally reset _deviceInMscMode to false here, on the
+            // theory that "any disconnect this app didn't just cause" means the
+            // device rebooted back to normal. That reasoning doesn't hold: entering
+            // MSC mode ALSO disconnects (the device reboots into it) -- so the very
+            // first disconnect after a successful "Mass storage mode..." click was
+            // this exact "unrelated" case by the code's own logic, immediately
+            // undoing the true value the click handler had just set. Confirmed live:
+            // Ed entered MSC mode, imported files, and the button still read "Mass
+            // storage mode..." (enter) instead of "Exit..." because of this.
+            // _deviceInMscMode is already kept correct by the two calls that
+            // actually change it (enterMassStorageMode()/_exitMscMode(), both set
+            // synchronously before any resulting reboot-disconnect fires) plus the
+            // defensive correction in _handleDeviceState()'s mscModeOn/mscModeOff
+            // cases, which reacts to the device's own genuine "MSC_MODE ON/OFF"
+            // boot announcement -- real ground truth, unlike a bare disconnect
+            // event, which carries no information about which mode caused it (or
+            // whether the device even rebooted at all -- a plain cable-pull/BLE-
+            // out-of-range disconnect doesn't reboot anything, so the device's mode
+            // is unchanged and this app's belief about it should be too).
+            this._updateDeviceStatus();
+            this._updateMscButton();
+            this._sdSpaceWarned = false; // re-check fresh next connect, don't carry a stale "already told them" flag
+        };
+        this.device.onError = (err) => {
+            console.warn('Device error:', err);
+            this._updateDeviceStatus();
+        };
+        this.device.onState = (event) => this._handleDeviceState(event);
+
+        const connectBtn = document.getElementById('device-connect-btn');
+        const connectBleBtn = document.getElementById('device-connect-ble-btn');
+        if (connectBtn) {
+            connectBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (this.device.isConnected()) {
+                    await this.device.disconnect();
+                } else {
+                    try {
+                        await this.device.connectSerial();
+                    } catch (err) {
+                        alert('Device connect failed: ' + err.message);
+                    }
+                }
+            });
+        }
+        if (connectBleBtn) {
+            connectBleBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (this.device.isConnected()) {
+                    await this.device.disconnect();
+                } else {
+                    try {
+                        await this.device.connectBle();
+                    } catch (err) {
+                        alert('Device connect failed: ' + err.message);
+                    }
+                }
+            });
+        }
+        const mscBtn = document.getElementById('device-msc-btn');
+        if (mscBtn) {
+            mscBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (!this.device.isConnected()) {
+                    // Was a silent no-op -- looked exactly like a broken button
+                    // (confirmed live: Ed clicked "Exit mass storage mode..." while
+                    // not connected and saw nothing happen at all, no error).
+                    alert('Not connected to SCM -- connect via USB or Bluetooth first.');
+                    return;
+                }
+                // _deviceInMscMode is the app's own memory of which command it last
+                // sent, not something read back from the device -- the device's own
+                // "MSC_MODE ON" announcement prints immediately on entry, likely
+                // before the app has even reconnected (device reboots + re-enumerates,
+                // which takes real time), so waiting to observe it would race. The app
+                // already knows what it told the device to do; that's more reliable
+                // than trying to catch a line that may have already gone by.
+                if (this._deviceInMscMode) {
+                    await this._exitMscMode(false);
+                    return;
+                }
+                if (!confirm('Reboot SCM into mass storage mode? The SD card will mount as a drive, and the device will disconnect until you reconnect and switch back with this button again.')) return;
+                try {
+                    await this._enterMscMode();
+                } catch (err) {
+                    alert('Failed to enter mass storage mode: ' + err.message);
+                }
+            });
+        }
+        const importBtn = document.getElementById('device-import-btn');
+        if (importBtn) {
+            importBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._importRecordingsFromDrive();
+            });
+        }
+
+        const prefs = this.device.loadSettings();
+        if (prefs.autoConnect && this.device.isSupported()) {
+            this.device.tryAutoConnect().catch(() => {});
+        }
+
+        this._updateDeviceStatus();
+    }
+
+    _updateDeviceStatus() {
+        const status = document.getElementById('device-status');
+        const btn = document.getElementById('device-connect-btn');
+        const bleBtn = document.getElementById('device-connect-ble-btn');
+        const indicator = document.getElementById('scm-indicator');
+        if (!this.device) return;
+        if (!this.device.isSupported()) {
+            if (status) status.textContent = 'Not supported — use Chrome/Edge, or Bluefy on iOS';
+            if (btn) btn.disabled = true;
+            if (bleBtn) bleBtn.disabled = true;
+            if (indicator) { indicator.classList.remove('connected'); indicator.title = 'SCM: not supported in this browser'; }
+            return;
+        }
+        const connected = this.device.isConnected();
+        const transport = this.device.getTransport();
+        if (status) status.textContent = connected ? 'Connected' : 'Not connected';
+        // Two separate connect buttons (USB / Bluetooth) rather than one auto-detect
+        // button -- 'serial' in navigator is a browser capability, not a signal that
+        // a device is actually reachable over USB right now, so auto-preferring
+        // Serial silently made BLE unreachable on any Serial-capable browser (e.g.
+        // a device powered but not USB-connected had nowhere to go). When connected,
+        // hide the transport that ISN'T active and turn the active one into Disconnect.
+        if (btn) {
+            if (connected && transport === 'ble') {
+                btn.hidden = true;
+            } else {
+                btn.hidden = false;
+                btn.textContent = connected ? 'Disconnect' : 'USB…';
+                btn.disabled = !('serial' in navigator);
+            }
+        }
+        if (bleBtn) {
+            if (connected && transport === 'serial') {
+                bleBtn.hidden = true;
+            } else {
+                bleBtn.hidden = false;
+                bleBtn.textContent = connected ? 'Disconnect' : 'Bluetooth…';
+                bleBtn.disabled = !('bluetooth' in navigator);
+            }
+        }
+        if (indicator) {
+            // Tooltip mirrors the click handler's own state cycle exactly (see
+            // its comment) so hovering tells you what the next click will do.
+            // Text label too -- color alone (grey/green/yellow) wasn't enough of
+            // a cue, especially for the "actively loading" moment, which used to
+            // look identical to plain "in MSC mode, nothing happening yet".
+            indicator.classList.toggle('msc-mode', this._deviceInMscMode);
+            indicator.classList.toggle('connected', connected && !this._deviceInMscMode);
+            indicator.classList.toggle('loading', !!this._scmBtnLoading);
+            if (this._scmBtnLoading) {
+                indicator.textContent = 'LOAD';
+                indicator.title = 'SCM: loading recordings from drive…';
+            } else if (this._deviceInMscMode) {
+                indicator.textContent = 'SD';
+                indicator.title = this._scmBtnImportedThisMsc
+                    ? 'SCM: mass storage mode -- click to reconnect'
+                    : 'SCM: mass storage mode -- click to load recordings';
+            } else {
+                indicator.textContent = 'SCM';
+                indicator.title = connected
+                    ? `SCM: connected (${transport === 'ble' ? 'Bluetooth' : 'USB'}) -- click to enter mass storage mode`
+                    : 'SCM: not connected -- click to connect via Bluetooth';
+            }
+        }
+    }
+
+    // Small localStorage flag, same pattern as DeviceController's own connection
+    // prefs -- survives a page reload while the device is mid-MSC-mode (e.g. user
+    // navigates away and back before reconnecting to switch it back).
+    _saveMscModeState() {
+        try { localStorage.setItem('soniphorm-device-msc', this._deviceInMscMode ? '1' : '0'); } catch (_) {}
+    }
+
+    _loadMscModeState() {
+        try { return localStorage.getItem('soniphorm-device-msc') === '1'; } catch (_) { return false; }
+    }
+
+    _updateMscButton() {
+        const btn = document.getElementById('device-msc-btn');
+        if (btn) btn.textContent = this._deviceInMscMode ? 'Exit mass storage mode…' : 'Mass storage mode…';
+    }
+
+    // Runs the moment MSC mode is confirmed entered (see the mscModeOn case in
+    // _handleDeviceState()) -- fully automatic, no "Load recordings from drive..."
+    // click needed, PROVIDED a folder handle from an earlier manual import is
+    // still on file with permission genuinely granted (queryPermission(), unlike
+    // requestPermission(), never needs a user gesture, so this is safe to run
+    // from a background device-data callback). First-ever import (or one after a
+    // revoked/never-granted handle) still needs the manual button -- there is no
+    // way to call showDirectoryPicker() itself outside a real click. Silently
+    // does nothing if there's no pending recording to pull, so this doesn't pop
+    // an unwanted "no pending recordings" alert every time MSC mode is entered
+    // just to browse files manually.
+    async _tryAutoImportFromDrive() {
+        if (!('showDirectoryPicker' in window)) return;
+        const hasPending = this.slots.slots.some(s => s && s._deviceRecording && s._devicePath && !s.hasAudio);
+        if (!hasPending) return;
+        const dirHandle = await this._getSavedImportDirHandle();
+        if (!dirHandle) return;
+        try {
+            if ((await dirHandle.queryPermission({ mode: 'read' })) !== 'granted') return;
+        } catch (_) {
+            return;
+        }
+        await this._importRecordingsFromDrive();
+    }
+
+    // Visual progress for _importRecordingsFromDrive() -- a left-to-right green
+    // fill on the specific slot currently being pulled in, not a separate
+    // element that'd change the app's layout. There's no true byte-level
+    // progress available (file.arrayBuffer() doesn't expose one), so the fill
+    // advances across the real await boundaries within one file's import
+    // (open handle -> read file -> decode -> save) rather than faking a smooth
+    // animation -- coarse, but genuine width per completed step, not cosmetic.
+    _setSlotImporting(index, importing) {
+        const el = document.querySelector(`#slot-grid .slot[data-index="${index}"]`);
+        if (!el) return;
+        el.classList.toggle('importing', importing);
+        let fill = el.querySelector('.slot-import-fill');
+        if (importing) {
+            if (!fill) {
+                fill = document.createElement('div');
+                fill.className = 'slot-import-fill';
+                el.appendChild(fill);
+            }
+            fill.style.width = '0%';
+        } else if (fill) {
+            fill.remove();
+        }
+    }
+
+    _setSlotImportProgress(index, fraction) {
+        const fill = document.querySelector(`#slot-grid .slot[data-index="${index}"] .slot-import-fill`);
+        if (fill) fill.style.width = `${Math.round(fraction * 100)}%`;
+    }
+
+    // Pulls the WAV files for this session's device recordings (_deviceRecording
+    // slots -- audio that lives only on the SCM's SD card, not yet in the browser)
+    // straight from the mounted MSC drive. Web Serial is dead once MSC mode is
+    // active, so this can't go over the device connection -- it uses the separate
+    // File System Access API instead. The very first import on a given browser
+    // still needs one real user gesture (a folder picker) -- browsers don't allow
+    // silently reading arbitrary drive contents -- but the granted directory handle
+    // is persisted (see _getSavedImportDirHandle/_saveImportDirHandle below) and
+    // reused on later imports, so it's a one-time cost rather than every time.
+    async _importRecordingsFromDrive() {
+        if (!('showDirectoryPicker' in window)) {
+            alert('Your browser can\'t pick a folder for this (needs desktop Chrome or Edge).');
+            return;
+        }
+        const pending = [];
+        this.slots.slots.forEach((s, i) => {
+            if (s && s._deviceRecording && s._devicePath && !s.hasAudio) pending.push({ index: i, slot: s });
+        });
+        if (pending.length === 0) {
+            alert('No pending device recordings to import -- every recorded slot already has its audio, or nothing has been recorded on the device yet this session.');
+            return;
+        }
+
+        let dirHandle = await this._getSavedImportDirHandle();
+        if (dirHandle) {
+            // Re-verify permission on the saved handle rather than assume it still
+            // holds -- Chrome either silently re-grants (recently used site) or shows
+            // a one-click reconfirm, neither of which is the full navigate-and-pick
+            // dialog, so this is still a real improvement even when it isn't silent.
+            let granted = false;
+            try {
+                const opts = { mode: 'read' };
+                granted = (await dirHandle.queryPermission(opts)) === 'granted';
+                if (!granted) granted = (await dirHandle.requestPermission(opts)) === 'granted';
+            } catch (_) { granted = false; }
+            if (!granted) dirHandle = null;
+        }
+
+        if (!dirHandle) {
+            try {
+                // id: lets Chrome remember this picker's last location independently
+                // of other showDirectoryPicker() calls elsewhere in the app, so even
+                // a forced re-pick (permission revoked, wrong drive last time) opens
+                // close to the right place instead of the OS default.
+                dirHandle = await window.showDirectoryPicker({ id: 'soniphorm-scm-rec' });
+            } catch (err) {
+                if (err.name === 'AbortError') return;
+                alert('Could not open folder: ' + err.message);
+                return;
+            }
+            this._saveImportDirHandle(dirHandle).catch(() => {});
+        }
+
+        // Recordings live in /rec on the SD card -- descend into it if the drive
+        // root was picked instead; if this IS the rec folder (or has no such
+        // subfolder), just use what was picked.
+        try {
+            dirHandle = await dirHandle.getDirectoryHandle('rec');
+        } catch (_) { /* already inside rec, or no rec subfolder here */ }
+
+        await this.ensureAudioInit();
+        let imported = 0;
+        const missing = [];
+        for (let i = 0; i < pending.length; i++) {
+            const { index, slot } = pending[i];
+            const basename = slot._devicePath.split('/').pop();
+            this._setSlotImporting(index, true);
+            try {
+                const fileHandle = await dirHandle.getFileHandle(basename);
+                this._setSlotImportProgress(index, 1 / 5);
+                const file = await fileHandle.getFile();
+                this._setSlotImportProgress(index, 2 / 5);
+                const arrayBuffer = await file.arrayBuffer();
+                this._setSlotImportProgress(index, 3 / 5);
+                const audioBuffer = await this.audio.audioContext.decodeAudioData(arrayBuffer);
+                this._setSlotImportProgress(index, 4 / 5);
+                const channels = [];
+                for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
+                    channels.push(new Float32Array(audioBuffer.getChannelData(ch)));
+                }
+                await this.slots.saveSlotAudio(index, channels, audioBuffer.sampleRate);
+                this._setSlotImportProgress(index, 1);
+                slot._deviceRecording = false;
+                slot._devicePath = null;
+                imported++;
+            } catch (err) {
+                console.warn('Import failed for', basename, err);
+                missing.push(basename);
+            }
+            this._setSlotImporting(index, false);
+        }
+        this._saveDeviceSlotState();
+        this.renderSlotGrid();
+
+        // Nothing matched at all -- most likely the saved handle points at a stale
+        // or wrong folder (drive letter reassigned, wrong drive picked last time).
+        // Forget it so the next attempt re-prompts with a real picker instead of
+        // silently failing the same way every time.
+        if (imported === 0 && pending.length > 0) {
+            this._clearSavedImportDirHandle().catch(() => {});
+        }
+
+        // The whole reason to be in MSC mode is almost always to pull files off the
+        // card -- once an import finishes, auto-revert to normal runtime instead of
+        // leaving the user to remember the manual "Exit mass storage mode..." button.
+        // Only possible if the device connection survived the import (it uses the
+        // separate File System Access API, not this connection, so this is a bonus
+        // when true rather than something to force) -- silently does nothing extra
+        // if not connected, same as before this existed.
+        const autoRevert = this._deviceInMscMode && this.device && this.device.isConnected();
+
+        let msg = `Imported ${imported} recording${imported === 1 ? '' : 's'}.`;
+        if (missing.length > 0) msg += ` Not found in the picked folder: ${missing.join(', ')}.`;
+        if (autoRevert) msg += ' Reverting SD card to normal mode...';
+        alert(msg);
+
+        if (autoRevert) {
+            await this._exitMscMode(true);
+            return;
+        }
+
+        // Common case: the import used the separate File System Access API without
+        // ever needing a live device connection, so there's usually nothing to
+        // silently revert through above. Previously tried firing connect() right
+        // after a confirm() dialog here, on the theory that its "OK" click would
+        // count as a fresh user gesture -- confirmed live that it does NOT: Chrome
+        // rejected requestPort() with "must be handling a user gesture" even though
+        // it ran synchronously off the dialog's dismissal. Native confirm()/alert()
+        // don't carry real transient activation the way an actual button click
+        // does. Just point at the real USB/Bluetooth buttons instead -- onConnect
+        // now auto-exits MSC mode the moment either one succeeds (see _initDevice()),
+        // so clicking one of those finishes the job in one step anyway.
+        if (this._deviceInMscMode && this.device && !this.device.isConnected()) {
+            alert('SCM is still in mass storage mode. Reconnect via USB or Bluetooth (device menu) and it\'ll exit automatically.');
+        }
+    }
+
+    // Shared by the manual "Mass storage mode..." button and the scm-indicator's
+    // smart-connect cycle. Resets _scmBtnImportedThisMsc -- see the scm-indicator
+    // click handler -- so a fresh MSC session always starts back at "next click
+    // loads files", regardless of which button was used to enter it.
+    async _enterMscMode() {
+        await this.device.enterMassStorageMode();
+        this._deviceInMscMode = true;
+        this._scmBtnImportedThisMsc = false;
+        this._saveMscModeState();
+        this._updateMscButton();
+        this._updateDeviceStatus();
+    }
+
+    // Shared by the manual "Exit mass storage mode..." button and the automatic
+    // revert after a successful drive import. silent=true swallows failures (a
+    // best-effort convenience, not a user-initiated action -- a failure just
+    // leaves the device in MSC mode, recoverable via the manual button same as
+    // before this existed).
+    async _exitMscMode(silent) {
+        try {
+            await this.device.exitMassStorageMode();
+            this._deviceInMscMode = false;
+            this._saveMscModeState();
+            this._updateMscButton();
+            this._updateDeviceStatus();
+        } catch (err) {
+            if (silent) {
+                console.warn('Auto-exit mass storage mode failed:', err);
+            } else {
+                alert('Failed to exit mass storage mode: ' + err.message);
+            }
+        }
+    }
+
+    // === Persisted device-import folder handle ===
+    // FileSystemDirectoryHandle is structured-cloneable, so IndexedDB can store it
+    // directly -- a tiny dedicated DB rather than adding a store to SlotManager's
+    // schema, since this is unrelated to slot/audio data.
+    _openImportHandleDB() {
+        return new Promise((resolve, reject) => {
+            const req = indexedDB.open('soniphorm-device-handles', 1);
+            req.onupgradeneeded = () => { req.result.createObjectStore('handles'); };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    async _getSavedImportDirHandle() {
+        try {
+            const db = await this._openImportHandleDB();
+            return await new Promise((resolve, reject) => {
+                const tx = db.transaction('handles', 'readonly');
+                const req = tx.objectStore('handles').get('scmRecDir');
+                req.onsuccess = () => resolve(req.result || null);
+                req.onerror = () => reject(req.error);
+            });
+        } catch (_) {
+            return null;
+        }
+    }
+
+    async _saveImportDirHandle(handle) {
+        const db = await this._openImportHandleDB();
+        await new Promise((resolve, reject) => {
+            const tx = db.transaction('handles', 'readwrite');
+            tx.objectStore('handles').put(handle, 'scmRecDir');
+            tx.oncomplete = resolve;
+            tx.onerror = () => reject(tx.error);
+        });
+    }
+
+    async _clearSavedImportDirHandle() {
+        const db = await this._openImportHandleDB();
+        await new Promise((resolve, reject) => {
+            const tx = db.transaction('handles', 'readwrite');
+            tx.objectStore('handles').delete('scmRecDir');
+            tx.oncomplete = resolve;
+            tx.onerror = () => reject(tx.error);
+        });
+    }
+
+    // Unsolicited REC_STATE events from the SCM — see DeviceController._handleLine.
+    _handleDeviceState(event) {
+        this._clearDeviceRecordWatchdog(); // receiving anything at all proves the firmware is alive
+        const status = document.getElementById('device-status');
+        const recBtn = document.getElementById('rec-btn');
+        switch (event.type) {
+            case 'recording':
+                this._deviceRecordingActive = true;
+                this._deviceRecordingPath = event.path;
+                if (this.recordingSlotIndex < 0) {
+                    // Started some other way (e.g. SCM's own hardware button, not this
+                    // app) -- auto-pick a slot so the grid still reflects it, same
+                    // fallback the toolbar REC button uses when nothing is selected.
+                    const empty = this._findRecordableSlot();
+                    if (empty >= 0) {
+                        this.recordingSlotIndex = empty;
+                        this.slots.selectSlot(empty);
+                    }
+                }
+                recBtn.classList.add('recording');
+                document.getElementById('waveform-empty').hidden = true;
+                this.renderSlotGrid();
+                if (status) status.textContent = 'Recording…';
+                document.getElementById('device-level-meter').hidden = false;
+                this._deviceRecordingPeaks = []; // accumulate MTR peaks into a low-res placeholder waveform
+                this.device.enableMeter().catch(() => {});
+                break;
+            case 'finalizing':
+                if (status) status.textContent = 'Saving…';
+                break;
+            case 'idle': {
+                this._deviceRecordingActive = false;
+                const recordedSlot = this.recordingSlotIndex;
+                this.recordingSlotIndex = -1;
+                recBtn.classList.remove('recording');
+                if (recordedSlot >= 0 && this.slots.slots[recordedSlot]) {
+                    // Marks the slot as "occupied by a device recording" -- tapping it
+                    // again plays back (via device.play()) instead of recording over it,
+                    // since there's no local hasAudio to key off (audio lives on SCM's SD
+                    // card, not pulled into the browser). Cleared only by a future
+                    // explicit "clear slot" action, not implemented yet.
+                    this.slots.slots[recordedSlot]._deviceRecording = true;
+                    this.slots.slots[recordedSlot]._devicePath = this._deviceRecordingPath;
+                    if (this._deviceRecordingPeaks && this._deviceRecordingPeaks.length > 0) {
+                        // Low-res placeholder waveform built purely from streamed MTR
+                        // levels (~20Hz), not real audio -- drawn via the same
+                        // drawMiniFromPeaks() path as a genuine local recording, just
+                        // fed coarser/symmetric [peak,-peak] bars instead of true
+                        // per-window min/max. Replaced wholesale once real audio is
+                        // ever pulled in (e.g. future MSC import) by just overwriting
+                        // slot.peaks with real data at that point.
+                        this.slots.slots[recordedSlot].peaks = this._deviceRecordingPeaks;
+                    }
+                    this._saveDeviceSlotState();
+                }
+                this._deviceRecordingPeaks = null;
+                this.renderSlotGrid();
+                document.getElementById('device-level-meter').hidden = true;
+                this.device.disableMeter().catch(() => {});
+                // Main waveform view was showing the live placeholder during recording --
+                // no "selected device recording" load path for it yet, so just clear back
+                // to empty rather than leave a frozen last frame on screen.
+                const mainCanvas = document.getElementById('waveform');
+                if (mainCanvas) {
+                    const ctx = mainCanvas.getContext('2d');
+                    ctx.clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+                }
+                document.getElementById('waveform-empty').hidden = false;
+                if (this._deviceRecordingPath) {
+                    if (status) status.textContent = event.seconds ? `Saved (${event.seconds.toFixed(1)}s)` : 'Saved';
+                    this._showDeviceRenameDialog(this._deviceRecordingPath, recordedSlot);
+                    this._deviceRecordingPath = null;
+                }
+                // Free space only actually shrinks once a take finalizes -- check here
+                // rather than polling, so the warning (if any) lands right after the
+                // recording that pushed the card over the threshold.
+                this.device.getSdSpace().then((space) => this._maybeWarnSdSpace(space)).catch(() => {});
+                break;
+            }
+            case 'busy':
+                if (status) status.textContent = 'Device busy — wait for save to finish';
+                break;
+            case 'playing': {
+                if (status) status.textContent = 'Playing…';
+                // Draw the slot's placeholder waveform (built from the MTR stream
+                // during its original recording) in the main viewer -- there's no
+                // live position/progress data from firmware, so this is a static
+                // display of the whole take rather than a moving playhead.
+                const playSlot = this._devicePlayingSlot >= 0 ? this.slots.slots[this._devicePlayingSlot] : null;
+                if (playSlot && playSlot.peaks) {
+                    document.getElementById('waveform-empty').hidden = true;
+                    const mainCanvas = document.getElementById('waveform');
+                    if (mainCanvas) WaveformRenderer.drawMiniFromPeaks(mainCanvas, playSlot.peaks, 'rgba(34,197,94,0.7)');
+                }
+                break;
+            }
+            case 'paused':
+                if (status) status.textContent = 'Paused';
+                break; // leave whatever's drawn -- paused, not stopped
+            case 'playbackIdle':
+                if (status) status.textContent = 'Connected';
+                if (this._devicePlayingSlot >= 0) {
+                    this._devicePlayingSlot = -1;
+                    const mainCanvas = document.getElementById('waveform');
+                    if (mainCanvas) mainCanvas.getContext('2d').clearRect(0, 0, mainCanvas.width, mainCanvas.height);
+                    document.getElementById('waveform-empty').hidden = false;
+                }
+                break;
+            case 'mscModeOn':
+            case 'mscModeOff':
+                // Defensive correction only -- _deviceInMscMode is normally set the
+                // moment the app sends the command (see the button handler), not from
+                // this announcement, since it prints before the app has likely
+                // reconnected after the reboot. Catches drift if the device was left
+                // in a state from before this app-side tracking existed.
+                this._deviceInMscMode = (event.type === 'mscModeOn');
+                this._saveMscModeState();
+                this._updateMscButton();
+                this._updateDeviceStatus();
+                if (event.type === 'mscModeOn') this._tryAutoImportFromDrive();
+                break;
+            case 'error':
+                if (status) status.textContent = event.raw;
+                // Roll back the optimistic "recording" UI (_beginRecording sets it
+                // before the firmware confirms) -- e.g. "REC ERR: no SD card" arrives
+                // instead of REC_STATE RECORDING when there's nothing to record to,
+                // and without this the button/slot would just stay stuck red forever.
+                if (this._deviceRecordingActive || this.recordingSlotIndex >= 0) {
+                    this._deviceRecordingActive = false;
+                    this.recordingSlotIndex = -1;
+                    recBtn.classList.remove('recording');
+                    this.renderSlotGrid();
+                    document.getElementById('device-level-meter').hidden = true;
+                    this.device.disableMeter().catch(() => {});
+                }
+                alert('SCM: ' + event.raw);
+                break;
+            case 'meter':
+                this._updateDeviceMeter(event.peak);
+                break;
+            case 'piezoMeter':
+                break; // TEMP DIAG from firmware, no longer displayed -- harmless to keep receiving
+        }
+    }
+
+    // Warns once per connection when the SD card crosses ~90% full, so Ed hears
+    // about it before a recording fails outright rather than after. Threshold lives
+    // here (not firmware) so there's exactly one place that defines "nearly full" --
+    // SDSPACE just reports raw numbers. Hysteresis (re-arms below 85%) means it
+    // won't fire again on every single take once already over the line.
+    _maybeWarnSdSpace(space) {
+        if (!space) return;
+        if (space.pct < 85) { this._sdSpaceWarned = false; return; }
+        if (space.pct < 90 || this._sdSpaceWarned) return;
+        this._sdSpaceWarned = true;
+        const freeMB = Math.round(space.freeBytes / (1024 * 1024));
+        alert(`SCM: SD card is ${space.pct}% full (${freeMB}MB free) — recordings may soon fail to save.`);
+    }
+
+    // Live input-peak meter while device-recording -- reuses the same inputPeak the
+    // firmware already streams to its own hardware VU LED (see METER command / MTR:
+    // lines in DeviceController). Clip state holds briefly so a short transient over
+    // 0dBFS is still visible, not just a one-frame flash.
+    _updateDeviceMeter(peak) {
+        // Accumulate into a low-res placeholder waveform for the recording slot --
+        // see the 'idle' case above, where this becomes slot.peaks. Independent of
+        // the visual fill/clip handling below so it still captures the take even if
+        // the meter element itself is ever missing.
+        if (this._deviceRecordingPeaks) {
+            this._deviceRecordingPeaks.push(peak, -peak);
+            // Live-draw the same accumulating peaks onto the main waveform view,
+            // not just the mini slot canvas -- same drawMiniFromPeaks() call, just
+            // a bigger canvas. Cleared back to the empty state once recording ends
+            // (see the 'idle' case) rather than left showing a frozen last frame,
+            // since there's no "selected device recording" load path for the main
+            // view yet (only the mini slot canvas persists that, via slot.peaks).
+            const mainCanvas = document.getElementById('waveform');
+            if (mainCanvas) WaveformRenderer.drawMiniFromPeaks(mainCanvas, this._deviceRecordingPeaks, 'rgba(59,130,246,0.7)');
+        }
+
+        const status = document.getElementById('device-status');
+        if (status) status.textContent = `Recording… (peak ${peak.toFixed(2)})`;
+
+        const fill = document.getElementById('device-level-meter-fill');
+        if (!fill) return;
+        fill.style.height = `${Math.max(0, Math.min(100, peak * 100))}%`;
+        if (peak >= 0.98) this._deviceClipUntil = Date.now() + 1000;
+        fill.classList.toggle('clip', Date.now() < (this._deviceClipUntil || 0));
+    }
+
+    // Reuses the existing rename-dialog UI (same modal local recordings use) — the
+    // OK/Cancel handlers in bindUI() branch on dialog._devicePath to call FMOVE
+    // instead of the local slot rename.
+    _showDeviceRenameDialog(path, slotIndex) {
+        const dialog = document.getElementById('rename-dialog');
+        const input = document.getElementById('rename-input');
+        const base = path.split('/').pop().replace(/\.wav$/i, '');
+        dialog._devicePath = path;
+        dialog._deviceSlotIndex = slotIndex;
+        // maxlength on the input only constrains typing, not this programmatic
+        // assignment -- cap here too so what's shown always matches what'll be saved.
+        input.value = capSlotName(base);
+        dialog.hidden = false;
+        setTimeout(() => input.focus(), 50);
+    }
+
     _openDmxTestDialog() {
         const dlg = document.getElementById('dmx-dialog');
         if (!dlg) return;
         // Close the main menu so the dialog isn't obscured
-        document.getElementById('main-menu').hidden = true;
+        this._closeMainMenu();
         dlg.hidden = false;
         this._buildDmxSliders();
     }
@@ -1919,7 +2919,7 @@ class App {
                 if (usedTouch) return;
                 if (e.button !== 0) return;
                 if (this._sampleMode) this.sample.samplePadTap(i);
-                else if (!this._seqMode && !this._genMode) {
+                else if (!this._seqMode) {
                     // Long-press for context menu on desktop without right-click (e.g. macOS single-button)
                     longPressTimer = setTimeout(() => {
                         longPressTimer = null;
