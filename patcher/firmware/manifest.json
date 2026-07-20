@@ -1,8 +1,8 @@
 {
-    "version": "1.10.32",
+    "version": "1.10.33",
     "file": "GenRuntime.ino.bin",
-    "date": "2026-07-19",
-    "notes": "Likely real fix for the Android MSC investigation: MSC mode's raw SD driver was running the card at 4MHz SPI clock (sdcard_init + MSC_SPI_SETTINGS, GenRuntime.ino), 5x slower than normal boot's proven-reliable 20MHz SD.begin(). Confirmed via 1.10.31's BLE-mirrored failure counters that reads/writes were succeeding, not failing, even during the exact 'loading files' action that triggered Android's warning -- pointing at sustained-transfer latency against Android's tighter SCSI timeout tolerance (Windows just has more patience), not data corruption or a card-compatibility bug. Bumped both to 20MHz to match normal boot. Includes all of 1.10.28-1.10.31's fixes.",
+    "date": "2026-07-20",
+    "notes": "Button LEDs now match bank color instead of red-only (new setBankLED() helper + LEDCOLOR ON/OFF NVS toggle for the one unit with dead green/blue channels). Also fixes a real ctrlLedMap table bug (wrong TLC59116 channel numbers for 2 of the 4 buttons) found live on the first Porta v1.1 unit -- affects every unit with working button LED channels, including the 9 already-fixed v1.0 units. Includes 1.10.32's Android MSC SPI-speed fix and the rest of the SonicCraft session work.",
     "flashAddress": "0x10000",
     "board": "ESP32-S3-WROOM-1-N16R8"
 }
