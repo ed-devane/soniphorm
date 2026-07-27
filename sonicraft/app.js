@@ -1743,6 +1743,13 @@ class App {
     updateTransportInfo() {
         const rate = this.bufferSampleRate || 48000;
         document.getElementById('info-rate').textContent = (rate / 1000).toFixed(1) + 'kHz';
+        // Reads AudioEngine.WAV_BITS_PER_SAMPLE (the actual encodeWAV() output depth)
+        // rather than a hardcoded string -- every slot gets re-encoded through that on
+        // save regardless of source, including device (SCM) recordings the firmware
+        // itself captures at 24-bit, so this is honestly 16-bit for anything actually
+        // loaded here today. Not a mislabel to fix further without also changing
+        // storage to stop downconverting -- see 27/07 discussion.
+        document.getElementById('info-bits').textContent = `${AudioEngine.WAV_BITS_PER_SAMPLE}-bit`;
         const dur = this.channels ? this.channels[0].length / this.bufferSampleRate : 0;
         document.getElementById('info-duration').textContent = this.formatTime(dur);
     }

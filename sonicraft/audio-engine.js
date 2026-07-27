@@ -1,4 +1,12 @@
 class AudioEngine {
+    // Single source of truth for encodeWAV()'s output bit depth, so app.js's header
+    // display (#info-bits) reads the same value the encoder actually uses instead of
+    // a hardcoded HTML string that can silently drift out of sync. Every slot gets
+    // re-encoded through this on save regardless of source -- including device (SCM)
+    // recordings, which the firmware itself captures at 24-bit -- so this is honestly
+    // 16 for anything actually stored/played back in the app today, not a mislabel.
+    static WAV_BITS_PER_SAMPLE = 16;
+
     constructor() {
         this.audioContext = null;
         this._isRecording = false;
@@ -780,7 +788,7 @@ class AudioEngine {
     static encodeWAV(channels, sampleRate) {
         const numChannels = channels.length;
         const numSamples = channels[0].length;
-        const bitsPerSample = 16;
+        const bitsPerSample = AudioEngine.WAV_BITS_PER_SAMPLE;
         const bytesPerSample = bitsPerSample / 8;
         const blockAlign = numChannels * bytesPerSample;
         const byteRate = sampleRate * blockAlign;
