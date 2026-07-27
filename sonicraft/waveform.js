@@ -63,6 +63,15 @@ class WaveformRenderer {
         this._draggingLoopMarker = null; // 'start' | 'end' | null
         this._draggingSelMarker = null;  // 'start' | 'end' | null
         this._lastPointerDownTime = 0;
+
+        // Long-press-inside-selection to move it (fixed length) -- see _pointerDown()
+        this._selMoveArmed = false;
+        this._selMoveTimer = null;
+        this._selMoveStartX = 0;
+        this._selMoveStartSample = 0;
+        this._selMoveOrigStart = 0;
+        this._selMoveOrigEnd = 0;
+        this._draggingSelMove = false;
         this.onLoopChange = null;
         this.onLoopClear = null;
 
@@ -948,17 +957,18 @@ class WaveformRenderer {
         // --- Mouse events ---
         c.addEventListener('mousedown', (e) => this._pointerDown(e.clientX));
         c.addEventListener('mousemove', (e) => {
-            if (this._dragging || this._draggingLoopMarker || this._draggingSelMarker) {
+            if (this._dragging || this._draggingLoopMarker || this._draggingSelMarker || this._selMoveArmed || this._draggingSelMove) {
                 this._pointerMove(e.clientX);
             } else {
-                c.style.cursor = this._selHandleAtX(e.clientX) ? 'ew-resize' : '';
+                c.style.cursor = this._selHandleAtX(e.clientX) ? 'ew-resize'
+                    : this._selBodyAtX(e.clientX) ? 'move' : '';
             }
         });
         c.addEventListener('mouseup', (e) => this._pointerUp(e.clientX));
         // Handle mouse leaving the canvas while dragging
         c.addEventListener('mouseleave', (e) => {
             c.style.cursor = '';
-            if (this._dragging || this._draggingLoopMarker || this._draggingSelMarker) this._pointerUp(e.clientX);
+            if (this._dragging || this._draggingLoopMarker || this._draggingSelMarker || this._selMoveArmed || this._draggingSelMove) this._pointerUp(e.clientX);
         });
 
         // --- Touch events (single-touch selection + two-finger pinch zoom) ---
@@ -997,7 +1007,13 @@ class WaveformRenderer {
                 this._scrollOffset -= midDeltaPx * samplesPerPx;
                 this._clampScroll();
                 this.render();
-            } else if (e.touches.length === 1 && (this._dragging || this._draggingLoopMarker) && !this._pinching) {
+            } else if (e.touches.length === 1 && !this._pinching && (this._dragging || this._draggingLoopMarker || this._draggingSelMarker || this._selMoveArmed || this._draggingSelMove)) {
+                // _draggingSelMarker/_selMoveArmed/_draggingSelMove added alongside the
+                // long-press-to-move feature -- selection-edge dragging and the new
+                // move gesture both need live touchmove updates the same way loop-
+                // marker dragging already got; this condition previously missed
+                // _draggingSelMarker entirely; selection-edge drags on touch is now
+                // enabled by extension rather than left as a separate later fix.
                 this._pointerMove(e.touches[0].clientX);
             }
         }, { passive: false });
@@ -1053,6 +1069,16 @@ class WaveformRenderer {
         const xE = this._sampleToX(this._selEnd,   this._scrollOffset, this.getVisibleSamples(), this._width);
         const px = clientX - rect.left;
         return Math.abs(px - xS) <= 20 || Math.abs(px - xE) <= 20;
+    }
+
+    /** Returns true if clientX is inside the selection body (not near either edge handle). */
+    _selBodyAtX(clientX) {
+        if (this._selStart < 0 || this._selEnd < 0) return false;
+        const rect = this._canvas.getBoundingClientRect();
+        const xS = this._sampleToX(this._selStart, this._scrollOffset, this.getVisibleSamples(), this._width);
+        const xE = this._sampleToX(this._selEnd,   this._scrollOffset, this.getVisibleSamples(), this._width);
+        const px = clientX - rect.left;
+        return px > xS + 20 && px < xE - 20;
     }
 
     /** Midpoint clientX between two touch points. */
@@ -1116,6 +1142,27 @@ class WaveformRenderer {
                 this.render();
                 return;
             }
+            // Inside the selection body (not near either edge) -- arm a long-press
+            // timer rather than starting immediately, so a quick tap in here still
+            // does the existing "clear selection, set cursor" thing (see _pointerUp)
+            // instead of every tap silently arming a move. Only a genuine hold moves
+            // the whole selection (fixed length) left/right -- useful for scrubbing a
+            // loop region without having to redraw it each time.
+            if (px2 > xS + 20 && px2 < xE - 20) {
+                this._selMoveArmed = true;
+                this._selMoveStartX = clientX;
+                this._selMoveStartSample = this.sampleAtX(clientX);
+                this._selMoveOrigStart = this._selStart;
+                this._selMoveOrigEnd = this._selEnd;
+                this._selMoveTimer = setTimeout(() => {
+                    this._selMoveTimer = null;
+                    if (this._selMoveArmed) {
+                        this._draggingSelMove = true;
+                        this.render();
+                    }
+                }, 350);
+                return;
+            }
         }
 
         this._lastPointerDownTime = now;
@@ -1126,6 +1173,39 @@ class WaveformRenderer {
 
     _pointerMove(clientX) {
         if (this.chromaticMode) return;
+
+        // Long-press-to-move armed but not yet fired -- cancel if the finger/pointer
+        // moves too far before the hold completes, rather than let a slightly-early
+        // slip either silently start a move or fall through and destroy the existing
+        // selection. Deliberately just aborts (no fallback to a fresh drag-select)
+        // -- starting a genuinely new selection from inside an existing one is an
+        // unusual enough gesture that requiring a press outside it is a fine trade
+        // for the simpler, more predictable behavior here.
+        if (this._selMoveArmed && !this._draggingSelMove) {
+            if (Math.abs(clientX - this._selMoveStartX) > MIN_DRAG_PX * 3) {
+                clearTimeout(this._selMoveTimer);
+                this._selMoveTimer = null;
+                this._selMoveArmed = false;
+            }
+            return;
+        }
+
+        // Long-press fired -- move the whole selection (fixed length) to follow the
+        // pointer, clamped to stay within the audio's bounds.
+        if (this._draggingSelMove) {
+            const currentSample = this.sampleAtX(clientX);
+            const delta = currentSample - this._selMoveStartSample;
+            const len = this._selMoveOrigEnd - this._selMoveOrigStart;
+            let newStart = this._selMoveOrigStart + delta;
+            let newEnd = this._selMoveOrigEnd + delta;
+            if (newStart < 0) { newStart = 0; newEnd = len; }
+            if (newEnd > this._totalSamples) { newEnd = this._totalSamples; newStart = newEnd - len; }
+            this._selStart = newStart;
+            this._selEnd = newEnd;
+            this.render();
+            if (this.onSelectionChange) this.onSelectionChange({ start: this._selStart, end: this._selEnd });
+            return;
+        }
 
         // Selection handle dragging
         if (this._draggingSelMarker) {
@@ -1167,6 +1247,33 @@ class WaveformRenderer {
 
     _pointerUp(clientX) {
         if (this.chromaticMode) return;
+
+        // Long-press-to-move: timer never fired (released before the hold completed)
+        // -- same "clear selection, set cursor" behavior a quick tap anywhere else
+        // gets (see the dx < MIN_DRAG_PX branch below), just reached from here since
+        // a press starting inside the selection body is intercepted in _pointerDown()
+        // to arm the long-press gesture instead of falling through to a generic drag.
+        if (this._selMoveArmed && !this._draggingSelMove) {
+            clearTimeout(this._selMoveTimer);
+            this._selMoveTimer = null;
+            this._selMoveArmed = false;
+            this._selStart = -1;
+            this._selEnd = -1;
+            const sample = this.sampleAtX(clientX);
+            this._cursorSample = Math.max(0, Math.min(sample, this._totalSamples));
+            this.render();
+            if (this.onCursorSet) this.onCursorSet(this._cursorSample);
+            return;
+        }
+
+        // Finalize a long-press selection move
+        if (this._draggingSelMove) {
+            this._draggingSelMove = false;
+            this._selMoveArmed = false;
+            this.render();
+            if (this.onSelectionChange) this.onSelectionChange({ start: this._selStart, end: this._selEnd });
+            return;
+        }
 
         // Finalize selection handle drag
         if (this._draggingSelMarker) {
