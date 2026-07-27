@@ -851,6 +851,7 @@ class App {
             this.channels = null;
             this.waveform.clear();
             document.getElementById('waveform-empty').hidden = false;
+            this._updateWaveformEmptyState(index, slot);
         }
 
         this.renderSlotGrid();
@@ -1119,6 +1120,19 @@ class App {
 
     bindToolbar() {
         const $ = (id) => document.getElementById(id);
+
+        // Manual retry for a device recording that's still on the SCM's SD card and
+        // failed to download -- previously the only way to retry was a full
+        // disconnect/reconnect (which re-queues every pending recording via
+        // onConnect()), even if the user just wanted to nudge this one slot. Shown by
+        // _updateWaveformEmptyState() only when the selected slot is in that state.
+        $('waveform-empty-retry').addEventListener('click', (e) => {
+            e.stopPropagation();
+            const index = parseInt(e.target.dataset.index, 10);
+            const path = e.target.dataset.path;
+            if (Number.isNaN(index) || !path) return;
+            this._queueDeviceRecordingDownload(index, path);
+        });
 
         $('rec-btn').addEventListener('click', async () => {
             await this.ensureAudioInit();
@@ -2411,6 +2425,10 @@ class App {
             // or the queue's next connect can still pick this recording up.
             console.warn(`[device] FAILED slot${index + 1} ${basename}:`, err);
             if (status) status.textContent = `Import failed: ${basename}`;
+            // Surface the manual retry button right away if this slot happens to be
+            // the one currently shown in the main waveform view -- otherwise it only
+            // appears the next time the slot is (re-)selected.
+            if (index === this.slots.selectedIndex) this._updateWaveformEmptyState(index, slot);
         }
         this._setSlotImporting(index, false);
     }
@@ -2442,6 +2460,27 @@ class App {
     _setSlotImportProgress(index, fraction) {
         const fill = document.querySelector(`#slot-grid .slot[data-index="${index}"] .slot-import-fill`);
         if (fill) fill.style.width = `${Math.round(fraction * 100)}%`;
+    }
+
+    // Customizes the #waveform-empty overlay for a selected slot that still only
+    // holds a device recording (not yet downloaded) -- otherwise it just shows the
+    // generic "Select a slot to begin" text, which doesn't make sense once a slot
+    // IS selected. Surfaces a manual "Retry download" button for this case (see its
+    // click handler in bindToolbar()) -- previously the only way to retry a failed
+    // download was a full disconnect/reconnect.
+    _updateWaveformEmptyState(index, slot) {
+        const textEl = document.getElementById('waveform-empty-text');
+        const retryBtn = document.getElementById('waveform-empty-retry');
+        if (!textEl || !retryBtn) return;
+        if (slot && slot._deviceRecording && slot._devicePath) {
+            textEl.textContent = 'On device, not downloaded yet';
+            retryBtn.hidden = false;
+            retryBtn.dataset.index = index;
+            retryBtn.dataset.path = slot._devicePath;
+        } else {
+            textEl.textContent = 'Select a slot to begin';
+            retryBtn.hidden = true;
+        }
     }
 
     // Pulls the WAV files for this session's device recordings (_deviceRecording

@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="../favicon.png">
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=186">
+    <link rel="stylesheet" href="style.css?v=187">
 </head>
 <body>
     <header id="header">
@@ -89,7 +89,7 @@
                 <button data-action="delete-all" class="danger">Delete all</button>
                 <button data-action="console" id="console-btn">Show console</button>
                 <button data-action="install" id="install-btn" hidden>Install app</button>
-                <span class="menu-version">v186</span>
+                <span class="menu-version">v187</span>
             </div>
         </div>
     </header>
@@ -100,7 +100,8 @@
             <canvas id="waveform"></canvas>
             <canvas id="comp-canvas"></canvas>
             <div class="waveform-empty" id="waveform-empty">
-                <span>Select a slot to begin</span>
+                <span id="waveform-empty-text">Select a slot to begin</span>
+                <button id="waveform-empty-retry" class="waveform-empty-retry" type="button" hidden>Retry download</button>
             </div>
             <div class="waveform-empty" id="comp-empty" hidden>
                 <span>Long-press to add a sample</span>

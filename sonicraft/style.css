@@ -188,8 +188,10 @@ main {
     position: absolute;
     inset: 0;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 14px;
     z-index: 2;
     color: var(--text3);
     font-size: 14px;
@@ -197,6 +199,22 @@ main {
     pointer-events: none;
 }
 .waveform-empty[hidden] { display: none; }
+.waveform-empty-retry {
+    /* Ancestor has pointer-events:none (the empty-state message shouldn't itself be
+       clickable) -- re-enable just for this button rather than restructure the
+       overlay for one interactive element. */
+    pointer-events: auto;
+    background: var(--surface);
+    border: 1px solid var(--border-lt);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: normal;
+    padding: 8px 18px;
+    cursor: pointer;
+}
+.waveform-empty-retry:active { background: var(--bg3); }
 
 .debug-console {
     /* Was position:fixed covering the full viewport (26/07) -- switched there
