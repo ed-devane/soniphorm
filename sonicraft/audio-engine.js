@@ -1,11 +1,24 @@
 class AudioEngine {
     // Single source of truth for encodeWAV()'s output bit depth, so app.js's header
     // display (#info-bits) reads the same value the encoder actually uses instead of
-    // a hardcoded HTML string that can silently drift out of sync. Every slot gets
-    // re-encoded through this on save regardless of source -- including device (SCM)
-    // recordings, which the firmware itself captures at 24-bit -- so this is honestly
-    // 16 for anything actually stored/played back in the app today, not a mislabel.
-    static WAV_BITS_PER_SAMPLE = 16;
+    // a hardcoded HTML string that can silently drift out of sync.
+    //
+    // 24-bit (27/07) -- was 16, changed globally rather than tracking bit depth per
+    // slot (a real but more involved alternative: new IndexedDB field, threading a
+    // bitDepth param through saveSlotAudio/getSlotAudio, header reading per-buffer
+    // instead of one constant). Global is the simple version Ed asked for: every
+    // slot re-encodes through encodeWAV() on save regardless of source, so a single
+    // constant is enough as long as we don't need 16-bit and 24-bit recordings
+    // coexisting. Motivated by device recordings genuinely being captured at 24-bit
+    // (SCM's AudioRecorder firmware, and the in-progress USB Contact Mic's UAC2
+    // encoding) -- decodeAudioData()/AudioBufferSourceNode already work in Float32
+    // internally regardless of source bit depth, so this only actually changes
+    // encodeWAV() itself; nothing downstream (playback, waveform, export) needed to
+    // change. Trade-off: ~50% larger IndexedDB storage per recording (3 bytes/sample
+    // vs 2). Old recordings already saved by existing users stay 16-bit forever
+    // (still decode/play fine -- WAV bit depth is self-describing per-file via the
+    // fmt chunk, nothing here assumes a fixed depth when reading), no migration.
+    static WAV_BITS_PER_SAMPLE = 24;
 
     constructor() {
         this.audioContext = null;
@@ -821,14 +834,33 @@ class AudioEngine {
         writeString(36, 'data');
         view.setUint32(40, dataSize, true);
 
+        // Full-scale values generalized off bitsPerSample rather than hardcoded 16-bit
+        // constants -- 0x7FFF/0x8000 for 16-bit, 0x7FFFFF/0x800000 for 24-bit.
+        const maxPos = (1 << (bitsPerSample - 1)) - 1;
+        const maxNeg = 1 << (bitsPerSample - 1);
         let offset = 44;
         for (let i = 0; i < numSamples; i++) {
             for (let ch = 0; ch < numChannels; ch++) {
                 let sample = channels[ch][i];
                 sample = Math.max(-1, Math.min(1, sample));
-                const int16 = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
-                view.setInt16(offset, int16, true);
-                offset += 2;
+                // | 0 truncates toward zero, matching setInt16's own ToInt16 conversion
+                // that this replaces (not rounding) -- keeps 16-bit output bit-identical
+                // to before this was generalized, in case that path is ever used again.
+                const intSample = (sample < 0 ? sample * maxNeg : sample * maxPos) | 0;
+                if (bytesPerSample === 2) {
+                    view.setInt16(offset, intSample, true);
+                } else {
+                    // DataView has no setInt24 -- pack 3 bytes manually, little-endian.
+                    // Two's-complement byte extraction via bitwise ops on intSample works
+                    // correctly for negative values too: JS bitwise ops operate on the
+                    // 32-bit two's-complement representation, and taking only the lower
+                    // 3 bytes here (never writing the sign-extended 4th byte) is exactly
+                    // how a 24-bit two's-complement sample is meant to look on disk.
+                    view.setUint8(offset, intSample & 0xFF);
+                    view.setUint8(offset + 1, (intSample >> 8) & 0xFF);
+                    view.setUint8(offset + 2, (intSample >> 16) & 0xFF);
+                }
+                offset += bytesPerSample;
             }
         }
 
