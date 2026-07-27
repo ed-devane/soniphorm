@@ -1,3 +1,116 @@
+// On-screen console (hamburger menu > Show console) -- toggles over the main
+// waveform viewer. Captures console.log/warn/error into a scrolling panel so
+// mobile testing (iOS/Android) doesn't need remote DevTools tooling -- chrome://
+// inspect needs USB debugging + a PC nearby, Safari Web Inspector needs a Mac,
+// neither is guaranteed available in the field. Wraps rather than replaces the
+// native console methods, so real DevTools access still works exactly as before
+// whenever it IS available. Placed at the very top of the file so it's active
+// from the first line app.js executes, not just after the App instance exists.
+(function initDebugConsole() {
+    const MAX_LINES = 500;
+    let lineCount = 0;
+    // TEMP (27/07): off by default -- forwarding every line over BLE shares the
+    // same send queue real recordings/downloads depend on, so this should only be
+    // active while someone's actually watching the SCM's USB serial on another
+    // machine, not left on during normal use. Toggled via the console panel's
+    // "Live->PC" button (wired below). References the top-level `app` const
+    // declared at the bottom of this same file -- not yet assigned when this IIFE
+    // runs, but resolved by closure at actual call time (appendLine only ever
+    // fires later, from a console.log call after the whole script has executed).
+    let relayToDevice = false;
+
+    function formatArgs(args) {
+        return args.map((a) => {
+            if (typeof a === 'string') return a;
+            if (a instanceof Error) return a.stack || a.message;
+            try { return JSON.stringify(a); } catch (_) { return String(a); }
+        }).join(' ');
+    }
+
+    function appendLine(text, cls) {
+        const pre = document.getElementById('debug-console-log');
+        if (!pre) return; // DOM not ready yet -- console.log still fires normally either way
+        const panel = document.getElementById('debug-console');
+        const atBottom = panel && (panel.scrollHeight - panel.scrollTop - panel.clientHeight < 30);
+        const span = document.createElement('span');
+        if (cls) span.className = cls;
+        span.textContent = text + '\n';
+        pre.appendChild(span);
+        lineCount++;
+        while (lineCount > MAX_LINES && pre.firstChild) {
+            pre.removeChild(pre.firstChild);
+            lineCount--;
+        }
+        if (panel && !panel.hidden && atBottom) panel.scrollTop = panel.scrollHeight;
+        // Deliberately no error handling/logging here beyond sendAppLog()'s own
+        // silent catch -- this function is itself called from inside the
+        // console.log/warn/error wrapper below, so anything here that called
+        // console.* on failure would recurse.
+        if (relayToDevice && typeof app !== 'undefined' && app.device) {
+            app.device.sendAppLog(text);
+        }
+    }
+
+    ['log', 'warn', 'error'].forEach((level) => {
+        const original = console[level].bind(console);
+        const cls = level === 'warn' ? 'console-warn' : level === 'error' ? 'console-error' : '';
+        console[level] = (...args) => {
+            original(...args);
+            appendLine(formatArgs(args), cls);
+        };
+    });
+    window.addEventListener('error', (e) => {
+        appendLine(`Uncaught: ${e.message} (${e.filename}:${e.lineno})`, 'console-error');
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+        appendLine(`Unhandled rejection: ${(e.reason && e.reason.message) || e.reason}`, 'console-error');
+    });
+
+    // Copy-to-clipboard for the whole log -- added 27/07 because the only way to get
+    // console output off a phone during field debugging was a screenshot relayed
+    // through WhatsApp and retyped on desktop. Wired here (DOMContentLoaded, not
+    // inline in the App class) since this whole module is meant to be self-contained
+    // and active before the App instance even exists.
+    document.addEventListener('DOMContentLoaded', () => {
+        const btn = document.getElementById('debug-console-copy');
+        const pre = document.getElementById('debug-console-log');
+        if (!btn || !pre) return;
+        btn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const text = pre.textContent;
+            try {
+                await navigator.clipboard.writeText(text);
+            } catch (err) {
+                // Clipboard API needs a secure context/permission that may not always
+                // be granted (e.g. denied, or an older WebView) -- fall back to the
+                // old select-and-copy trick rather than leaving the button dead.
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                try { document.execCommand('copy'); } catch (_) {}
+                document.body.removeChild(ta);
+            }
+            const original = btn.textContent;
+            btn.textContent = 'Copied!';
+            btn.classList.add('copied');
+            setTimeout(() => { btn.textContent = original; btn.classList.remove('copied'); }, 1200);
+        });
+
+        const relayBtn = document.getElementById('debug-console-relay');
+        if (relayBtn) {
+            relayBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                relayToDevice = !relayToDevice;
+                relayBtn.textContent = 'Live→PC: ' + (relayToDevice ? 'on' : 'off');
+                relayBtn.classList.toggle('relay-on', relayToDevice);
+            });
+        }
+    });
+})();
+
 class App {
     constructor() {
         this.audio = new AudioEngine();
@@ -33,6 +146,11 @@ class App {
         this.sampler = null;
         this._sampleMode = false;
 
+        // Comp
+        this.comp = null;
+        this.compWaveform = null;
+        this._compMode = false;
+
         // Noise gate
         this._gateEnabled = false;
 
@@ -57,6 +175,7 @@ class App {
         this.rec = new RecController(this);
         this.seq = new SeqController(this);
         this.sample = new SampleController(this);
+        this.comp = new CompController(this);
         this.seq._initSequencer();
         this.sample._initSampler();
         this._initMidi();
@@ -75,8 +194,16 @@ class App {
             this.waveform = new WaveformRenderer(canvas);
             this.waveform.onSelectionChange = (sel) => {
                 this.updateToolbarState();
-                // If looping, restart with new selection
-                if (this.audio.isPlaying && this.audio.isLooping) {
+                // Jump to and bound playback to the new selection whenever one is made
+                // mid-playback -- was gated on isLooping already being on, so making a
+                // selection during plain (non-looping) playback used to do nothing
+                // audible at all (per Ed's report). _restartLoop() doesn't actually care
+                // about the loop flag itself -- it just restarts audio.play() with the
+                // current selection's bounds -- so dropping the isLooping condition here
+                // gives the same "jump to selection start, play only the selection"
+                // behavior whether or not loop is on; audio.isLooping still separately
+                // controls whether it then loops or stops at the selection's end.
+                if (this.audio.isPlaying) {
                     this.rec._restartLoop();
                 }
                 // Update sampler region/loop live
@@ -115,6 +242,19 @@ class App {
             });
         } catch (e) {
             console.error('Waveform init failed:', e);
+        }
+
+        // Comp canvas — separate WaveformRenderer instance, own timeline
+        // (extra-track-only, no primary buffer -- see comp-controller.js)
+        try {
+            const compCanvas = document.getElementById('comp-canvas');
+            this.compWaveform = new WaveformRenderer(compCanvas);
+            this.comp._bindCanvasEvents();
+            window.addEventListener('resize', () => {
+                if (this._compMode) this.compWaveform.resize();
+            });
+        } catch (e) {
+            console.error('Comp waveform init failed:', e);
         }
 
         // Load persisted slot data from IndexedDB
@@ -158,6 +298,19 @@ class App {
             document.getElementById('install-btn').hidden = true;
         }
         this._deferredInstallPrompt = null;
+    }
+
+    // Toggles the on-screen console (see initDebugConsole() at the top of this
+    // file) over the main waveform viewer -- same panel space, not an overlay,
+    // per the ask: full screen real estate for reading logs on a phone, not a
+    // cramped corner widget.
+    _toggleDebugConsole() {
+        const panel = document.getElementById('debug-console');
+        const btn = document.getElementById('console-btn');
+        if (!panel) return;
+        panel.hidden = !panel.hidden;
+        if (btn) btn.textContent = panel.hidden ? 'Show console' : 'Hide console';
+        if (!panel.hidden) panel.scrollTop = panel.scrollHeight;
     }
 
     async ensureAudioInit() {
@@ -255,8 +408,13 @@ class App {
             document.getElementById('device-level-meter').hidden = true;
             this.device.disableMeter().catch(() => {});
             this.renderSlotGrid();
-            alert('SCM: no response to record command (2s timeout). Most likely cause: no AudioRecorder module in the currently loaded patch, or the device is in mass storage mode. Could also mean the connection dropped.');
-        }, 2000);
+            alert('SCM: no response to record command (8s timeout). Most likely cause: no AudioRecorder module in the currently loaded patch, or the device is in mass storage mode. Could also mean the connection dropped, or (new) RECBTN got queued behind a background recording download\'s resume/retry traffic on a slow connection.');
+        }, 8000); // was 2000 -- too short once background downloads can occupy the shared
+        // BLE send queue for several seconds at a time (resume/cancel/settle-delay cycles,
+        // GATT-busy retries). RECBTN isn't prioritized ahead of that traffic (a real UX gap
+        // worth fixing properly later -- record should never wait behind a background
+        // transfer), but for now a false "no response" alert while it's just queued is worse
+        // than a longer wait before genuinely giving up.
     }
 
     _clearDeviceRecordWatchdog() {
@@ -363,6 +521,7 @@ class App {
                 el.innerHTML = `
                     <span class="slot-number">${String(i + 1).padStart(2, '0')}</span>
                     <span class="slot-name ${slot.hasAudio ? '' : 'empty'}">${slot.hasAudio ? slot.name || 'untitled' : 'empty'}</span>
+                    <span class="slot-duration">${slot.hasAudio ? this._formatSlotDuration(slot.duration) : ''}</span>
                     <div class="slot-mini"><canvas></canvas></div>
                 `;
             } else {
@@ -481,6 +640,7 @@ class App {
         slotEls.forEach((el, i) => {
             const slot = this.slots.slots[i];
             const nameEl = el.querySelector('.slot-name');
+            const durationEl = el.querySelector('.slot-duration');
             const isKit = slot.type === 'kit';
 
             if (isKit) {
@@ -495,6 +655,18 @@ class App {
             } else {
                 nameEl.textContent = slot.hasAudio ? (slot.name || 'untitled') : 'empty';
                 nameEl.className = `slot-name ${slot.hasAudio ? '' : 'empty'}`;
+            }
+            // No local duration to show for a kit (multi-sample) or a not-yet-downloaded
+            // device recording -- only a real local buffer has slot.duration set.
+            if (durationEl) {
+                durationEl.textContent = (!isKit && slot.hasAudio) ? this._formatSlotDuration(slot.duration) : '';
+                // Cleared unconditionally on every render, not just when recording
+                // stops -- _updateDeviceMeter() is the only place that adds it, and
+                // it re-adds it every MTR tick (~20Hz) while actually recording, so
+                // clearing it here first is safe and stops it getting stuck red if a
+                // render happens to land between a recording ending and the next
+                // state update.
+                durationEl.classList.remove('recording-live');
             }
 
             // Restore normal mode classes
@@ -1060,55 +1232,34 @@ class App {
 
         // Main menu
         $('menu-btn').addEventListener('click', () => this._toggleMainMenu());
-        // scm-indicator is a one-click cycle through the whole device workflow --
-        // BLE-first (matches the phone-centric, cable-free story), not the menu's
+        // scm-indicator is a one-click connect/disconnect toggle -- BLE-first
+        // (matches the phone-centric, cable-free story), not the menu's
         // Serial-preferred connect(). Deliberately not a menu shortcut (redundant
-        // with menu-btn next to it). The explicit USB/Bluetooth/MSC buttons in the
+        // with menu-btn next to it). The explicit USB/Bluetooth buttons in the
         // device menu stay as the fallback for anyone who wants to be specific or
         // whose computer has no Bluetooth.
         //
-        // States, purely derived from isConnected()/_deviceInMscMode except one
-        // extra bit (_scmBtnImportedThisMsc) needed because "in MSC mode,
-        // disconnected" looks identical whether this is the first click after
-        // entering (should load files) or a later one (should reconnect) --
-        // reset to false every time MSC mode is freshly entered (_enterMscMode()).
-        //   1. disconnected, not in MSC mode -> connect via BLE
-        //   2. connected, not in MSC mode     -> enter mass storage mode
-        //   3. in MSC mode, not yet loaded    -> load recordings from drive
-        //   4. in MSC mode, already loaded    -> reconnect (which also auto-exits
-        //                                        MSC mode, see onConnect above)
+        // Used to also cycle through mass storage mode (enter/load-from-drive/
+        // reconnect) here. Removed 27/07: MSC/File System Access can't work on
+        // iOS/Bluefy at all (no showDirectoryPicker() in WebKit), and BLE download
+        // now covers the same "get recordings off the SD card" job on every
+        // platform -- so MSC had no upside left worth the downside of a stray tap
+        // on this same button (reaching for it again while already connected)
+        // silently rebooting the SCM into MSC mode. That mode's firmware loop
+        // ignores everything except "MSCMODE OFF", which read as a full device
+        // hang from the app side (no serial response at all, needed a manual
+        // power-cycle) rather than a mode switch. MSC's own menu entries are
+        // hidden too (index.html), not deleted -- _enterMscMode()/
+        // _importRecordingsFromDrive()/etc. are all still here if this ever needs
+        // reviving. onConnect() still auto-exits MSC mode if _deviceInMscMode is
+        // somehow true (stale localStorage, or MSC entered outside the app) --
+        // that safety net didn't depend on this button and still applies below.
         $('scm-indicator').addEventListener('click', async (e) => {
             e.stopPropagation();
             if (!this.device) return;
 
-            if (this._deviceInMscMode) {
-                if (!this._scmBtnImportedThisMsc) {
-                    this._scmBtnImportedThisMsc = true;
-                    this._scmBtnLoading = true;
-                    this._updateDeviceStatus();
-                    try {
-                        await this._importRecordingsFromDrive();
-                    } finally {
-                        this._scmBtnLoading = false;
-                        this._updateDeviceStatus();
-                    }
-                    return;
-                }
-                try {
-                    await this.device.connectBle();
-                } catch (err) {
-                    alert('Couldn\'t find your SCM. Check it\'s powered on and Bluetooth is enabled -- or connect via USB from the device menu.');
-                }
-                return;
-            }
-
             if (this.device.isConnected()) {
-                if (!confirm('Reboot SCM into mass storage mode? The SD card will mount as a drive, and the device will disconnect until you reconnect.')) return;
-                try {
-                    await this._enterMscMode();
-                } catch (err) {
-                    alert('Failed to enter mass storage mode: ' + err.message);
-                }
+                await this.device.disconnect();
                 return;
             }
 
@@ -1119,7 +1270,12 @@ class App {
                 // from "no device found" cleanly enough to stay silent on one and
                 // not the other (both can surface as NotFoundError) -- always show
                 // the friendly fallback rather than risk swallowing a real failure.
-                alert('Couldn\'t find your SCM. Check it\'s powered on and Bluetooth is enabled -- or connect via USB from the device menu.');
+                // TEMP: also exposing err.name/message while debugging why the
+                // chooser wasn't appearing at all on Android (27/07) -- the
+                // on-screen console is broken there too, so alert() is the only
+                // channel that actually reaches the phone. Revert to the plain
+                // friendly string once that's fully confirmed fixed.
+                alert('Couldn\'t find your SCM. Check it\'s powered on and Bluetooth is enabled -- or connect via USB from the device menu.\n\n[debug] ' + err.name + ': ' + err.message);
             }
         });
 
@@ -1196,6 +1352,7 @@ class App {
             if (action === 'save-project') this.rec.saveProject();
             if (action === 'load-project') { document.getElementById('project-file-input').click(); return; }
             if (action === 'delete-all') this.deleteAll();
+            if (action === 'console') this._toggleDebugConsole();
             if (action === 'install') this._promptInstall();
         });
 
@@ -1203,6 +1360,7 @@ class App {
         $('mode-rec').addEventListener('click', () => this.switchMode('rec'));
         $('mode-sample').addEventListener('click', () => this.switchMode('sample'));
         $('mode-seq').addEventListener('click', () => this.switchMode('seq'));
+        $('mode-comp').addEventListener('click', () => this.switchMode('comp'));
 
         // Waveform context menu
         const wfCanvas = document.getElementById('waveform');
@@ -1386,6 +1544,18 @@ class App {
                 this.seq._seqConfirmBank();
                 return;
             }
+            // Doubles as "zoom to selection" when one exists -- per Ed's ask, touch
+            // users have no wheel/pinch-precision shortcut for "zoom into what I just
+            // selected", and this button was otherwise only ever full-file-fit. Tapping
+            // elsewhere on the waveform already clears the selection (see
+            // WaveformRenderer._pointerUp()'s click-vs-drag handling), so tapping this
+            // same button again after that falls straight through to the full-file fit
+            // below -- no separate "zoom out" step needed.
+            const sel = this.waveform.getSelection();
+            if (sel) {
+                this.waveform.zoomToRange(sel.start, sel.end);
+                return;
+            }
             this.waveform.setZoom(1);
             this.waveform.setScrollOffset(0);
             this.waveform.render();
@@ -1458,6 +1628,18 @@ class App {
         // Exit kit mode if active
         if (this._kitMode) this._exitKitMode();
 
+        // Drop any downloads that haven't started yet, and hide the progress fill for
+        // any that's already mid-flight -- confirmed live: without this, a download
+        // already running when delete-all fires just keeps visually progressing over
+        // what now looks like an empty slot until it finishes (the guard added to
+        // _downloadDeviceRecording() stops it writing the audio back, but the stale
+        // progress bar itself was still confusing to watch). Genuinely in-flight
+        // downloads can't be aborted mid-request (no cancel hook on the fetch/read
+        // itself), so this only hides the visual -- the discard guard is what actually
+        // matters for correctness.
+        this._pendingDeviceDownloads = [];
+        for (let i = 0; i < 16; i++) this._setSlotImporting(i, false);
+
         // Clear all slots (including kit sub-slots)
         for (let i = 0; i < 16; i++) {
             if (this.slots.slots[i].type === 'kit') {
@@ -1498,9 +1680,29 @@ class App {
         this.undoStack = [];
         this.redoStack = [];
 
+        // Device-recording session bookkeeping lives on the App instance, not on
+        // the slots -- _clearSlotFully() above already wiped every slot's
+        // _deviceRecording/_devicePath, but recordingSlotIndex is a separate
+        // "which slot is the recording in progress targeting" pointer that
+        // normally only clears on the recording's own REC_STATE idle event or a
+        // disconnect. If either was missed (a real gap: device-triggered
+        // recordings via the SCM's own hardware button don't go through
+        // _beginRecording(), which is the only place that sets this fresh), the
+        // pointer survives a delete-all pointing at a slot index that's now
+        // stale -- confirmed live: deleting all then recording landed the new
+        // take on the pre-delete "next empty slot" instead of the one actually
+        // selected. Deleting ALL should leave nothing from the previous session
+        // able to redirect a future recording.
+        this._clearDeviceRecordWatchdog();
+        this.recordingSlotIndex = -1;
+        this._deviceRecordingActive = false;
+        this._deviceRecordingPath = null;
+        this._deviceRecordingPeaks = null;
+
         // Reset UI
         this.waveform.clear();
         document.getElementById('waveform-empty').hidden = false;
+        document.getElementById('rec-btn').classList.remove('recording');
         const _pb = document.getElementById('play-btn'); _pb.classList.remove('playing'); _pb.innerHTML = '&#9654; PLAY';
         document.getElementById('seq-stutter-btn').classList.remove('stutter-on');
         document.getElementById('seq-mutate-btn').classList.remove('mutate-on');
@@ -1582,7 +1784,7 @@ class App {
         await this.ensureAudioInit();
 
         // Stop rec-mode playback when leaving rec mode
-        if (!this._seqMode && !this._sampleMode) {
+        if (!this._seqMode && !this._sampleMode && !this._compMode) {
             this.rec.stopAudio();
         }
 
@@ -1593,12 +1795,17 @@ class App {
         if (this._sampleMode) {
             this.sample.exit(mode);
         }
+        if (this._compMode) {
+            this.comp.exit(mode);
+        }
 
         // Enter new mode
         if (mode === 'seq') {
             await this.seq.enter();
         } else if (mode === 'sample') {
             await this.sample.enter();
+        } else if (mode === 'comp') {
+            await this.comp.enter();
         } else {
             // rec mode — rebuild grid (seq mode may have >16 slots)
             if (this._kitMode) {
@@ -1617,10 +1824,23 @@ class App {
         document.getElementById('mode-rec').classList.toggle('active', mode === 'rec');
         document.getElementById('mode-sample').classList.toggle('active', mode === 'sample');
         document.getElementById('mode-seq').classList.toggle('active', mode === 'seq');
+        document.getElementById('mode-comp').classList.toggle('active', mode === 'comp');
 
         // Show/hide transport bars and toolbar
         document.getElementById('seq-transport').classList.toggle('active', mode === 'seq' || (mode === 'sample' && this._seqShowTransportInSample));
         document.getElementById('sample-transport').classList.toggle('active', mode === 'sample');
+        document.getElementById('comp-transport').classList.toggle('active', mode === 'comp');
+        // Note: #waveform/#slot-grid/.zoom-bar each set their own `display` in CSS,
+        // which beats the `hidden` attribute's UA-stylesheet rule regardless of
+        // specificity -- inline style.display is used for those instead of .hidden.
+        document.getElementById('toolbar').hidden = (mode === 'comp');
+        document.getElementById('slot-grid').style.display = (mode === 'comp') ? 'none' : '';
+        document.getElementById('waveform').style.display = (mode === 'comp') ? 'none' : '';
+        if (mode === 'comp') document.getElementById('waveform-empty').hidden = true;
+        else document.getElementById('comp-empty').hidden = true;
+        document.querySelector('.zoom-bar').style.display = (mode === 'comp') ? 'none' : '';
+        document.getElementById('time-ruler').hidden = (mode === 'comp');
+        document.getElementById('comp-canvas').style.display = (mode === 'comp') ? 'block' : 'none';
         document.getElementById('slot-grid').classList.toggle('seq-mode', mode === 'seq');
         document.getElementById('slot-grid').classList.toggle('sample-mode', mode === 'sample');
         document.getElementById('toolbar').classList.toggle('sample-mode', mode === 'sample');
@@ -1631,7 +1851,7 @@ class App {
             const kitName = this.slots.slots[this._kitParentSlot].name || 'Kit';
             document.querySelector('.header-title').textContent = 'KIT: ' + kitName;
         } else {
-            const titles = { rec: 'SONICRAFT', sample: 'SAMPLER', seq: 'SEQUENCER' };
+            const titles = { rec: 'SONICRAFT', sample: 'SAMPLER', seq: 'SEQUENCER', comp: 'COMP' };
             document.querySelector('.header-title').textContent = titles[mode];
         }
 
@@ -1844,6 +2064,17 @@ class App {
             // needed to also exit MSC mode right after.
             if (this._deviceInMscMode) this._exitMscMode(true);
             this.device.getSdSpace().then((space) => this._maybeWarnSdSpace(space)).catch(() => {});
+            // Re-queue any recordings still marked pending (_deviceRecording set,
+            // _devicePath present, no local audio yet) -- covers both a fresh app
+            // load with earlier pending recordings, and a mid-download disconnect
+            // (BLE dropping outright, not just a transient busy write) where the
+            // download queue just stops rather than resuming itself, since nothing
+            // else re-triggers it once the connection comes back.
+            this.slots.slots.forEach((s, i) => {
+                if (s && s._deviceRecording && s._devicePath && !s.hasAudio) {
+                    this._queueDeviceRecordingDownload(i, s._devicePath);
+                }
+            });
         };
         this.device.onDisconnect = () => {
             this._deviceRecordingActive = false;
@@ -2063,6 +2294,110 @@ class App {
             return;
         }
         await this._importRecordingsFromDrive();
+    }
+
+    // Background download of one device recording over the existing connection
+    // (Serial or BLE), via DeviceController.downloadFile() -- no MSC mode, no
+    // showDirectoryPicker(), works on iOS/Bluefy where that path can't (see
+    // _importRecordingsFromDrive's showDirectoryPicker check). Firmware serializes
+    // to one transfer at a time (FSEND_ERROR:transfer already in progress if a
+    // second FILE_SEND arrives mid-transfer), so recordings queue and download
+    // one at a time rather than racing.
+    _queueDeviceRecordingDownload(index, path) {
+        if (!this._pendingDeviceDownloads) this._pendingDeviceDownloads = [];
+        this._pendingDeviceDownloads.push({ index, path });
+        this._pumpDeviceDownloadQueue();
+    }
+
+    async _pumpDeviceDownloadQueue() {
+        if (this._deviceDownloadQueueRunning) return;
+        this._deviceDownloadQueueRunning = true;
+        while (this._pendingDeviceDownloads && this._pendingDeviceDownloads.length > 0) {
+            if (!this.device || !this.device.isConnected()) break; // rest stay marked _deviceRecording -- MSC import or a later reconnect can still pick them up
+            const { index, path } = this._pendingDeviceDownloads.shift();
+            await this._downloadDeviceRecording(index, path);
+        }
+        this._deviceDownloadQueueRunning = false;
+    }
+
+    async _downloadDeviceRecording(index, path) {
+        const slot = this.slots.slots[index];
+        // Slot may have been cleared/reassigned, or already imported via MSC,
+        // since this was queued -- _devicePath is the authoritative "still pending" check.
+        if (!slot || slot._devicePath !== path) return;
+        const status = document.getElementById('device-status');
+        const basename = path.split('/').pop();
+        this._setSlotImporting(index, true);
+        console.log(`[device] downloading ${basename} in background (BLE/Serial, no MSC)…`);
+        try {
+            await this.ensureAudioInit();
+            // BLE notifications have no delivery guarantee at the protocol level --
+            // even with MTU-safe chunk sizes and firmware-side pacing (GenRuntime.ino's
+            // BLEPrint::flush()), the controller's TX queue can still occasionally drop
+            // a burst under real radio conditions. downloadFile() has no way to resume
+            // a partial transfer (firmware always restarts a file from chunk 0), so a
+            // full-file retry is the simplest robust response to an occasional break --
+            // confirmed live: a sequence-break failure on one attempt, clean file-length
+            // recordings are small enough that redoing the whole thing costs seconds.
+            const MAX_ATTEMPTS = 3;
+            let arrayBuffer = null;
+            let lastErr = null;
+            const downloadStartMs = performance.now(); // includes any retries below -- wall-clock time the user actually waited, not just the final successful attempt
+            for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+                try {
+                    arrayBuffer = await this.device.downloadFile(path, (pct) => this._setSlotImportProgress(index, pct / 100));
+                    lastErr = null;
+                    break;
+                } catch (err) {
+                    lastErr = err;
+                    console.warn(`[device] attempt ${attempt}/${MAX_ATTEMPTS} failed for ${basename}:`, err);
+                    if (attempt < MAX_ATTEMPTS) {
+                        if (status) status.textContent = `Retrying ${basename} (${attempt}/${MAX_ATTEMPTS})…`;
+                        // Firmware's own transfer for the failed attempt is still marked
+                        // active (it doesn't know the app gave up) -- cancel it first or
+                        // the retry's FILE_SEND just gets "transfer already in progress".
+                        await this.device.cancelDownload();
+                        await new Promise(r => setTimeout(r, 500 * attempt));
+                    }
+                }
+            }
+            if (lastErr) throw lastErr;
+            // Re-check the same "is this slot still what we were downloading for" guard
+            // the function opened with -- the download above can take many seconds, and
+            // nothing was watching for the slot changing out from under it in that time.
+            // Confirmed live (27/07): deleteAll() while a download was already mid-flight
+            // let it run to completion and write the audio straight back into the slot
+            // deleteAll() had just cleared, silently undoing "delete all" for that one
+            // slot. slots.slots[index] is checked fresh (not the captured `slot` var --
+            // deleteAll()/clearSlot() mutate objects in place rather than replacing them,
+            // but re-reading from the array is the more obviously-correct source of truth
+            // here regardless).
+            if (this.slots.slots[index] !== slot || slot._devicePath !== path) {
+                console.log(`[device] discarding completed download for ${basename} -- slot${index + 1} no longer wants it (cleared or reassigned mid-download)`);
+                this._setSlotImporting(index, false);
+                return;
+            }
+            const downloadMs = performance.now() - downloadStartMs;
+            const kbPerSec = (arrayBuffer.byteLength / 1024) / (downloadMs / 1000);
+            const audioBuffer = await this.audio.audioContext.decodeAudioData(arrayBuffer);
+            const channels = [];
+            for (let ch = 0; ch < audioBuffer.numberOfChannels; ch++) {
+                channels.push(new Float32Array(audioBuffer.getChannelData(ch)));
+            }
+            await this.slots.saveSlotAudio(index, channels, audioBuffer.sampleRate);
+            slot._deviceRecording = false;
+            slot._devicePath = null;
+            this._saveDeviceSlotState();
+            this.renderSlotGrid();
+            console.log(`[device] IMPORTED slot${index + 1} ${basename} (${arrayBuffer.byteLength} bytes) hasAudio=${slot.hasAudio} -- ${downloadMs.toFixed(0)}ms, ${kbPerSec.toFixed(1)}KB/s`);
+            if (status) status.textContent = `Imported ${basename} (${(downloadMs / 1000).toFixed(1)}s, ${kbPerSec.toFixed(1)}KB/s)`;
+        } catch (err) {
+            // Left as _deviceRecording/_devicePath -- MSC-based import (desktop/Android)
+            // or the queue's next connect can still pick this recording up.
+            console.warn(`[device] FAILED slot${index + 1} ${basename}:`, err);
+            if (status) status.textContent = `Import failed: ${basename}`;
+        }
+        this._setSlotImporting(index, false);
     }
 
     // Visual progress for _importRecordingsFromDrive() -- a left-to-right green
@@ -2337,6 +2672,10 @@ class App {
                 if (status) status.textContent = 'Recording…';
                 document.getElementById('device-level-meter').hidden = false;
                 this._deviceRecordingPeaks = []; // accumulate MTR peaks into a low-res placeholder waveform
+                // Wall-clock based, not peak-count based -- MTR ticks aren't perfectly
+                // steady, so timing off performance.now() (same pattern rec-controller.js
+                // uses for local mic recording) stays accurate regardless of tick jitter.
+                this._deviceRecordingStartMs = performance.now();
                 this.device.enableMeter().catch(() => {});
                 break;
             case 'finalizing':
@@ -2344,6 +2683,7 @@ class App {
                 break;
             case 'idle': {
                 this._deviceRecordingActive = false;
+                this._deviceRecordingStartMs = null;
                 const recordedSlot = this.recordingSlotIndex;
                 this.recordingSlotIndex = -1;
                 recBtn.classList.remove('recording');
@@ -2366,6 +2706,13 @@ class App {
                         this.slots.slots[recordedSlot].peaks = this._deviceRecordingPeaks;
                     }
                     this._saveDeviceSlotState();
+                    // Start pulling the real audio in the background over the existing
+                    // connection (BLE/Serial) -- see _queueDeviceRecordingDownload. Works
+                    // on every platform including iOS/Bluefy, and can overlap with the
+                    // next recording (firmware pauses/resumes it on its own around SD
+                    // writes), so there's no separate "load recordings from drive" step
+                    // needed on top of MSC mode's showDirectoryPicker path above.
+                    this._queueDeviceRecordingDownload(recordedSlot, this._deviceRecordingPath);
                 }
                 this._deviceRecordingPeaks = null;
                 this.renderSlotGrid();
@@ -2480,6 +2827,15 @@ class App {
         // see the 'idle' case above, where this becomes slot.peaks. Independent of
         // the visual fill/clip handling below so it still captures the take even if
         // the meter element itself is ever missing.
+        // Elapsed time off performance.now(), not peak count -- MTR ticks aren't
+        // perfectly steady, so this stays accurate regardless of tick jitter. Also
+        // doubles as the x-axis span for the live ruler drawn below, since the
+        // peaks array visually stretches to fill the canvas width every frame
+        // (drawMiniFromPeaks) -- that's already "warping to fit as it gets longer"
+        // with no extra code; the ruler just needs to track the same span.
+        const elapsedSec = this._deviceRecordingStartMs != null
+            ? (performance.now() - this._deviceRecordingStartMs) / 1000 : 0;
+
         if (this._deviceRecordingPeaks) {
             this._deviceRecordingPeaks.push(peak, -peak);
             // Live-draw the same accumulating peaks onto the main waveform view,
@@ -2489,7 +2845,26 @@ class App {
             // since there's no "selected device recording" load path for the main
             // view yet (only the mini slot canvas persists that, via slot.peaks).
             const mainCanvas = document.getElementById('waveform');
-            if (mainCanvas) WaveformRenderer.drawMiniFromPeaks(mainCanvas, this._deviceRecordingPeaks, 'rgba(59,130,246,0.7)');
+            if (mainCanvas) {
+                WaveformRenderer.drawMiniFromPeaks(mainCanvas, this._deviceRecordingPeaks, 'rgba(59,130,246,0.7)');
+                // Same canvas/context drawMiniFromPeaks() just set up (DPR transform
+                // already applied) -- draw on top in the same CSS-pixel coordinate
+                // space it used, not mainCanvas.width/height (those are DPR-scaled).
+                WaveformRenderer.drawTimeRulerLinear(mainCanvas.getContext('2d'), mainCanvas.clientWidth, mainCanvas.clientHeight, elapsedSec);
+            }
+        }
+
+        // Live elapsed time in the header (same spot/format local mic recording's
+        // own timer uses in rec-controller.js) and on the recording slot's card
+        // itself, in red to read as "still counting" vs. the yellow final duration
+        // _formatSlotDuration() otherwise shows there once the take is done.
+        document.getElementById('info-duration').textContent = this.formatTime(elapsedSec);
+        if (this.recordingSlotIndex >= 0) {
+            const durationEl = document.querySelector(`#slot-grid .slot[data-index="${this.recordingSlotIndex}"] .slot-duration`);
+            if (durationEl) {
+                durationEl.textContent = this._formatSlotDuration(elapsedSec);
+                durationEl.classList.add('recording-live');
+            }
         }
 
         const status = document.getElementById('device-status');
@@ -2861,6 +3236,7 @@ class App {
             el.innerHTML = `
                 <span class="slot-number">${App.GM_NOTE_NAMES[i]}</span>
                 <span class="slot-name empty">empty</span>
+                <span class="slot-duration"></span>
                 <div class="slot-mini"><canvas></canvas></div>
             `;
 
@@ -2982,6 +3358,7 @@ class App {
         slotEls.forEach((el, i) => {
             const meta = this.slots.getKitSlotMeta(this._kitParentSlot, i);
             const nameEl = el.querySelector('.slot-name');
+            const durationEl = el.querySelector('.slot-duration');
             if (meta && meta.hasAudio) {
                 nameEl.textContent = meta.name || 'untitled';
                 nameEl.className = 'slot-name';
@@ -2989,6 +3366,7 @@ class App {
                 nameEl.textContent = 'empty';
                 nameEl.className = 'slot-name empty';
             }
+            if (durationEl) durationEl.textContent = (meta && meta.hasAudio) ? this._formatSlotDuration(meta.duration) : '';
 
             const numEl = el.querySelector('.slot-number');
             numEl.textContent = App.GM_NOTE_NAMES[i];
@@ -3170,6 +3548,20 @@ class App {
         const s = seconds % 60;
         const ms = Math.floor((s % 1) * 1000);
         return `${String(m).padStart(2, '0')}:${String(Math.floor(s)).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
+    }
+
+    // Compact duration readout for slot cards (`.slot-duration`, under the name) --
+    // distinct from formatTime()'s mm:ss.mmm transport-bar format, which is too wide
+    // for the slot grid's small cards. Three tiers per Ed's spec: sub-second takes
+    // (grain/hit-length material, where the exact millisecond matters) get full
+    // precision; the common few-second range gets 2-decimal seconds; anything past
+    // 10s rounds to a whole second, since sub-second precision stops being useful
+    // once a slot is holding a longer recording/loop.
+    _formatSlotDuration(seconds) {
+        if (!seconds || seconds <= 0) return '';
+        if (seconds < 1) return `${(seconds * 1000).toFixed(2)}ms`;
+        if (seconds > 10) return `${Math.round(seconds)}s`;
+        return `${seconds.toFixed(2)}s`;
     }
 }
 

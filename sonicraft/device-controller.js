@@ -15,6 +15,8 @@
  *   RECBTN 2        -> play/pause the most recent recording (comes out SCM's headphone
  *                       output; ignored with "REC: play ignored" if still finalizing)
  *   FMOVE <src> <dst> -> rename a file already on SD (SD.rename), replies FMOVE_OK/FMOVE_ERROR
+ *   FILE_SEND <path> -> download a file from SD: FSEND_START -> FSCHUNK:<base64> (repeated)
+ *                       -> FSEND_END. See downloadFile() below.
  *
  * Transport choice: Web Serial is preferred when available (desktop Chrome/Edge,
  * Android Chrome) since it's the more battle-tested path. Web Bluetooth is the
@@ -59,7 +61,7 @@ class DeviceController {
         // shared by both transports -- _feedData() is fed raw text from whichever is active.
         this._responseBuffer = '';
         this._emitPos = 0;
-        this._responseResolve = null;
+        this._pendingWaiters = []; // see _waitForResponse()/_checkResponses()
 
         // Callbacks
         this.onConnect = null;      // () => void
@@ -264,6 +266,7 @@ class DeviceController {
         this._readableStreamClosed = null;
         this._writableStreamClosed = null;
         this._transport = null;
+        this._sendQueue = null;
         if (this._onPortDisconnect) {
             navigator.serial.removeEventListener('disconnect', this._onPortDisconnect);
             this._onPortDisconnect = null;
@@ -280,6 +283,7 @@ class DeviceController {
         this._bleResponseChar = null;
         this._bleServer = null;
         this._bleDevice = null;
+        this._sendQueue = null;
         this._transport = null;
     }
 
@@ -319,7 +323,7 @@ class DeviceController {
     _feedData(text) {
         this._responseBuffer += text;
         this._emitLines();
-        if (this._responseResolve) this._checkResponse();
+        this._checkResponses();
     }
 
     _emitLines() {
@@ -334,26 +338,49 @@ class DeviceController {
         this._emitPos = searchFrom;
         // Trim a buffer that's only grown because nothing pending ever matched
         // (e.g. STATUS/diagnostic spam between commands) so it doesn't grow unbounded.
-        if (!this._responseResolve && this._emitPos > 4096) {
+        // Suspended during downloadFile() (see _streamConsuming): that loop mostly
+        // matches chunks through _waitForResponse()'s *synchronous* fast path (data
+        // already sitting in the buffer), which never registers a pending waiter at
+        // all -- this trim was designed for spam nobody's waiting on, not a consumer
+        // that's actively pulling a long stream of chunks just slightly slower than
+        // they arrive. Without the guard, any burst of chunks arriving faster than
+        // the loop's own await/re-entry overhead gets silently discarded here before
+        // downloadFile() ever sees it (confirmed live: a 509996-byte download only
+        // ever saw its last 44-byte partial chunk survive the trim).
+        if ((!this._pendingWaiters || this._pendingWaiters.length === 0) && !this._streamConsuming && this._emitPos > 4096) {
             this._responseBuffer = this._responseBuffer.substring(this._emitPos);
             this._emitPos = 0;
         }
     }
 
-    _checkResponse() {
-        if (!this._responseResolve) return;
-        const { patterns, resolve } = this._responseResolve;
-        for (const pattern of patterns) {
-            const idx = this._responseBuffer.indexOf(pattern);
-            if (idx !== -1) {
+    /**
+     * Checks every currently pending _waitForResponse() call against the buffer,
+     * not just the most recent one. Used to be a single `_responseResolve` slot --
+     * a second call() while a first was still pending (e.g. downloadFile()'s chunk
+     * loop and the rename dialog's FMOVE wait, both able to be active around the
+     * same recording-finalize event) silently overwrote the first's tracking,
+     * orphaning it: its resolve callback was gone, so that await just hung forever
+     * with no error, while the second wait raced the first for the same incoming
+     * lines. Confirmed live as a real failure ("no response to FMOVE" while a
+     * download's resume loop was active). Multiple independent waiters, each
+     * resolved (and removed) only when its own pattern matches, fixes this for
+     * every current and future caller, not just these two.
+     */
+    _checkResponses() {
+        if (!this._pendingWaiters || this._pendingWaiters.length === 0) return;
+        for (let i = this._pendingWaiters.length - 1; i >= 0; i--) {
+            const waiter = this._pendingWaiters[i];
+            for (const pattern of waiter.patterns) {
+                const idx = this._responseBuffer.indexOf(pattern);
+                if (idx === -1) continue;
                 const endIdx = this._responseBuffer.indexOf('\n', idx);
-                if (endIdx === -1) return; // wait for the complete line
+                if (endIdx === -1) continue; // wait for the complete line
                 const matched = this._responseBuffer.substring(idx, endIdx).replace(/\r/g, '');
                 this._responseBuffer = this._responseBuffer.substring(endIdx + 1);
                 this._emitPos = Math.max(0, this._emitPos - (endIdx + 1));
-                this._responseResolve = null;
-                resolve(matched);
-                return;
+                this._pendingWaiters.splice(i, 1);
+                waiter.resolve(matched);
+                break;
             }
         }
     }
@@ -372,12 +399,45 @@ class DeviceController {
             }
         }
         return new Promise((resolve) => {
-            const timer = setTimeout(() => { this._responseResolve = null; resolve(null); }, timeout);
-            this._responseResolve = { patterns, resolve: (val) => { clearTimeout(timer); resolve(val); } };
+            if (!this._pendingWaiters) this._pendingWaiters = [];
+            const waiter = { patterns, resolve: null };
+            const timer = setTimeout(() => {
+                const idx = this._pendingWaiters.indexOf(waiter);
+                if (idx !== -1) this._pendingWaiters.splice(idx, 1);
+                resolve(null);
+            }, timeout);
+            waiter.resolve = (val) => { clearTimeout(timer); resolve(val); };
+            this._pendingWaiters.push(waiter);
         });
     }
 
+    /**
+     * Serializes every _send() call onto a single chain -- Web Bluetooth throws
+     * "GATT operation already in progress" if two writes to the same
+     * characteristic overlap, and several call sites fire commands without
+     * awaiting each other (e.g. the recording-finalize handler in app.js calls
+     * disableMeter(), getSdSpace(), and now downloadFile()'s FILE_SEND all from
+     * the same synchronous event, none of them awaited by the caller). Chaining
+     * here means it doesn't matter how many callers do that -- only one write is
+     * ever in flight. `.catch(() => {})` on the tail keeps the chain alive after
+     * a failed send instead of wedging every _send() call after it forever.
+     */
     async _send(str) {
+        if (!this.isConnected()) throw new Error('Not connected to device');
+        const run = () => this._doSend(str);
+        const queued = (this._sendQueue || Promise.resolve()).then(run, run);
+        this._sendQueue = queued.catch(() => {});
+        return queued;
+    }
+
+    async _doSend(str) {
+        // Re-check here, not just in _send()'s eager check before queueing -- _sendQueue
+        // can now defer this call for seconds behind other queued traffic (confirmed
+        // live: a RECBTN queued behind background download resume/retry activity). If
+        // the connection drops during that wait, _bleUploadChar/etc. go null via
+        // _clearBleState()/_clearPortState(), and without this check the code below
+        // would throw a raw "Cannot read properties of null" instead of the clean
+        // "Not connected to device" _send()'s own check was supposed to guarantee.
         if (!this.isConnected()) throw new Error('Not connected to device');
         if (this._transport === 'ble') {
             // Split into MTU-safe chunks -- Web Bluetooth doesn't expose the negotiated
@@ -386,11 +446,53 @@ class DeviceController {
             const bytes = new TextEncoder().encode(str);
             for (let i = 0; i < bytes.length; i += DEVICE_BLE_CHUNK_SIZE) {
                 const chunk = bytes.slice(i, Math.min(i + DEVICE_BLE_CHUNK_SIZE, bytes.length));
-                await this._bleUploadChar.writeValueWithResponse(chunk);
+                await this._bleWriteWithTimeout(chunk);
             }
             return;
         }
         await this._writer.write(str);
+    }
+
+    /**
+     * writeValueWithResponse() has no built-in timeout and no delivery guarantee
+     * if it never resolves -- confirmed live: a write hung with zero error/output,
+     * and since every _send() call chains onto _sendQueue (see above), that one
+     * hung write silently wedged every future command (including the cancel a
+     * download retry needed to recover) with no way out short of a page reload.
+     * Racing a timeout means a hung write rejects instead, which _send()'s
+     * `.catch(() => {})` on the queue tail already unblocks for whatever's next.
+     */
+    async _bleWriteWithTimeout(chunk, timeoutMs = 8000) {
+        const MAX_BUSY_RETRIES = 10; // 5 attempts (~2.25s total backoff) wasn't enough, confirmed live
+        for (let attempt = 1; attempt <= MAX_BUSY_RETRIES; attempt++) {
+            let timer;
+            try {
+                await Promise.race([
+                    this._bleUploadChar.writeValueWithResponse(chunk),
+                    new Promise((_, reject) => {
+                        timer = setTimeout(() => reject(new Error('BLE write timed out')), timeoutMs);
+                    }),
+                ]);
+                return;
+            } catch (err) {
+                // "GATT operation already in progress" is a known Web Bluetooth quirk on
+                // multiple platforms (confirmed live on Windows here, not Android as
+                // originally assumed when this was written) -- the OS's own BLE stack can
+                // report this independent of any app-level write ordering (background
+                // MTU/connection housekeeping, not something _sendQueue's serialization
+                // above controls). Standard handling is a short retry, not treating it as
+                // fatal -- it usually clears on its own within milliseconds. Windows'
+                // Bluetooth LE stack (especially over a generic dongle/onboard adapter) is
+                // plausibly a rougher environment for a sustained high-chunk-count transfer
+                // like this than a phone's radio -- still needs confirming on real Android/
+                // iOS hardware before assuming this is equally bad everywhere.
+                const isBusy = err && err.name === 'NetworkError' && /already in progress/i.test(err.message || '');
+                if (!isBusy || attempt === MAX_BUSY_RETRIES) throw err;
+                await new Promise(r => setTimeout(r, 150 * attempt));
+            } finally {
+                clearTimeout(timer);
+            }
+        }
     }
 
     // === Unsolicited state lines ===
@@ -406,6 +508,11 @@ class DeviceController {
         // before that diagnostic was retired. Kept in -- this one's still live
         // firmware-side instrumentation, not dead scaffolding.
         if (line.startsWith('SDDBG')) console.log('[device]', line);
+        // BLEDBG: confirms the actual negotiated connection interval/PHY resulting
+        // from the requests in BLEMIDIServerCallbacks::onConnect() (GenRuntime.ino) --
+        // both are negotiated, not mandatory, so this is the only way to tell
+        // "request declined" apart from "honored but something else is the bottleneck".
+        if (line.startsWith('BLEDBG')) console.log('[device]', line);
         let event = null;
         if (line.startsWith('MTR:')) {
             event = { type: 'meter', peak: parseFloat(line.substring(4)) || 0, raw: line };
@@ -465,6 +572,27 @@ class DeviceController {
     /** RECBTN 1 — toggles AudioRecorder record. Result arrives via onState, not a return value. */
     async toggleRecord() {
         await this._send('RECBTN 1\n');
+    }
+
+    /**
+     * TEMP (27/07): relays one console line to the SCM's USB-serial monitor via
+     * the existing BLE connection -- see the matching APPLOG handler in
+     * GenRuntime.ino for why this reaches a different machine's serial monitor
+     * without any new transport. Fire-and-forget by design (caller doesn't await
+     * a response) and deliberately silent on failure -- this is called from
+     * inside the console.log/warn/error wrapper itself (app.js initDebugConsole),
+     * so letting a failure here call console.* to report itself would recurse.
+     */
+    async sendAppLog(text) {
+        if (!this.isConnected()) return;
+        // Single BLE command line -- strip newlines (multi-line stack traces) so
+        // this can't be mistaken for multiple commands, and cap length well under
+        // what a single _send() chunk run needs to stay lightweight (this shares
+        // the same queue real recordings/downloads depend on).
+        const oneLine = String(text).replace(/[\r\n]+/g, ' | ').slice(0, 240);
+        try {
+            await this._send('APPLOG ' + oneLine + '\n');
+        } catch (_) {}
     }
 
     /** RECBTN 2 — play/pause the most recently recorded take, out SCM's headphone output. */
@@ -535,7 +663,148 @@ class DeviceController {
         return { totalBytes: parseInt(m[1], 10), usedBytes: parseInt(m[2], 10), freeBytes: parseInt(m[3], 10), pct: parseInt(m[4], 10) };
     }
 
+    /**
+     * FILE_SEND <path> -> FSCHUNK:<base64> (repeated) -> FSEND_END. Downloads a
+     * file from the device's SD card over the existing connection (Serial or
+     * BLE) -- works on every platform including iOS/Bluefy, unlike MSC mode +
+     * showDirectoryPicker (File System Access API, desktop-Chromium-only, see
+     * app.js's _importRecordingsFromDrive). Same protocol as desktop's
+     * PatchUploader.js.
+     *
+     * Firmware (serviceFileSendTransfer() in GenRuntime.ino) pauses between
+     * chunks on its own while an AudioRecorder is actively recording or
+     * finalizing, and resumes once it's done -- there's no way to know in
+     * advance how long that pause might last, so the per-chunk wait below
+     * retries on timeout (as long as the device is still connected) rather
+     * than failing. This is what lets a download run safely in the background
+     * while the user records the next take.
+     */
+    async downloadFile(path, onProgress) {
+        if (!this.isConnected()) throw new Error('Not connected to device');
+        const progress = onProgress || (() => {});
+
+        // See _emitLines()'s trim guard -- must stay set for the whole call (not just
+        // the chunk loop) so a burst arriving right after FSEND_START can't get
+        // trimmed before the loop below even starts.
+        this._streamConsuming = true;
+        try {
+            const chunks = [];
+            let receivedBytes = 0;
+            let expectedSize = 0;
+            const CHUNK_WAIT = 5000; // per-attempt only -- the inner loop retries past this, not a hard cap
+            // BLE notifications have no delivery guarantee at the protocol level --
+            // even at a safe chunk size and paced sends, the controller's TX queue can
+            // still occasionally drop a burst under real radio conditions (confirmed
+            // live). Restarting the whole file from scratch on every drop doesn't scale
+            // -- bigger files mean more chunks, more chances to hit a drop, and every
+            // restart throws away all progress already made. Resuming from the last
+            // known-good byte offset (firmware seeks there -- see FILE_SEND's optional
+            // startOffset in GenRuntime.ino) means each segment only has to survive
+            // until the *next* drop, not the whole file, so overall reliability doesn't
+            // degrade with file size the way whole-file retry does.
+            const MAX_RESUMES = 20;
+
+            for (let resumeNum = 0; resumeNum <= MAX_RESUMES; resumeNum++) {
+                if (resumeNum > 0) {
+                    // Firmware's transfer for the broken segment is still marked active
+                    // (it doesn't know the client saw a gap) -- cancel it or the resume's
+                    // FILE_SEND just gets "transfer already in progress".
+                    await this.cancelDownload();
+                    // Settle delay -- confirmed live that sending the resume's FILE_SEND
+                    // immediately after cancelling still hits GATT operation already in
+                    // progress even with write-level retry in place. Likely cause: the
+                    // broken segment's already-queued notifications are still draining
+                    // through the OS BLE stack right after cancel, and the new write lands
+                    // in that backlog rather than a genuinely transient busy state. Give it
+                    // real time to drain before trying.
+                    await new Promise(r => setTimeout(r, 400));
+                    console.log(`[device] resuming ${path} from byte ${receivedBytes} (attempt ${resumeNum}/${MAX_RESUMES})`);
+                }
+                const cmd = receivedBytes > 0 ? `FILE_SEND ${path} ${receivedBytes}\n` : `FILE_SEND ${path}\n`;
+                await this._send(cmd);
+                const start = await this._waitForResponse(['FSEND_START', 'FSEND_ERROR'], DEVICE_COMMAND_TIMEOUT * 2);
+                if (!start || start.includes('FSEND_ERROR')) {
+                    throw new Error(start || 'No response to FILE_SEND command');
+                }
+                const startParts = start.replace(/\r/g, '').split(':');
+                expectedSize = parseInt(startParts[2], 10) || expectedSize;
+
+                let expectedChunkNum = 0; // this segment's own numbering always restarts at 0
+                let gapBroke = false;
+
+                while (true) {
+                    if (!this.isConnected()) throw new Error('Device disconnected during download');
+                    const line = await this._waitForResponse(['FSCHUNK:', 'FSEND_END'], CHUNK_WAIT);
+                    if (!line) continue; // no chunk yet -- likely paused for an active recording, keep waiting
+                    if (line.includes('FSEND_END')) {
+                        // Firmware only ever emits this at true EOF (serviceFileSendTransfer()
+                        // always reads through to the real end once started) -- so reaching
+                        // it cleanly means the whole file is done, not just this segment.
+                        console.log(`[device] FSEND_END after ${chunks.length} total chunks, ${receivedBytes}/${expectedSize} bytes`);
+                        break;
+                    }
+
+                    // FSCHUNK:<chunkNum>:<base64> -- verify sequencing explicitly rather than
+                    // just trusting the final byte total, so a dropped/duplicated/reordered
+                    // chunk is caught precisely instead of surfacing as a vague mismatch.
+                    const firstColon = line.indexOf(':');
+                    const secondColon = line.indexOf(':', firstColon + 1);
+                    const chunkNum = parseInt(line.substring(firstColon + 1, secondColon), 10);
+                    const b64Data = line.substring(secondColon + 1);
+                    if (chunkNum !== expectedChunkNum) {
+                        console.warn(`[device] chunk gap in ${path}: expected #${expectedChunkNum}, got #${chunkNum} -- will resume from byte ${receivedBytes}`);
+                        gapBroke = true;
+                        break;
+                    }
+                    expectedChunkNum++;
+                    const binStr = atob(b64Data);
+                    const bytes = Uint8Array.from(binStr, c => c.charCodeAt(0));
+                    chunks.push(bytes);
+                    receivedBytes += bytes.length;
+                    if (expectedSize > 0) {
+                        progress(Math.min(100, Math.round((receivedBytes / expectedSize) * 100)));
+                    }
+                }
+
+                if (!gapBroke) break; // clean FSEND_END -- whole file done, exit the resume loop
+                if (resumeNum === MAX_RESUMES) {
+                    throw new Error(`Download incomplete after ${MAX_RESUMES} resumes: got ${receivedBytes}/${expectedSize} bytes`);
+                }
+            }
+
+            const totalLength = chunks.reduce((sum, c) => sum + c.length, 0);
+            if (expectedSize > 0 && totalLength !== expectedSize) {
+                throw new Error(`Download incomplete: got ${totalLength} bytes in ${chunks.length} chunks, expected ${expectedSize}`);
+            }
+            const result = new Uint8Array(totalLength);
+            let offset = 0;
+            for (const chunk of chunks) {
+                result.set(chunk, offset);
+                offset += chunk.length;
+            }
+            progress(100);
+            return result.buffer;
+        } finally {
+            this._streamConsuming = false;
+        }
+    }
+
     // === Persistence (auto-reconnect on next load, same pattern as DmxController) ===
+
+    /**
+     * FILE_SEND_CANCEL -- abandons an in-progress download on the firmware side.
+     * Needed before retrying downloadFile() after it throws (e.g. a chunk sequence
+     * break): firmware has no other way to learn the app gave up, so without this
+     * a retry's fresh FILE_SEND just gets FSEND_ERROR:transfer already in progress
+     * against the old, still-active-on-device transfer. Best-effort -- swallows
+     * errors/timeout since the caller is about to retry regardless.
+     */
+    async cancelDownload() {
+        try {
+            await this._send('FILE_SEND_CANCEL\n');
+            await this._waitForResponse('FSEND_CANCELLED', 2000);
+        } catch (_) { /* best-effort */ }
+    }
 
     _saveSettings(autoConnect) {
         try {

@@ -1,8 +1,8 @@
-const CACHE_NAME = 'soniphorm-sonicraft-v178';
+const CACHE_NAME = 'soniphorm-sonicraft-v186';
 const ASSETS = [
   './',
   './index.html',
-  './style.css?v=177',
+  './style.css?v=186',
   './app.js',
   './audio-engine.js',
   './waveform.js',
@@ -36,10 +36,18 @@ self.addEventListener('activate', (e) => {
   self.clients.claim();
 });
 
-// Network-first strategy: always try the network, fall back to cache offline
+// Network-first strategy: always try the network, fall back to cache offline.
+// { cache: 'no-store' } is load-bearing, not decoration -- a plain fetch(e.request)
+// still goes through Chrome's own HTTP cache (separate from this SW's Cache Storage
+// API above), and the dev server (plain `python -m http.server`, no Cache-Control
+// header) leaves Chrome free to apply heuristic freshness off Last-Modified and
+// serve straight from disk cache without ever reaching the network. That cache is
+// disk-persisted, so it survives page reloads AND full browser restarts -- confirmed
+// live (27/07) as the real explanation for repeated "still showing the old version"
+// reports today that a reload/restart didn't fix, not a one-off fluke each time.
 self.addEventListener('fetch', (e) => {
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: 'no-store' })
       .then((response) => {
         // Update cache with fresh response
         const clone = response.clone();

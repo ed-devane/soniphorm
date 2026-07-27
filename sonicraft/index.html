@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="../favicon.png">
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=177">
+    <link rel="stylesheet" href="style.css?v=186">
 </head>
 <body>
     <header id="header">
@@ -32,7 +32,13 @@
                 <button id="mode-rec" class="mode-btn active" title="Recorder mode">REC</button>
                 <button id="mode-sample" class="mode-btn" title="Sampler mode">SAMPLE</button>
                 <button id="mode-seq" class="mode-btn" title="Sequencer mode">SEQ</button>
+                <!-- SCM moved ahead of COMP (27/07) -- on mobile portrait the mode-toggle
+                     row overflows and the last button gets clipped/inaccessible without
+                     switching to landscape. COMP is still under development and used far
+                     less than SCM, so it's the one that should end up off-screen if
+                     something has to. -->
                 <button id="scm-indicator" class="mode-btn scm-indicator" title="SCM: not connected">SCM</button>
+                <button id="mode-comp" class="mode-btn" title="Comp mode">COMP</button>
             </div>
             <button id="menu-btn" class="icon-btn" title="Menu">&#9776;</button>
             <div class="context-menu" id="main-menu" hidden>
@@ -64,9 +70,16 @@
                 <div id="device-settings" hidden>
                     <div class="midi-row"><span>Port</span><button id="device-connect-btn" class="menu-select">USB…</button><button id="device-connect-ble-btn" class="menu-select">Bluetooth…</button></div>
                     <div class="midi-row"><span>Status</span><span id="device-status" class="menu-hint">Not connected</span></div>
-                    <div class="midi-row"><span>SD Card</span><button id="device-msc-btn" class="menu-select">Mass storage mode…</button></div>
-                    <div class="midi-row"><span>Import</span><button id="device-import-btn" class="menu-select">Load recordings from drive…</button></div>
-                    <span class="menu-hint">Device reboots and its SD card mounts as a normal drive (Files app on iOS/Android, Explorer/Finder on desktop) -- disconnects USB/Bluetooth while active. Reconnect and use this button again to return to normal.</span>
+                    <!-- MSC (mass storage) UI hidden 27/07 -- BLE download now covers the
+                         same job on both Android and iOS (MSC/File System Access can't
+                         work on iOS/Bluefy at all -- WebKit has no showDirectoryPicker()),
+                         and a stray tap into MSC mode while already connected was reading
+                         as a full device hang (its firmware loop ignores everything except
+                         MSCMODE OFF). Code/handlers left in place, just not reachable from
+                         the UI -- remove `hidden` here to bring it back if ever needed. -->
+                    <div class="midi-row" hidden><span>SD Card</span><button id="device-msc-btn" class="menu-select">Mass storage mode…</button></div>
+                    <div class="midi-row" hidden><span>Import</span><button id="device-import-btn" class="menu-select">Load recordings from drive…</button></div>
+                    <span class="menu-hint" hidden>Device reboots and its SD card mounts as a normal drive (Files app on iOS/Android, Explorer/Finder on desktop) -- disconnects USB/Bluetooth while active. Reconnect and use this button again to return to normal.</span>
                 </div>
 
                 <button data-action="bounce">Bounce to slot</button>
@@ -74,8 +87,9 @@
                 <button data-action="save-project">Save project</button>
                 <button data-action="load-project">Load project</button>
                 <button data-action="delete-all" class="danger">Delete all</button>
+                <button data-action="console" id="console-btn">Show console</button>
                 <button data-action="install" id="install-btn" hidden>Install app</button>
-                <span class="menu-version">v177</span>
+                <span class="menu-version">v186</span>
             </div>
         </div>
     </header>
@@ -84,11 +98,20 @@
         <!-- Waveform Display -->
         <div class="waveform-wrap">
             <canvas id="waveform"></canvas>
+            <canvas id="comp-canvas"></canvas>
             <div class="waveform-empty" id="waveform-empty">
                 <span>Select a slot to begin</span>
             </div>
+            <div class="waveform-empty" id="comp-empty" hidden>
+                <span>Long-press to add a sample</span>
+            </div>
             <div class="level-meter" id="device-level-meter" hidden>
                 <div class="level-meter-fill" id="device-level-meter-fill"></div>
+            </div>
+            <div class="debug-console" id="debug-console" hidden>
+                <button id="debug-console-copy" class="debug-console-copy" type="button">Copy</button>
+                <button id="debug-console-relay" class="debug-console-copy" type="button" title="Relay every console line to the SCM over BLE, which mirrors it to whatever's watching the SCM's USB serial on another machine -- needs an active SCM connection.">Live&rarr;PC: off</button>
+                <pre id="debug-console-log"></pre>
             </div>
             <div id="seq-sample-list" class="seq-sample-list" hidden></div>
             <div id="drum-grid" class="drum-grid" hidden></div>
@@ -366,6 +389,18 @@
             </div>
         </div>
 
+        <!-- Comp Transport -->
+        <div class="comp-transport" id="comp-transport">
+            <button id="comp-play-btn" class="tb" title="Play composition">&#9654; PLAY</button>
+            <button id="comp-stop-btn" class="tb" title="Stop playback">&#9632; STOP</button>
+            <div class="seq-sep"></div>
+            <button id="comp-bounce-btn" class="tb" title="Bounce composition to slot">BOUNCE</button>
+            <button id="comp-clear-btn" class="tb" title="Clear composition">CLEAR</button>
+            <div class="seq-sep"></div>
+            <button id="comp-modulate-btn" class="tb" title="Pick two placed samples to cross-modulate">MODULATE</button>
+            <span id="comp-modulate-hint" class="comp-modulate-hint" hidden></span>
+        </div>
+
         <!-- Step Mode Context Menu -->
         <div class="step-mode-menu" id="step-mode-menu" hidden>
             <div class="step-slot-picker" id="step-slot-picker"></div>
@@ -448,6 +483,7 @@
                     <option value="convolve">Convolve (IR from source)</option>
                     <option value="ringmod">Ring modulate</option>
                     <option value="vocoder">Vocoder</option>
+                    <option value="fm">FM modulate</option>
                 </select>
             </div>
             <div id="cross-params"></div>
@@ -468,6 +504,39 @@
                 <button id="layer-preview" class="dialog-btn">Preview</button>
                 <button id="layer-bounce" class="dialog-btn primary">Bounce</button>
                 <button id="layer-cancel" class="dialog-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Comp: pick a sample to place -->
+    <div class="dialog-overlay" id="comp-picker-dialog" hidden>
+        <div class="dialog fx-dialog">
+            <h3>Add sample to composition</h3>
+            <div id="comp-picker-list" class="layer-slot-list"></div>
+            <div class="fx-actions">
+                <button id="comp-picker-cancel" class="dialog-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Comp: modulate two selected samples -->
+    <div class="dialog-overlay" id="comp-modulate-dialog" hidden>
+        <div class="dialog fx-dialog">
+            <h3>Modulate</h3>
+            <div class="fx-param">
+                <div class="fx-param-header">
+                    <span class="fx-param-label">Operation</span>
+                </div>
+                <select id="comp-modulate-op">
+                    <option value="ringmod">Ring modulate</option>
+                    <option value="vocoder">Vocoder</option>
+                    <option value="fm">FM modulate</option>
+                    <option value="convolve">Convolve (IR from source)</option>
+                </select>
+            </div>
+            <div class="fx-actions">
+                <button id="comp-modulate-confirm" class="dialog-btn primary">Apply</button>
+                <button id="comp-modulate-cancel" class="dialog-btn">Cancel</button>
             </div>
         </div>
     </div>
@@ -507,6 +576,7 @@
     <script src="rec-controller.js"></script>
     <script src="seq-controller.js"></script>
     <script src="sample-controller.js"></script>
+    <script src="comp-controller.js"></script>
     <script src="app.js"></script>
 </body>
 </html>
