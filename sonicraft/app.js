@@ -175,7 +175,14 @@ class App {
         this.rec = new RecController(this);
         this.seq = new SeqController(this);
         this.sample = new SampleController(this);
-        this.comp = new CompController(this);
+        // Optional -- comp-controller.js is still-in-development and deliberately not
+        // part of every deploy of this file (see 27/07 deploy notes). Without this
+        // guard, a deploy that ships app.js/index.html without comp-controller.js
+        // throws a bare ReferenceError right here, outside any try/catch, which used
+        // to silently abort the rest of init() -- buildSlotGrid() and everything after
+        // it never ran, so the whole app looked blank below the toolbar with no error
+        // visible anywhere obvious. Confirmed live (27/07) on the real deploy.
+        this.comp = (typeof CompController !== 'undefined') ? new CompController(this) : null;
         this.seq._initSequencer();
         this.sample._initSampler();
         this._initMidi();
@@ -249,7 +256,7 @@ class App {
         try {
             const compCanvas = document.getElementById('comp-canvas');
             this.compWaveform = new WaveformRenderer(compCanvas);
-            this.comp._bindCanvasEvents();
+            if (this.comp) this.comp._bindCanvasEvents();
             window.addEventListener('resize', () => {
                 if (this._compMode) this.compWaveform.resize();
             });
@@ -1781,6 +1788,14 @@ class App {
     // === Mode Switching ===
 
     async switchMode(mode) {
+        // comp-controller.js may not be present on every deploy (see the guard in
+        // init() above) -- rather than crash, treat "comp mode requested but
+        // CompController never loaded" as a no-op that stays on the current mode.
+        if (mode === 'comp' && !this.comp) {
+            console.warn('Comp mode unavailable (comp-controller.js not loaded)');
+            return;
+        }
+
         await this.ensureAudioInit();
 
         // Stop rec-mode playback when leaving rec mode
@@ -1795,7 +1810,7 @@ class App {
         if (this._sampleMode) {
             this.sample.exit(mode);
         }
-        if (this._compMode) {
+        if (this._compMode && this.comp) {
             this.comp.exit(mode);
         }
 
