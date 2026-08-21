@@ -88,6 +88,16 @@
       },
       "to": {
         "module": "out1",
+        "input": "inL"
+      }
+    },
+    {
+      "from": {
+        "module": "Filter1",
+        "output": "outR"
+      },
+      "to": {
+        "module": "out1",
         "input": "inR"
       }
     }
