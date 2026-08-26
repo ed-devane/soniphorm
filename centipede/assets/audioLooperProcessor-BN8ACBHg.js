@@ -219,6 +219,7 @@ class AudioLooperProcessor extends AudioWorkletProcessor {
     // with, since resizing foundation/layers mid-loop would corrupt them.
     else if (msg.type === 'clear') this.resetAll(true);
     else if (msg.type === 'clearLayer') this.clearSelectedLayer();
+    else if (msg.type === 'toggleLayerMute') this.toggleSelectedLayerMute();
     else if (msg.type === 'setRotateArm') this.rotateArm = msg.value;
     else if (msg.type === 'setRotateInterval') this.rotateInterval = msg.value;
     else if (msg.type === 'setRotateDirection') this.rotateDirection = msg.value;
@@ -259,6 +260,24 @@ class AudioLooperProcessor extends AudioWorkletProcessor {
     this.layers[slot] = null;
     this.port.postMessage({ type: 'layerRemoved', slot });
     if (this.layerOrder.length === 0) this.resetAll(true);
+  }
+
+  // Direct mute toggle for the on-canvas Mute button - deliberately bypasses
+  // the layerMute AudioParam's soft-takeover machinery (see the big comment
+  // in process() about muteTakeoverLive) rather than routing through it: that
+  // logic exists so a *held* CV/latch signal doesn't silently re-apply its
+  // state onto a newly-selected layer without a fresh press, which is the
+  // wrong model for a plain button click that should just flip whichever
+  // layer is selected right now, unconditionally. Only actually conflicts if
+  // something's also patched into layerMute at the same time - same accepted
+  // "last write wins" tradeoff as every other CV/UI-shared param here (see
+  // this file's own module-level comment). Same "no dedicated notification,
+  // next periodic state message picks it up" convention as clearSelectedLayer.
+  toggleSelectedLayerMute() {
+    if (this.selectedSlot == null) return;
+    const layer = this.layers[this.selectedSlot];
+    if (!layer) return;
+    layer.muted = !layer.muted;
   }
 
   resetAll(notify) {
