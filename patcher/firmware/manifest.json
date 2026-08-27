@@ -1,8 +1,8 @@
 {
-    "version": "1.10.69",
+    "version": "1.10.70",
     "file": "GenRuntime.ino.bin",
     "date": "2026-08-27",
-    "notes": "AudioRecorder: forward (non-reverse) trimmed/looped/one-shot playback now streams from SD instead of RAM-buffering the whole [start,end) window -- fixes recordings silently truncating to ~1-2s whenever Start/End trim or Loop/One-Shot mode was used, because the RAM window buffer's size was shared with other PSRAM-hungry modules (e.g. Delay) in the patch and any window bigger than it fit got clamped with no warning. Loop mode now wraps via an SD reseek instead of RAM pointer math -- expect a small (~20ms) gap at the loop seam instead of sample-exact. Reverse playback is unchanged (still the bounded RAM path).",
+    "notes": "AudioRecorder: streamed Loop mode is now seamless -- a small (~21ms) precomputed equal-power crossfade of the loop window's true tail fading into its true head is spliced in at each loop point instead of a raw reseek cut, removing the ~20ms silence gap introduced in 1.10.69. Uses two tiny (4KB each) PSRAM buffers, not the old large RAM window buffer, so it doesn't reintroduce the PSRAM-budget-sharing problem that caused the original truncation bug. Falls back to a plain reseek (small gap, no click-masking) if the window is too short for a real crossfade or the tiny buffers fail to allocate. Non-Loop trim/one-shot streaming and Reverse playback are unaffected.",
     "flashAddress": "0x10000",
     "board": "ESP32-S3-WROOM-1-N16R8"
 }
