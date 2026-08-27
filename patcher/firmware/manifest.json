@@ -1,8 +1,8 @@
 {
-    "version": "1.10.68",
+    "version": "1.10.69",
     "file": "GenRuntime.ino.bin",
     "date": "2026-08-27",
-    "notes": "Lowered the SCM speaker amp's auto-idle peak threshold (AMP_IDLE_PEAK_THRESHOLD) from 0.003 to 0.0005 -- Ed reported the amp cutting out during quiet passages of playing audio, which meant the previous threshold was catching genuine low-level signal as 'silence' and shutting the NS4150B off mid-passage. Lower threshold only counts truly-silent output as idle, so quiet audio stays classified as active and the amp stays on.",
+    "notes": "AudioRecorder: forward (non-reverse) trimmed/looped/one-shot playback now streams from SD instead of RAM-buffering the whole [start,end) window -- fixes recordings silently truncating to ~1-2s whenever Start/End trim or Loop/One-Shot mode was used, because the RAM window buffer's size was shared with other PSRAM-hungry modules (e.g. Delay) in the patch and any window bigger than it fit got clamped with no warning. Loop mode now wraps via an SD reseek instead of RAM pointer math -- expect a small (~20ms) gap at the loop seam instead of sample-exact. Reverse playback is unchanged (still the bounded RAM path).",
     "flashAddress": "0x10000",
     "board": "ESP32-S3-WROOM-1-N16R8"
 }
