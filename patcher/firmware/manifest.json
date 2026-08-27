@@ -1,8 +1,8 @@
 {
-    "version": "1.10.33",
+    "version": "1.10.68",
     "file": "GenRuntime.ino.bin",
-    "date": "2026-07-20",
-    "notes": "Button LEDs now match bank color instead of red-only (new setBankLED() helper + LEDCOLOR ON/OFF NVS toggle for the one unit with dead green/blue channels). Also fixes a real ctrlLedMap table bug (wrong TLC59116 channel numbers for 2 of the 4 buttons) found live on the first Porta v1.1 unit -- affects every unit with working button LED channels, including the 9 already-fixed v1.0 units. Includes 1.10.32's Android MSC SPI-speed fix and the rest of the SonicCraft session work.",
+    "date": "2026-08-27",
+    "notes": "Lowered the SCM speaker amp's auto-idle peak threshold (AMP_IDLE_PEAK_THRESHOLD) from 0.003 to 0.0005 -- Ed reported the amp cutting out during quiet passages of playing audio, which meant the previous threshold was catching genuine low-level signal as 'silence' and shutting the NS4150B off mid-passage. Lower threshold only counts truly-silent output as idle, so quiet audio stays classified as active and the amp stays on.",
     "flashAddress": "0x10000",
     "board": "ESP32-S3-WROOM-1-N16R8"
 }
