@@ -72,6 +72,44 @@ function wrapIndex(v, length) {
   return ((n % length) + length) % length;
 }
 
+// A live-recorded take has no reason to already be periodic - the sample
+// value right before the loop wraps and the one right after can differ by
+// any amount, an arbitrary edit cut rather than real continuous audio. The
+// read side's own linear interpolation (readLayerSample/readFoundationSample)
+// only smooths *one* sample at that boundary, nowhere near enough to hide a
+// real amplitude jump - that's the click. Fixed here, once, at the moment a
+// layer's raw audio is finalized (see finalizeFirstTake/onLoopWrap below),
+// rather than live on every read: nudge just the last few ms of the buffer by
+// a linearly-decaying fraction of the exact gap (delta = audio[0] -
+// audio[len-1]), so the correction lands at full strength on the very last
+// sample (making it land exactly on audio[0], zero jump) and tapers to
+// nothing by the far edge of the window - the rest of the tail, and the
+// entire head, are untouched. This is sufficient for every read path in this
+// module, not just a plain forward loop: shift/reverse only rotate *where*
+// in playback order this one physical buffer boundary (index len-1 -> 0)
+// falls, they never remove it, and every other adjacent-sample pair in the
+// buffer is just consecutive real audio with no injected cut - so fixing
+// this one seam fixes it everywhere the buffer is ever read. It also survives
+// being baked into the foundation (bakeIntoFoundation sums already-seamless
+// layers, and a sum of signals that are each continuous at a point is itself
+// continuous there) - no separate foundation-side fix needed. Deliberately a
+// plain linear declick rather than a longer musical crossfade: with live/
+// overdubbed material there's no guarantee of a clean zero-crossing or
+// matching waveform character near the boundary to crossfade against, so
+// directly closing the actual gap is the reliable fix, not an approximation
+// of one.
+const LOOP_SEAM_DECLICK_MS = 8;
+function applyLoopSeamDeclick(audio, sr) {
+  const len = audio.length;
+  const fadeLen = Math.min(Math.round((sr * LOOP_SEAM_DECLICK_MS) / 1000), Math.floor(len / 2));
+  if (fadeLen < 2) return;
+  const delta = audio[0] - audio[len - 1];
+  if (delta === 0) return;
+  for (let i = 0; i < fadeLen; i++) {
+    audio[len - 1 - i] += delta * (1 - i / fadeLen);
+  }
+}
+
 // Downsampled min/max pairs per bucket, not the full-resolution buffer - a
 // finalized layer can be several seconds of audio and never changes again,
 // so this is computed once at finalize time rather than the UI recomputing
@@ -181,6 +219,7 @@ class AudioLooperProcessor extends AudioWorkletProcessor {
     // with, since resizing foundation/layers mid-loop would corrupt them.
     else if (msg.type === 'clear') this.resetAll(true);
     else if (msg.type === 'clearLayer') this.clearSelectedLayer();
+    else if (msg.type === 'toggleLayerMute') this.toggleSelectedLayerMute();
     else if (msg.type === 'setRotateArm') this.rotateArm = msg.value;
     else if (msg.type === 'setRotateInterval') this.rotateInterval = msg.value;
     else if (msg.type === 'setRotateDirection') this.rotateDirection = msg.value;
@@ -221,6 +260,24 @@ class AudioLooperProcessor extends AudioWorkletProcessor {
     this.layers[slot] = null;
     this.port.postMessage({ type: 'layerRemoved', slot });
     if (this.layerOrder.length === 0) this.resetAll(true);
+  }
+
+  // Direct mute toggle for the on-canvas Mute button - deliberately bypasses
+  // the layerMute AudioParam's soft-takeover machinery (see the big comment
+  // in process() about muteTakeoverLive) rather than routing through it: that
+  // logic exists so a *held* CV/latch signal doesn't silently re-apply its
+  // state onto a newly-selected layer without a fresh press, which is the
+  // wrong model for a plain button click that should just flip whichever
+  // layer is selected right now, unconditionally. Only actually conflicts if
+  // something's also patched into layerMute at the same time - same accepted
+  // "last write wins" tradeoff as every other CV/UI-shared param here (see
+  // this file's own module-level comment). Same "no dedicated notification,
+  // next periodic state message picks it up" convention as clearSelectedLayer.
+  toggleSelectedLayerMute() {
+    if (this.selectedSlot == null) return;
+    const layer = this.layers[this.selectedSlot];
+    if (!layer) return;
+    layer.muted = !layer.muted;
   }
 
   resetAll(notify) {
@@ -355,6 +412,7 @@ class AudioLooperProcessor extends AudioWorkletProcessor {
       smoothedShiftSamples: 0,
       duckGain: 1,
     };
+    applyLoopSeamDeclick(layer.audio, sampleRate);
     this.firstTakeSamples = null;
     this.recordPhase = 0;
     this.readPos = 0;
@@ -411,6 +469,7 @@ class AudioLooperProcessor extends AudioWorkletProcessor {
     if (this.stagingLayer) {
       const finished = this.stagingLayer;
       this.stagingLayer = null;
+      applyLoopSeamDeclick(finished.audio, sampleRate);
       this.placeNewLayer(finished);
       // recordArmOn is this block's latched value (set once per process()
       // call below) - still held down at the wrap means "keep going",
