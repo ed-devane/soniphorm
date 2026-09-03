@@ -33,6 +33,12 @@ class GranularProcessor extends AudioWorkletProcessor {
       { name: 'semitones', defaultValue: 0, minValue: -24, maxValue: 24, automationRate: 'k-rate' },
       { name: 'pitchSpread', defaultValue: 0.1, minValue: 0, maxValue: 1, automationRate: 'k-rate' },
       { name: 'intervalSemitones', defaultValue: 0, minValue: -24, maxValue: 24, automationRate: 'k-rate' },
+      // Blend of the pitch-shifted grain stream over a second, natural-pitch
+      // (ratio 1.0) read of the same grains: 0 = granulation with no pitch
+      // manipulation at all, 1 = fully pitch-shifted (the original behaviour,
+      // hence the default). Lets shimmer be dialled in/out without moving
+      // `semitones`, which jumps drastically mid-performance.
+      { name: 'pitchMix', defaultValue: 1, minValue: 0, maxValue: 1, automationRate: 'k-rate' },
       { name: 'mix', defaultValue: 0.7, minValue: 0, maxValue: 1, automationRate: 'k-rate' },
       { name: 'feedback', defaultValue: 0.15, minValue: 0, maxValue: 0.95, automationRate: 'k-rate' },
       { name: 'reverseProb', defaultValue: 0.15, minValue: 0, maxValue: 1, automationRate: 'k-rate' },
@@ -48,6 +54,10 @@ class GranularProcessor extends AudioWorkletProcessor {
     this.grains = Array.from({ length: GRAIN_COUNT }, () => ({
       readPos: 0,
       pitchRatio: 1,
+      // Parallel read pointer at natural pitch (step +/-1), for the Pitch Mix
+      // blend - the same grain window read with no pitch manipulation.
+      readPosDry: 0,
+      dryStep: 1,
       duration: 0,
       elapsed: 0,
       active: false,
@@ -89,6 +99,7 @@ class GranularProcessor extends AudioWorkletProcessor {
     const pitchSpread = p.pitchSpread[0];
     const intervalSemi = p.intervalSemitones[0];
     const pitch2 = intervalSemi !== 0 ? pitch * 2 ** (intervalSemi / 12) : pitch;
+    const pitchMix = p.pitchMix[0];
     const mix = p.mix[0];
     const feedback = p.feedback[0];
     const reverseProb = p.reverseProb[0];
@@ -139,6 +150,8 @@ class GranularProcessor extends AudioWorkletProcessor {
 
         // Buffer is zero-initialised - always safe to read any position.
         g.readPos = ((this.writePos - readOffset) % bufferSize + bufferSize) % bufferSize;
+        g.readPosDry = g.readPos;
+        g.dryStep = 1;
 
         const basePitch = intervalSemi !== 0 ? (slot & 1 ? pitch2 : pitch) : pitch;
         g.pitchRatio = basePitch * randPitch;
@@ -149,6 +162,10 @@ class GranularProcessor extends AudioWorkletProcessor {
           const grainLen = grainSize * sampleRate * Math.abs(g.pitchRatio);
           g.readPos = (g.readPos + grainLen) % bufferSize;
           g.pitchRatio = -g.pitchRatio;
+          // Dry pointer reverses through a natural-length window from the
+          // same base start.
+          g.readPosDry = (g.readPosDry + grainSize * sampleRate) % bufferSize;
+          g.dryStep = -1;
         }
 
         g.duration = Math.max(64, Math.round(grainSize * sampleRate));
@@ -156,7 +173,8 @@ class GranularProcessor extends AudioWorkletProcessor {
         g.active = true;
       }
 
-      let grainSum = 0;
+      let grainSum = 0; // pitch-shifted grain stream
+      let grainSumDry = 0; // same grains read at natural pitch
       let activeCount = 0;
       for (let gi = 0; gi < GRAIN_COUNT; gi++) {
         const g = grains[gi];
@@ -175,15 +193,23 @@ class GranularProcessor extends AudioWorkletProcessor {
         const readInt = g.readPos | 0;
         const readFrac = g.readPos - readInt;
         const readNext = readInt + 1 >= bufferSize ? 0 : readInt + 1;
-        const b0 = buffer[readInt];
-        const b1 = buffer[readNext];
-        const sample = b0 + (b1 - b0) * readFrac;
-
+        const sample = buffer[readInt] + (buffer[readNext] - buffer[readInt]) * readFrac;
         grainSum += sample * envelope;
+
+        // Second read of the same grain window at natural pitch, for Pitch Mix.
+        const dryInt = g.readPosDry | 0;
+        const dryFrac = g.readPosDry - dryInt;
+        const dryNext = dryInt + 1 >= bufferSize ? 0 : dryInt + 1;
+        const sampleDry = buffer[dryInt] + (buffer[dryNext] - buffer[dryInt]) * dryFrac;
+        grainSumDry += sampleDry * envelope;
 
         g.readPos += g.pitchRatio;
         if (g.readPos >= bufferSize) g.readPos -= bufferSize;
         if (g.readPos < 0) g.readPos += bufferSize;
+
+        g.readPosDry += g.dryStep;
+        if (g.readPosDry >= bufferSize) g.readPosDry -= bufferSize;
+        if (g.readPosDry < 0) g.readPosDry += bufferSize;
 
         g.elapsed++;
         if (g.elapsed >= g.duration) g.active = false;
@@ -194,14 +220,20 @@ class GranularProcessor extends AudioWorkletProcessor {
       const targetNorm = activeCount > 1 ? 1 / Math.sqrt(activeCount) : 1;
       this.smoothNorm += (targetNorm - this.smoothNorm) * 0.002;
       grainSum *= this.smoothNorm;
+      grainSumDry *= this.smoothNorm;
+
+      // Linear blend - pitched over unpitched. At pitchMix 1 this is exactly
+      // grainSum (the pre-Pitch-Mix behaviour); at semitones 0 the two reads
+      // are identical so it's a no-op regardless.
+      const granular = grainSumDry + (grainSum - grainSumDry) * pitchMix;
 
       if (!frozen) {
-        const fbSample = inSample + grainSum * feedback;
+        const fbSample = inSample + granular * feedback;
         buffer[this.writePos] = feedback > 0 ? Math.tanh(fbSample) : fbSample;
         this.writePos = this.writePos + 1 >= bufferSize ? 0 : this.writePos + 1;
       }
 
-      output[i] = inSample * (1 - mix) + grainSum * mix;
+      output[i] = inSample * (1 - mix) + granular * mix;
     }
 
     return true;
