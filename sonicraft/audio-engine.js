@@ -120,6 +120,44 @@ class AudioEngine {
             .map(d => ({ deviceId: d.deviceId, label: d.label || 'Input ' + d.deviceId.slice(0, 4) }));
     }
 
+    // === Output Device Selection ===
+    // AudioContext.setSinkId() (Chrome 110+) lets the app route its own output to a
+    // specific device instead of whatever the OS treats as default -- e.g. an SCM set
+    // as Windows default already works with no code here, but this lets someone route
+    // monitoring to it while keeping their normal speakers as the system default.
+
+    supportsOutputSelection() {
+        return typeof AudioContext !== 'undefined' && 'setSinkId' in AudioContext.prototype;
+    }
+
+    async enumerateOutputDevices() {
+        // Same permission requirement as input: labels are blank until some getUserMedia
+        // grant has been made, so reuse whatever prompt already ran (or trigger one).
+        if (!this._mediaStream) {
+            try {
+                const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                tempStream.getTracks().forEach(t => t.stop());
+            } catch (e) { return []; }
+        }
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        return devices
+            .filter(d => d.kind === 'audiooutput')
+            .map(d => ({ deviceId: d.deviceId, label: d.label || 'Output ' + d.deviceId.slice(0, 4) }));
+    }
+
+    async setOutputDevice(deviceId) {
+        if (!this.audioContext) await this.init();
+        if (!this.supportsOutputSelection()) return false;
+        try {
+            // '' resets to the system default, matching setSinkId's own convention.
+            await this.audioContext.setSinkId(deviceId || '');
+            return true;
+        } catch (e) {
+            console.warn('setOutputDevice failed:', e);
+            return false;
+        }
+    }
+
     // === Noise Gate ===
 
     setGateEnabled(enabled) {
@@ -213,6 +251,14 @@ class AudioEngine {
                         chunk.fill(0);
                         peak = 0;
                     }
+                }
+
+                // 19/09/2026: same bug as the AudioWorklet path (recorder-worklet.js) --
+                // e.outputBuffer was never written, so this node was connected to
+                // destination for live monitoring but always output silence. ScriptNode
+                // output defaults to zero-filled same as AudioWorklet's.
+                for (let ch = 0; ch < e.outputBuffer.numberOfChannels; ch++) {
+                    e.outputBuffer.getChannelData(ch).set(chunk);
                 }
 
                 this._recordedChunks.push(chunk);

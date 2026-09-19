@@ -157,6 +157,9 @@ class App {
         // Input device selection
         this._selectedInputDeviceId = null;
 
+        // Output device selection
+        this._selectedOutputDeviceId = null;
+
         // MIDI
         this.midi = null;
         this._midiHeldNotes = new Map(); // midiNote -> voiceKey
@@ -1188,6 +1191,15 @@ class App {
             this._selectedInputDeviceId = e.target.value || null;
         });
 
+        // Output device selection (in main menu) -- routes playback AND live monitoring
+        // (recording's mediaStreamSource -> workletNode -> destination chain in
+        // audio-engine.js) to this device via AudioContext.setSinkId(), independent of
+        // whatever Windows treats as the default output.
+        $('output-device-select').addEventListener('change', async (e) => {
+            this._selectedOutputDeviceId = e.target.value || null;
+            await this.audio.setOutputDevice(this._selectedOutputDeviceId);
+        });
+
         // Edit operations
         $('trim-btn').addEventListener('click', () => this.rec.applyEdit('trim'));
         $('reverse-btn').addEventListener('click', () => this.rec.applyEdit('reverse'));
@@ -1360,6 +1372,33 @@ class App {
                 }
                 if (this._selectedInputDeviceId) {
                     select.value = this._selectedInputDeviceId;
+                }
+                select.hidden = false;
+                if (hint) hint.hidden = false;
+                return;
+            }
+            if (action === 'output') {
+                const select = $('output-device-select');
+                const hint = $('output-device-hint');
+                if (!select.hidden) {
+                    select.hidden = true;
+                    if (hint) hint.hidden = true;
+                    return;
+                }
+                if (!this.audio.supportsOutputSelection()) {
+                    alert('This browser doesn\'t support choosing an output device (needs Chrome 110+). Set the device as your system default output instead.');
+                    return;
+                }
+                const devices = await this.audio.enumerateOutputDevices();
+                select.innerHTML = '<option value="">System Default</option>';
+                for (const d of devices) {
+                    const opt = document.createElement('option');
+                    opt.value = d.deviceId;
+                    opt.textContent = d.label;
+                    select.appendChild(opt);
+                }
+                if (this._selectedOutputDeviceId) {
+                    select.value = this._selectedOutputDeviceId;
                 }
                 select.hidden = false;
                 if (hint) hint.hidden = false;

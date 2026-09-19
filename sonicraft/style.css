@@ -421,7 +421,8 @@ main {
 .gate-db[hidden] { display: none; }
 
 /* Input device selector (in main menu) */
-#input-device-select {
+#input-device-select,
+#output-device-select {
     display: block;
     width: calc(100% - 8px);
     margin: 4px;
@@ -435,8 +436,10 @@ main {
     outline: none;
     cursor: pointer;
 }
-#input-device-select:focus { border-color: var(--accent); }
-#input-device-select[hidden] { display: none; }
+#input-device-select:focus,
+#output-device-select:focus { border-color: var(--accent); }
+#input-device-select[hidden],
+#output-device-select[hidden] { display: none; }
 
 .tb.rec.gate-closed {
     animation: pulse-gate-closed 0.6s ease-in-out infinite;

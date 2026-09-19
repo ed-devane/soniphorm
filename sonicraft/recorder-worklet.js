@@ -30,13 +30,22 @@ class RecorderProcessor extends AudioWorkletProcessor {
         };
     }
 
-    process(inputs) {
+    process(inputs, outputs) {
         if (!this._active) return false;
 
         const input = inputs[0];
         if (!input || input.length === 0 || input[0].length === 0) return true;
 
         const channelData = input[0];
+        // 19/09/2026: this processor previously never touched `outputs` at all -- it
+        // only ever wrote into `this._buffer` for the postMessage/recording chunk
+        // pipeline. AudioWorklet zero-fills any output channel a processor doesn't
+        // write to, so workletNode.connect(destination) in audio-engine.js was
+        // topologically wired for live monitoring but always played silence: the node
+        // had no code path that ever produced sound. Writing the same gated sample to
+        // every output channel below is what actually makes monitoring audible; the
+        // recording/chunk logic is unchanged.
+        const output = outputs[0];
 
         if (this._gateEnabled) {
             // Compute per-frame peak for gate decision
@@ -56,6 +65,12 @@ class RecorderProcessor extends AudioWorkletProcessor {
 
             const sample = channelData[i] * this._gateRamp;
             this._buffer[this._writePos] = sample;
+
+            if (output) {
+                for (let ch = 0; ch < output.length; ch++) {
+                    output[ch][i] = sample;
+                }
+            }
 
             const abs = Math.abs(sample);
             if (abs > this._peak) this._peak = abs;
