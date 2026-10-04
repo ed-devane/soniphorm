@@ -1,0 +1,162 @@
+{
+  "version": "1.0",
+  "name": "Motion Loop",
+  "description": "SCM + MPU6050 (I2C), fw 1.10.98+. One WAV in /rec on the SD card loops from power-on, silent until the unit moves: movement fades it in (~1.6s), 20s of stillness fades it out (~6.7s). ADSR times are x timescale 5.01. MotionIn must feed the ADSR gate input, not trigger. VCA gain 0.1 sets the playback level; ADSR env also drives the Audio Output Amp Gate, so the speaker amp is on only while the envelope is open.",
+  "author": "Soniphorm",
+  "created": "2026-10-02T10:33:12.874Z",
+  "clockSpeed": 240,
+  "clockMode": 1,
+  "bindingsExplicit": true,
+  "modules": [
+    {
+      "id": "AudioRecorder1",
+      "type": "AudioRecorder",
+      "position": {
+        "x": 212,
+        "y": 85
+      },
+      "params": {
+        "bank": 1,
+        "file_prefix": "rec",
+        "playback_folder": "",
+        "trigger_mode": 0,
+        "input_gain": 1,
+        "monitor_level": 0.5,
+        "loop_mode": 2,
+        "autoplay": true
+      }
+    },
+    {
+      "id": "MotionIn1",
+      "type": "MotionIn",
+      "position": {
+        "x": 472,
+        "y": 172
+      },
+      "params": {
+        "sensitivity": 0.2,
+        "hold_ms": 20000
+      }
+    },
+    {
+      "id": "VCA1",
+      "type": "VCA",
+      "position": {
+        "x": 859,
+        "y": 83
+      },
+      "params": {
+        "gain": 0.1
+      }
+    },
+    {
+      "id": "ADSR1",
+      "type": "ADSR",
+      "position": {
+        "x": 668,
+        "y": 153
+      },
+      "params": {
+        "attack_ms": 326,
+        "decay_ms": 2300,
+        "sustain": 1,
+        "release_ms": 1333,
+        "loop_mode": "oneshot",
+        "timescale": 5.011872336272722,
+        "trigger_mode": "trigger",
+        "bank": 3,
+        "breakpoints": [
+          {
+            "time": 0,
+            "level": 0,
+            "curve": 0.5
+          },
+          {
+            "time": 0.1,
+            "level": 1,
+            "curve": 0.3
+          },
+          {
+            "time": 0.3,
+            "level": 0.7,
+            "curve": 0.7
+          },
+          {
+            "time": 0.8,
+            "level": 0.7,
+            "curve": 0.5
+          },
+          {
+            "time": 1,
+            "level": 0,
+            "curve": 0.8
+          }
+        ]
+      }
+    },
+    {
+      "id": "out1",
+      "type": "I2SOut",
+      "position": {
+        "x": 0,
+        "y": 0
+      },
+      "params": {
+        "master_volume": 1,
+        "speaker_enabled": true
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": {
+        "module": "VCA1",
+        "output": "outL"
+      },
+      "to": {
+        "module": "out1",
+        "input": "inR"
+      }
+    },
+    {
+      "from": {
+        "module": "AudioRecorder1",
+        "output": "outL"
+      },
+      "to": {
+        "module": "VCA1",
+        "input": "inL"
+      }
+    },
+    {
+      "from": {
+        "module": "ADSR1",
+        "output": "out"
+      },
+      "to": {
+        "module": "VCA1",
+        "input": "gain"
+      }
+    },
+    {
+      "from": {
+        "module": "MotionIn1",
+        "output": "gate"
+      },
+      "to": {
+        "module": "ADSR1",
+        "input": "gate"
+      }
+    },
+    {
+      "from": {
+        "module": "ADSR1",
+        "output": "out"
+      },
+      "to": {
+        "module": "out1",
+        "input": "amp_gate"
+      }
+    }
+  ]
+}

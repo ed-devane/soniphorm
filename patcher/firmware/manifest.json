@@ -1,8 +1,8 @@
 {
-    "version": "1.10.70",
+    "version": "1.10.98",
     "file": "GenRuntime.ino.bin",
-    "date": "2026-08-27",
-    "notes": "AudioRecorder: streamed Loop mode is now seamless -- a small (~21ms) precomputed equal-power crossfade of the loop window's true tail fading into its true head is spliced in at each loop point instead of a raw reseek cut, removing the ~20ms silence gap introduced in 1.10.69. Uses two tiny (4KB each) PSRAM buffers, not the old large RAM window buffer, so it doesn't reintroduce the PSRAM-budget-sharing problem that caused the original truncation bug. Falls back to a plain reseek (small gap, no click-masking) if the window is too short for a real crossfade or the tiny buffers fail to allocate. Non-Loop trim/one-shot streaming and Reverse playback are unaffected.",
+    "date": "2026-10-03",
+    "notes": "SD uploads: interrupted uploads can now be resumed from where they stopped (device reports incomplete files), recorder playback pauses during transfers, and chunks are retry-safe. SD browser shows real WAV durations for any sample rate/bit depth. SCM: new Amp Gate input on the Audio Output strip keeps the speaker amp on during quiet passages. Breakout pots bound to CCs work again, and MIDI-strip pot cables support a Min/Max range. Also: untouched patcher faders no longer override module settings; AudioRecorder Autoplay and Loop fixes. Includes all changes since 1.10.70.",
     "flashAddress": "0x10000",
     "board": "ESP32-S3-WROOM-1-N16R8"
 }

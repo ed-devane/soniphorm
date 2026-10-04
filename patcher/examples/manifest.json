@@ -40,5 +40,11 @@
     "name": "Granular Contact Mic",
     "description": "Piezo into granular synthesis with freeze and reverse",
     "tags": ["scm", "granular", "piezo"]
+  },
+  {
+    "file": "motion_loop.json",
+    "name": "Motion Loop",
+    "description": "SD WAV loops from power-on; MPU6050 movement fades it in, 20s stillness fades it out. Needs MPU6050 + fw 1.10.91.",
+    "tags": ["scm", "recorder", "sd", "motion", "install"]
   }
 ]
