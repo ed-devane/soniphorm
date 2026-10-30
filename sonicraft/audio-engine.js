@@ -82,7 +82,12 @@ class AudioEngine {
             }
             return;
         }
-        this.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+        // latencyHint 'interactive' is already the spec default when omitted, but made
+        // explicit (19/09/2026) while chasing live-monitoring latency -- some browsers'
+        // internal buffer-size selection reportedly differs when sampleRate is also
+        // specified, so this removes the ambiguity rather than relying on an implicit
+        // default lining up the way we want.
+        this.audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000, latencyHint: 'interactive' });
         if (this.audioContext.state === 'suspended') {
             await this.audioContext.resume();
         }
@@ -92,6 +97,13 @@ class AudioEngine {
         this._liveGain = this.audioContext.createGain();
         this._masterBus.connect(this._liveGain);
         this._liveGain.connect(this.audioContext.destination);
+
+        // Live input monitoring gain (recording node -> _monitorGain -> destination).
+        // Off by default: with a built-in mic and speakers it feeds back. The recording
+        // node stays connected to destination either way so it keeps getting pulled.
+        this._monitorGain = this.audioContext.createGain();
+        this._monitorGain.gain.value = this._monitorEnabled ? 1 : 0;
+        this._monitorGain.connect(this.audioContext.destination);
 
         // Try to register AudioWorklet for recording (modern replacement for ScriptProcessor)
         if (this.audioContext.audioWorklet) {
@@ -158,6 +170,19 @@ class AudioEngine {
         }
     }
 
+    // === Input Monitoring ===
+
+    setMonitorEnabled(enabled) {
+        this._monitorEnabled = !!enabled;
+        if (this._monitorGain) {
+            this._monitorGain.gain.setTargetAtTime(this._monitorEnabled ? 1 : 0, this.audioContext.currentTime, 0.01);
+        }
+    }
+
+    isMonitorEnabled() {
+        return !!this._monitorEnabled;
+    }
+
     // === Noise Gate ===
 
     setGateEnabled(enabled) {
@@ -204,6 +229,11 @@ class AudioEngine {
                     noiseSuppression: false,
                     autoGainControl: false,
                     sampleRate: 48000,
+                    // Chrome-specific hint (19/09/2026, chasing live-monitoring
+                    // latency): requests the smallest input buffer the platform can
+                    // give rather than whatever default Chrome's audio-service picks.
+                    // Non-standard, silently ignored elsewhere -- safe to always send.
+                    latency: 0,
                     ...(deviceId ? { deviceId: { exact: deviceId } } : {})
                 }
             };
@@ -223,7 +253,7 @@ class AudioEngine {
                 if (this.onRecordChunk) this.onRecordChunk(chunk);
             };
             this._mediaStreamSource.connect(this._workletNode);
-            this._workletNode.connect(this.audioContext.destination);
+            this._workletNode.connect(this._monitorGain);
 
             // Send initial gate config
             this._workletNode.port.postMessage({
@@ -266,7 +296,7 @@ class AudioEngine {
                 if (this.onRecordChunk) this.onRecordChunk(chunk);
             };
             this._mediaStreamSource.connect(this._scriptProcessor);
-            this._scriptProcessor.connect(this.audioContext.destination);
+            this._scriptProcessor.connect(this._monitorGain);
         }
         this._isRecording = true;
     }

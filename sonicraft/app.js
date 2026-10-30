@@ -343,46 +343,22 @@ class App {
     // selected empty slot to start) routes through these two so device recording
     // shows up exactly like local mic recording: same recordingSlotIndex bookkeeping,
     // same slot highlight, same rename-on-finish -- just a different backend.
+    // Device-triggered recording (RECBTN -> the SCM's own AudioRecorder module,
+    // recording to its SD card) disabled 19/09/2026 -- confirmed broken, not just
+    // deprioritized: env:audio (the new USB-audio-interface firmware this project
+    // now targets) has no patch/module system at all, so RECBTN has nothing to
+    // answer it and every device-connected recording attempt timed out ("SCM: no
+    // response to record command (8s timeout)"). The device connection now exists
+    // purely for control commands (PGA gain, MONITOR) -- recording always goes
+    // through the browser/WebAudio path below, regardless of connection state.
+    // Old device-recorded slots (slot._deviceRecording, see _playDeviceSlot's call
+    // sites) still play back correctly; this only stops NEW recordings from trying
+    // to route to a firmware path that no longer exists in this build.
     async _beginRecording(index) {
-        if (this.device && this.device.isConnected()) {
-            // _deviceInMscMode survives a page refresh (persisted to localStorage) --
-            // catch this before wasting a 2s watchdog timeout on it. A device in MSC
-            // mode is running runMscMode()'s minimal loop, which recognizes only
-            // "MSCMODE OFF" and silently ignores everything else, including RECBTN.
-            if (this._deviceInMscMode) {
-                alert('SCM is in mass storage mode -- exit it first (device menu > "Exit mass storage mode...") before recording.');
-                return;
-            }
-            this.recordingSlotIndex = index;
-            document.getElementById('waveform-empty').hidden = true;
-            document.getElementById('rec-btn').classList.add('recording');
-            this.renderSlotGrid();
-            this._armDeviceRecordWatchdog();
-            try {
-                await this.device.toggleRecord();
-            } catch (err) {
-                this._clearDeviceRecordWatchdog();
-                this.recordingSlotIndex = -1;
-                document.getElementById('rec-btn').classList.remove('recording');
-                this.renderSlotGrid();
-                alert('Device record failed: ' + err.message);
-            }
-            return;
-        }
         await this.rec.startRecording(index);
     }
 
     async _endRecording() {
-        if (this.device && this.device.isConnected() && this.recordingSlotIndex >= 0) {
-            this._armDeviceRecordWatchdog();
-            try {
-                await this.device.toggleRecord();
-            } catch (err) {
-                this._clearDeviceRecordWatchdog();
-                alert('Device record failed: ' + err.message);
-            }
-            return;
-        }
         await this.rec.stopRecording();
     }
 
@@ -1189,7 +1165,15 @@ class App {
         // Input device selection (in main menu)
         $('input-device-select').addEventListener('change', (e) => {
             this._selectedInputDeviceId = e.target.value || null;
+            this._selectedInputLabel = e.target.value ? e.target.selectedOptions[0].textContent : '';
+            this._applyMonitorMode(false);
         });
+
+        // Input monitoring (in main menu) -- Auto / On / Off. Auto = on only when the
+        // SCM is the input (it has its own headphone out), off for built-in mics.
+        this._monitorMode = 'auto';
+        try { this._monitorMode = localStorage.getItem('soniphorm-monitor-mode') || 'auto'; } catch (_) {}
+        this._applyMonitorMode(false);
 
         // Output device selection (in main menu) -- routes playback AND live monitoring
         // (recording's mediaStreamSource -> workletNode -> destination chain in
@@ -1404,6 +1388,13 @@ class App {
                 if (hint) hint.hidden = false;
                 return;
             }
+            if (action === 'monitor') {
+                const order = ['auto', 'on', 'off'];
+                this._monitorMode = order[(order.indexOf(this._monitorMode) + 1) % order.length];
+                try { localStorage.setItem('soniphorm-monitor-mode', this._monitorMode); } catch (_) {}
+                this._applyMonitorMode(true);
+                return;
+            }
             if (action === 'midi') return; // handled by direct listener
             if (action === 'dmx') return; // handled by direct listener
             this._closeMainMenu();
@@ -1420,7 +1411,7 @@ class App {
         $('mode-rec').addEventListener('click', () => this.switchMode('rec'));
         $('mode-sample').addEventListener('click', () => this.switchMode('sample'));
         $('mode-seq').addEventListener('click', () => this.switchMode('seq'));
-        $('mode-comp').addEventListener('click', () => this.switchMode('comp'));
+        $('mode-comp')?.addEventListener('click', () => this.switchMode('comp'));
 
         // Waveform context menu
         const wfCanvas = document.getElementById('waveform');
@@ -1897,7 +1888,7 @@ class App {
         document.getElementById('mode-rec').classList.toggle('active', mode === 'rec');
         document.getElementById('mode-sample').classList.toggle('active', mode === 'sample');
         document.getElementById('mode-seq').classList.toggle('active', mode === 'seq');
-        document.getElementById('mode-comp').classList.toggle('active', mode === 'comp');
+        document.getElementById('mode-comp')?.classList.toggle('active', mode === 'comp');
 
         // Show/hide transport bars and toolbar
         document.getElementById('seq-transport').classList.toggle('active', mode === 'seq' || (mode === 'sample' && this._seqShowTransportInSample));
@@ -2254,6 +2245,26 @@ class App {
             });
         }
 
+        // ES8311 PGA gain (19/09/2026) -- hardware gain ahead of the ADC, for when
+        // the input signal itself reads low (e.g. a piezo hit) rather than a
+        // software boost after the fact. Fire-and-forget like RECBTN/play(); no
+        // confirmation needed since the slider position IS the intended state.
+        const pgaSlider = document.getElementById('device-pga-gain');
+        const pgaValue = document.getElementById('device-pga-gain-value');
+        if (pgaSlider) {
+            pgaSlider.addEventListener('input', () => {
+                if (pgaValue) pgaValue.textContent = (parseInt(pgaSlider.value, 10) * 3) + 'dB';
+            });
+            pgaSlider.addEventListener('change', async () => {
+                if (!this.device.isConnected()) return;
+                try {
+                    await this.device.setPgaGain(parseInt(pgaSlider.value, 10));
+                } catch (err) {
+                    console.warn('PGA gain set failed:', err);
+                }
+            });
+        }
+
         const prefs = this.device.loadSettings();
         if (prefs.autoConnect && this.device.isSupported()) {
             this.device.tryAutoConnect().catch(() => {});
@@ -2326,6 +2337,24 @@ class App {
                     : 'SCM: not connected -- click to connect via Bluetooth';
             }
         }
+    }
+
+    // SCM counts as the input when it's connected over USB serial (it's then also the
+    // USB audio interface, even if Android labels it "Headset Earpiece"/"Default"), or
+    // when the chosen input device's label names it.
+    _isScmInput() {
+        if (this.device && this.device.isConnected() && this.device.getTransport() === 'serial') return true;
+        return /soniphorm|smart contact|\bscm\b|espressif|esp32/i.test(this._selectedInputLabel || '');
+    }
+
+    _applyMonitorMode(showHint) {
+        const mode = this._monitorMode;
+        const on = mode === 'on' || (mode === 'auto' && this._isScmInput());
+        this.audio.setMonitorEnabled(on);
+        const btn = document.getElementById('monitor-btn');
+        btn.textContent = 'Monitor input: ' + (mode === 'auto' ? 'Auto (' + (on ? 'on' : 'off') + ')' : (on ? 'On' : 'Off'));
+        btn.classList.toggle('menu-active', on);
+        document.getElementById('monitor-hint').hidden = !(showHint && mode === 'on');
     }
 
     // Small localStorage flag, same pattern as DeviceController's own connection

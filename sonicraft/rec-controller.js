@@ -1,5 +1,141 @@
 /* rec-controller.js – Recording, editing, effects, cross-slot, layer & bounce */
 
+/**
+ * Cross-processing between a carrier buffer (all channels) and a single
+ * modulator channel -- convolve/ringmod/vocoder/fm. Standalone (not a
+ * RecController method) so both the REC-mode Cross-slot dialog
+ * (_processCross below) and the Comp-window Modulate action
+ * (comp-controller.js) can call it directly; declared as a bare top-level
+ * function so it's visible from other <script>-loaded files the same way
+ * DSP/WaveformRenderer are.
+ */
+async function crossProcessBuffer(channels, modulatorChannel, sampleRate, op, start, end) {
+    const sourceChannel = modulatorChannel;
+    const numChannels = channels.length;
+    const regionLen = end - start;
+
+    if (op === 'convolve') {
+        // Use source audio as impulse response via OfflineAudioContext
+        const offline = new OfflineAudioContext(numChannels, regionLen + sourceChannel.length, sampleRate);
+        const buffer = offline.createBuffer(numChannels, regionLen, sampleRate);
+        for (let ch = 0; ch < numChannels; ch++) {
+            buffer.getChannelData(ch).set(channels[ch].subarray(start, end));
+        }
+
+        // Trim source to max 3 seconds for IR
+        const maxIRLen = Math.min(sourceChannel.length, sampleRate * 3);
+        const irBuffer = offline.createBuffer(1, maxIRLen, sampleRate);
+        irBuffer.getChannelData(0).set(sourceChannel.subarray(0, maxIRLen));
+
+        const source = offline.createBufferSource();
+        source.buffer = buffer;
+        const convolver = offline.createConvolver();
+        convolver.buffer = irBuffer;
+        source.connect(convolver);
+        convolver.connect(offline.destination);
+        source.start();
+
+        const rendered = await offline.startRendering();
+        const result = channels.map(ch => new Float32Array(ch));
+        for (let ch = 0; ch < numChannels; ch++) {
+            const data = rendered.getChannelData(Math.min(ch, rendered.numberOfChannels - 1));
+            // Normalise convolution output
+            let peak = 0;
+            for (let i = 0; i < regionLen; i++) {
+                peak = Math.max(peak, Math.abs(data[i]));
+            }
+            const gain = peak > 0 ? 0.9 / peak : 1;
+            for (let i = 0; i < regionLen; i++) {
+                result[ch][start + i] = data[i] * gain;
+            }
+        }
+        return result;
+
+    } else if (op === 'ringmod') {
+        const result = channels.map(ch => new Float32Array(ch));
+        for (let ch = 0; ch < numChannels; ch++) {
+            for (let i = 0; i < regionLen; i++) {
+                const srcSample = sourceChannel[i % sourceChannel.length];
+                result[ch][start + i] = channels[ch][start + i] * srcSample;
+            }
+        }
+        return result;
+
+    } else if (op === 'vocoder') {
+        // Simple spectral envelope transfer using FFT
+        const fSize = 2048;
+        const hop = fSize / 4;
+        const result = channels.map(ch => new Float32Array(ch));
+
+        for (let ch = 0; ch < numChannels; ch++) {
+            const carrier = channels[ch].subarray(start, end);
+            const modulator = sourceChannel;
+
+            const processed = DSP.ola(carrier, fSize, hop, hop, (real, imag, frameIdx) => {
+                // Get modulator frame at same position
+                const modStart = (frameIdx * hop) % Math.max(1, modulator.length - fSize);
+                const modReal = new Float32Array(fSize);
+                const modImag = new Float32Array(fSize);
+                const win = DSP.hannWindow(fSize);
+
+                for (let i = 0; i < fSize; i++) {
+                    const idx = modStart + i;
+                    modReal[i] = (idx < modulator.length ? modulator[idx] : 0) * win[i];
+                    modImag[i] = 0;
+                }
+                DSP.fft(modReal, modImag);
+
+                // Transfer spectral envelope: use modulator magnitudes with carrier phases
+                for (let i = 0; i < fSize; i++) {
+                    const modMag = Math.sqrt(modReal[i] * modReal[i] + modImag[i] * modImag[i]);
+                    const carMag = Math.sqrt(real[i] * real[i] + imag[i] * imag[i]);
+                    if (carMag > 1e-10) {
+                        const scale = modMag / carMag;
+                        real[i] *= scale;
+                        imag[i] *= scale;
+                    }
+                }
+            });
+
+            // Normalise
+            let peak = 0;
+            for (let i = 0; i < processed.length; i++) {
+                peak = Math.max(peak, Math.abs(processed[i]));
+            }
+            const gain = peak > 0 ? 0.9 / peak : 1;
+            const len = Math.min(processed.length, regionLen);
+            for (let i = 0; i < len; i++) {
+                result[ch][start + i] = processed[i] * gain;
+            }
+        }
+        return result;
+
+    } else if (op === 'fm') {
+        // Sample-based phase/index modulation: read the carrier at a position
+        // offset by the modulator's own waveform value (linearly interpolated),
+        // instead of a pure oscillator phase -- produces FM-like sidebands
+        // driven by the modulator's actual spectral content. fmIndexSamples
+        // bounds how far the read head can jitter from its nominal position.
+        const fmIndexSamples = sampleRate * 0.002;
+        const result = channels.map(ch => new Float32Array(ch));
+        for (let ch = 0; ch < numChannels; ch++) {
+            const carrier = channels[ch];
+            for (let i = 0; i < regionLen; i++) {
+                const modSample = sourceChannel[i % sourceChannel.length];
+                const readPos = start + i + modSample * fmIndexSamples;
+                const i0 = Math.floor(readPos);
+                const frac = readPos - i0;
+                const s0 = i0 >= 0 && i0 < carrier.length ? carrier[i0] : 0;
+                const s1 = i0 + 1 >= 0 && i0 + 1 < carrier.length ? carrier[i0 + 1] : 0;
+                result[ch][start + i] = s0 + frac * (s1 - s0);
+            }
+        }
+        return result;
+    }
+
+    throw new Error('Unknown cross-slot operation: ' + op);
+}
+
 class RecController {
     constructor(app) {
         this.app = app;
@@ -9,6 +145,7 @@ class RecController {
 
     async startRecording(index) {
         try {
+            this.app._applyMonitorMode(false); // re-check SCM connection for Auto monitoring
             await this.app.audio.startRecording(this.app._selectedInputDeviceId);
         } catch (e) {
             alert('Could not access microphone. Check permissions.');
@@ -915,109 +1052,7 @@ class RecController {
         const op = document.getElementById('cross-op').value;
         const sourceData = await this._getCrossSourceAudio();
         if (!sourceData) throw new Error('Could not load source slot');
-
-        const sourceChannel = sourceData.channels[0];
-        const numChannels = channels.length;
-        const regionLen = end - start;
-
-        if (op === 'convolve') {
-            // Use source audio as impulse response via OfflineAudioContext
-            const offline = new OfflineAudioContext(numChannels, regionLen + sourceChannel.length, sampleRate);
-            const buffer = offline.createBuffer(numChannels, regionLen, sampleRate);
-            for (let ch = 0; ch < numChannels; ch++) {
-                buffer.getChannelData(ch).set(channels[ch].subarray(start, end));
-            }
-
-            // Trim source to max 3 seconds for IR
-            const maxIRLen = Math.min(sourceChannel.length, sampleRate * 3);
-            const irBuffer = offline.createBuffer(1, maxIRLen, sampleRate);
-            irBuffer.getChannelData(0).set(sourceChannel.subarray(0, maxIRLen));
-
-            const source = offline.createBufferSource();
-            source.buffer = buffer;
-            const convolver = offline.createConvolver();
-            convolver.buffer = irBuffer;
-            source.connect(convolver);
-            convolver.connect(offline.destination);
-            source.start();
-
-            const rendered = await offline.startRendering();
-            const result = channels.map(ch => new Float32Array(ch));
-            for (let ch = 0; ch < numChannels; ch++) {
-                const data = rendered.getChannelData(Math.min(ch, rendered.numberOfChannels - 1));
-                // Normalise convolution output
-                let peak = 0;
-                for (let i = 0; i < regionLen; i++) {
-                    peak = Math.max(peak, Math.abs(data[i]));
-                }
-                const gain = peak > 0 ? 0.9 / peak : 1;
-                for (let i = 0; i < regionLen; i++) {
-                    result[ch][start + i] = data[i] * gain;
-                }
-            }
-            return result;
-
-        } else if (op === 'ringmod') {
-            const result = channels.map(ch => new Float32Array(ch));
-            for (let ch = 0; ch < numChannels; ch++) {
-                for (let i = 0; i < regionLen; i++) {
-                    const srcSample = sourceChannel[i % sourceChannel.length];
-                    result[ch][start + i] = channels[ch][start + i] * srcSample;
-                }
-            }
-            return result;
-
-        } else if (op === 'vocoder') {
-            // Simple spectral envelope transfer using FFT
-            const fSize = 2048;
-            const hop = fSize / 4;
-            const result = channels.map(ch => new Float32Array(ch));
-
-            for (let ch = 0; ch < numChannels; ch++) {
-                const carrier = channels[ch].subarray(start, end);
-                const modulator = sourceChannel;
-
-                const processed = DSP.ola(carrier, fSize, hop, hop, (real, imag, frameIdx) => {
-                    // Get modulator frame at same position
-                    const modStart = (frameIdx * hop) % Math.max(1, modulator.length - fSize);
-                    const modReal = new Float32Array(fSize);
-                    const modImag = new Float32Array(fSize);
-                    const win = DSP.hannWindow(fSize);
-
-                    for (let i = 0; i < fSize; i++) {
-                        const idx = modStart + i;
-                        modReal[i] = (idx < modulator.length ? modulator[idx] : 0) * win[i];
-                        modImag[i] = 0;
-                    }
-                    DSP.fft(modReal, modImag);
-
-                    // Transfer spectral envelope: use modulator magnitudes with carrier phases
-                    for (let i = 0; i < fSize; i++) {
-                        const modMag = Math.sqrt(modReal[i] * modReal[i] + modImag[i] * modImag[i]);
-                        const carMag = Math.sqrt(real[i] * real[i] + imag[i] * imag[i]);
-                        if (carMag > 1e-10) {
-                            const scale = modMag / carMag;
-                            real[i] *= scale;
-                            imag[i] *= scale;
-                        }
-                    }
-                });
-
-                // Normalise
-                let peak = 0;
-                for (let i = 0; i < processed.length; i++) {
-                    peak = Math.max(peak, Math.abs(processed[i]));
-                }
-                const gain = peak > 0 ? 0.9 / peak : 1;
-                const len = Math.min(processed.length, regionLen);
-                for (let i = 0; i < len; i++) {
-                    result[ch][start + i] = processed[i] * gain;
-                }
-            }
-            return result;
-        }
-
-        throw new Error('Unknown cross-slot operation: ' + op);
+        return crossProcessBuffer(channels, sourceData.channels[0], sampleRate, op, start, end);
     }
 
     async previewCross() {

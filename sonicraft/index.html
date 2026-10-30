@@ -12,7 +12,7 @@
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="../favicon.png">
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=190">
+    <link rel="stylesheet" href="style.css?v=192">
 </head>
 <body>
     <header id="header">
@@ -38,7 +38,6 @@
                      less than SCM, so it's the one that should end up off-screen if
                      something has to. -->
                 <button id="scm-indicator" class="mode-btn scm-indicator" title="SCM: not connected">SCM</button>
-                <button id="mode-comp" class="mode-btn" title="Comp mode">COMP</button>
             </div>
             <button id="menu-btn" class="icon-btn" title="Menu">&#9776;</button>
             <div class="context-menu" id="main-menu" hidden>
@@ -53,6 +52,9 @@
                     <option value="">System Default</option>
                 </select>
                 <span id="output-device-hint" class="menu-hint" hidden>Routes playback and live monitoring to this device</span>
+
+                <button data-action="monitor" id="monitor-btn">Monitor input: Auto</button>
+                <span id="monitor-hint" class="menu-hint" hidden>Monitoring always on. Use headphones, or the built-in mic will feed back through the speakers.</span>
 
                 <button id="midi-btn" data-action="midi">MIDI</button>
                 <div id="midi-settings" hidden>
@@ -76,6 +78,9 @@
                 <div id="device-settings" hidden>
                     <div class="midi-row"><span>Port</span><button id="device-connect-btn" class="menu-select">USB…</button><button id="device-connect-ble-btn" class="menu-select">Bluetooth…</button></div>
                     <div class="midi-row"><span>Status</span><span id="device-status" class="menu-hint">Not connected</span></div>
+                    <!-- ES8311 PGA gain (hardware, pre-ADC) -- separate from the browser-side
+                         noise-gate threshold in the toolbar, which is post-capture software. -->
+                    <div class="midi-row"><span>Input gain</span><input type="range" id="device-pga-gain" class="gate-slider" min="0" max="10" value="0" step="1" title="ES8311 analog mic PGA gain, step N = N*3dB (0-30dB)"><span id="device-pga-gain-value" class="menu-hint">0dB</span></div>
                     <!-- MSC (mass storage) UI hidden 27/07 -- BLE download now covers the
                          same job on both Android and iOS (MSC/File System Access can't
                          work on iOS/Bluefy at all -- WebKit has no showDirectoryPicker()),
@@ -95,7 +100,7 @@
                 <button data-action="delete-all" class="danger">Delete all</button>
                 <button data-action="console" id="console-btn">Show console</button>
                 <button data-action="install" id="install-btn" hidden>Install app</button>
-                <span class="menu-version">v190</span>
+                <span class="menu-version">v192</span>
             </div>
         </div>
     </header>

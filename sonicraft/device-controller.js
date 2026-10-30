@@ -601,6 +601,35 @@ class DeviceController {
     }
 
     /**
+     * PGA <0-10> — sets the ES8311 codec's own analog mic PGA gain register (reg
+     * 0x14), not a software multiplier. Step N = N*3dB (0dB-30dB), per the actual
+     * datasheet PDF (Everest ES8311 Rev 8.0, page 20) -- PGAGAIN is bits[3:0],
+     * bit 4 is LINSEL (input source select, preserved by the firmware handler).
+     * This is gain applied before the ADC even digitizes the signal, so it's the
+     * right knob for a genuinely weak input (e.g. a piezo hit that reads low in
+     * the waveform) rather than boosting an already-quantized signal after the
+     * fact.
+     *
+     * Register corrected a THIRD time (20/09/2026), restoring 0x14 after an
+     * intermediate pass wrongly moved this to register 0x16 based on a reference
+     * driver's usage pattern rather than the datasheet itself. 0x16 turned out to
+     * be a real but SEPARATE digital post-ADC gain stage, not the analog preamp --
+     * and that intermediate pass's init-value fix for 0x14 accidentally pinned
+     * the real analog gain at its maximum (30dB) permanently, which is the likely
+     * explanation for "distorted regardless of gain" reported live in between.
+     * Confirmed this time against the primary source (the datasheet's own
+     * register table), not driver behaviour or a web-search summary.
+     *
+     * Silently no-ops on hardware that doesn't have an ES8311 -- fire-and-forget
+     * like the rest of this controller's simple setters, no state comes back via
+     * onState for this.
+     */
+    async setPgaGain(value) {
+        const clamped = Math.max(0, Math.min(10, Math.round(value)));
+        await this._send('PGA ' + clamped + '\n');
+    }
+
+    /**
      * MSCMODE ON — reboots the device into USB mass-storage mode (SD card mounts
      * as a normal drive on the host OS, works on iOS since it's OS-level, not
      * Web Serial). The device disconnects immediately after acking this -- expect
