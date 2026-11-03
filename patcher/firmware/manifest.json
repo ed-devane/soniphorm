@@ -1,8 +1,8 @@
 {
-    "version": "1.10.98",
+    "version": "1.10.103",
     "file": "GenRuntime.ino.bin",
-    "date": "2026-10-03",
-    "notes": "SD uploads: interrupted uploads can now be resumed from where they stopped (device reports incomplete files), recorder playback pauses during transfers, and chunks are retry-safe. SD browser shows real WAV durations for any sample rate/bit depth. SCM: new Amp Gate input on the Audio Output strip keeps the speaker amp on during quiet passages. Breakout pots bound to CCs work again, and MIDI-strip pot cables support a Min/Max range. Also: untouched patcher faders no longer override module settings; AudioRecorder Autoplay and Loop fixes. Includes all changes since 1.10.70.",
+    "date": "2026-11-03",
+    "notes": "AudioRecorder: new Voice record format (mono 16-bit 16 kHz), for speech notes and speech-to-text. Files are about 4x smaller, so BLE download is much faster. Pick the mic's input channel in the inspector. WAV headers now match the audio actually written. MIDIOut: new All output (TRS + USB + BLE), BLE MIDI now carries CCs and clock/start/stop, and the channel is 1-16 to match the patcher. AudioRecorder hw_mask (rewired strip cables stop the native pot/button mapping) and GranularSynth PSRAM reserve. Includes all changes since 1.10.98.",
     "flashAddress": "0x10000",
     "board": "ESP32-S3-WROOM-1-N16R8"
 }
