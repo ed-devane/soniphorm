@@ -22,8 +22,18 @@
       #start { margin: auto; font-size: 20px; padding: 18px 28px; background: #ddd; color: #111; border: none; border-radius: 8px; }
       #intro { margin: auto; max-width: 420px; padding: 24px; text-align: center; line-height: 1.5; color: #bbb; }
       .hidden { display: none !important; }
+      /* Landscape: picture on the left, controls in a column on the right with
+         Select filling what's left of it, so the camera keeps its full width. */
+      @media (orientation: landscape) {
+        #app { display: grid; grid-template-columns: 1fr minmax(170px, 30%); grid-template-rows: auto 1fr; }
+        #status { grid-column: 1 / -1; padding: 4px 12px; min-height: 0; }
+        #view, #start, #intro { grid-column: 1; grid-row: 2; }
+        #controls { grid-column: 2; grid-row: 2; flex-direction: column; flex-wrap: nowrap; align-items: stretch; padding: 4px 12px 8px 8px; min-height: 0; }
+        #controls select { flex: none; }
+        #select { flex: 1 1 auto; min-height: 80px; }
+      }
     </style>
-    <script type="module" crossorigin src="/centipede/assets/phone-Brl2MVNc.js"></script>
+    <script type="module" crossorigin src="/centipede/assets/phone-BrnsEim_.js"></script>
     <link rel="modulepreload" crossorigin href="/centipede/assets/relay-Wtqh-In_.js">
   </head>
   <body>
@@ -40,6 +50,7 @@
           <option value="fine">Fine</option>
         </select>
         <button id="torch" class="hidden">Light</button>
+        <button id="fullscreen" class="hidden">Full screen</button>
         <button id="select">Select</button>
       </div>
     </div>
