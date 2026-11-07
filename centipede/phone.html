@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#111111" />
+    <link rel="icon" type="image/png" href="/centipede/favicon.png" />
+    <title>Centipede Tag Camera</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; background: #111; color: #ddd; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; overflow: hidden; }
+      #app { display: flex; flex-direction: column; height: 100%; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+      #status { padding: 8px 12px; font-size: 14px; color: #bbb; min-height: 36px; }
+      #view { flex: 1; position: relative; min-height: 0; }
+      #view canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+      #controls { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 12px 12px; align-items: center; }
+      #controls select, #controls button { font-size: 15px; background: #222; color: #ddd; border: 1px solid #555; border-radius: 6px; padding: 8px 10px; }
+      #controls select { flex: 1; min-width: 0; }
+      #select { flex: 1 1 100%; font-size: 22px !important; padding: 18px !important; background: #ddd !important; color: #111 !important; font-weight: 600; }
+      #select:active { background: #fff !important; }
+      #start { margin: auto; font-size: 20px; padding: 18px 28px; background: #ddd; color: #111; border: none; border-radius: 8px; }
+      #intro { margin: auto; max-width: 420px; padding: 24px; text-align: center; line-height: 1.5; color: #bbb; }
+      .hidden { display: none !important; }
+    </style>
+    <script type="module" crossorigin src="/centipede/assets/phone-Do53hQ7n.js"></script>
+    <link rel="modulepreload" crossorigin href="/centipede/assets/bundler-DMt3d_xb.js">
+  </head>
+  <body>
+    <div id="app">
+      <div id="status">Centipede Tag Camera</div>
+      <div id="intro" class="hidden"></div>
+      <button id="start" class="hidden">Start camera</button>
+      <div id="view" class="hidden"><canvas id="canvas"></canvas></div>
+      <div id="controls" class="hidden">
+        <select id="camera"></select>
+        <select id="detail">
+          <option value="fast">Fast</option>
+          <option value="normal" selected>Normal</option>
+          <option value="fine">Fine</option>
+        </select>
+        <button id="torch" class="hidden">Light</button>
+        <button id="select">Select</button>
+      </div>
+    </div>
+  </body>
+</html>

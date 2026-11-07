@@ -62,6 +62,11 @@ const SHIFT_DUCK_SMOOTH_COEFF = 1 - Math.exp(-1 / SHIFT_DUCK_SMOOTH_SAMPLES);
 // feel consistent even though they're unrelated implementations underneath.
 const SPEED_MIN = 0.25;
 const SPEED_MAX = 4;
+// Equal-power center gain (cos(PI/4) === sin(PI/4)) - the foundation and
+// live passthrough always sit dead center on the stereo outL/outR output
+// (see process()) regardless of Pan Range, since only individually
+// addressable layers have their own "zone" to spread into.
+const PAN_CENTER_GAIN = Math.SQRT1_2;
 
 // Wraps (not clamps) a raw CV value into [0, length) - same convention
 // cvMap.js's mapEnumIndex uses for SamplePlayer's markerIndex/Oscillator's
@@ -159,6 +164,14 @@ class AudioLooperProcessor extends AudioWorkletProcessor {
       // layer's playback (not recording - see readPos/recordPhase in
       // process()), so relative pitch/timing between them stays consistent.
       { name: 'speed', defaultValue: 1, minValue: SPEED_MIN, maxValue: SPEED_MAX, automationRate: 'k-rate' },
+      // 0 = every layer centered (identical to the plain mono `out`), 1 =
+      // full hard-left-to-hard-right spread - see the pan-gain precompute in
+      // process(). Only affects the stereo outL/outR output (see
+      // factories/audioLooper.js) - the original mono `out` sums every
+      // layer/foundation unpanned, completely unaffected by this, so an
+      // existing patch using only `out` sounds identical regardless of
+      // Pan Range.
+      { name: 'panRange', defaultValue: 0, minValue: 0, maxValue: 1, automationRate: 'k-rate' },
     ];
   }
 
@@ -206,6 +219,13 @@ class AudioLooperProcessor extends AudioWorkletProcessor {
     // cares that it changed, not by how much. See the postMessage below.
     this._eofPulseCount = 0;
     this._lastPostedEofCount = 0;
+    // Pan-spread gains for the stereo outL/outR output (see process()) -
+    // allocated once here and overwritten in place each block rather than
+    // a fresh Float32Array per block, to keep the audio thread allocation-
+    // free in steady state. Sized to MAX_LAYERS, only the first
+    // layerOrder.length entries are ever read.
+    this._panGainL = new Float32Array(MAX_LAYERS);
+    this._panGainR = new Float32Array(MAX_LAYERS);
 
     this.port.onmessage = (e) => this.handleMessage(e.data);
   }
@@ -509,6 +529,12 @@ class AudioLooperProcessor extends AudioWorkletProcessor {
     const input = inputs[0] && inputs[0][0];
     const output = outputs[0] && outputs[0][0];
     if (!output) return true;
+    // Second output (stereo pan-spread - see factories/audioLooper.js) is
+    // optional: undefined whenever nothing's patched from outL/outR, in
+    // which case the pan-gain precompute below is simply never read.
+    const stereoOut = outputs[1];
+    const outL = stereoOut && stereoOut[0];
+    const outR = stereoOut && stereoOut[1];
 
     const p = parameters;
     const recordArmOn = p.recordArm[0] >= 0.5;
@@ -519,9 +545,28 @@ class AudioLooperProcessor extends AudioWorkletProcessor {
     const layerShift = Math.min(1, Math.max(0, p.layerShift[0]));
     const layerVolume = Math.min(1, Math.max(0, p.layerVolume[0]));
     const speed = Math.min(SPEED_MAX, Math.max(SPEED_MIN, p.speed[0]));
+    const panRange = Math.min(1, Math.max(0, p.panRange[0]));
     const clockOn = p.clock[0] >= 0.5;
     const triggerOn = p.trigger[0] >= 0.5;
     const blockLen = output.length;
+
+    // Each active layer's own equal-power pan gains, precomputed once per
+    // block (layerOrder/panRange don't change mid-block) rather than per
+    // sample. Spread evenly by POSITION in layerOrder (creation order), not
+    // by slot number, so the spread is always contiguous regardless of
+    // which slots happen to be free right now - the first layer sits
+    // toward one edge, the most recent toward the other, everything else
+    // spaced between, all scaled by panRange (0 = every layer centered,
+    // 1 = full hard-left-to-hard-right).
+    const activeLayerCount = this.layerOrder.length;
+    if (outL) {
+      for (let j = 0; j < activeLayerCount; j++) {
+        const pan = activeLayerCount > 1 ? (-1 + (2 * j) / (activeLayerCount - 1)) * panRange : 0;
+        const angle = ((pan + 1) * Math.PI) / 4;
+        this._panGainL[j] = Math.cos(angle);
+        this._panGainR[j] = Math.sin(angle);
+      }
+    }
 
     // Clock-tick period tracking (Clock mode tempo), same technique
     // eventLooper.js's handleClock uses, in samples instead of audioCtx time
@@ -629,6 +674,10 @@ class AudioLooperProcessor extends AudioWorkletProcessor {
         // (if passthrough is on) is the only thing there is to hear.
         if (this.firstTakeSamples) this.firstTakeSamples.push(inSample);
         output[i] = this.passthrough ? inSample : 0;
+        if (outL) {
+          outL[i] = output[i] * PAN_CENTER_GAIN;
+          outR[i] = output[i] * PAN_CENTER_GAIN;
+        }
         continue;
       }
 
@@ -638,18 +687,47 @@ class AudioLooperProcessor extends AudioWorkletProcessor {
       // mute). Nothing selected while soloed means nothing to isolate, so
       // silence rather than falling back to the normal mix.
       let sample = 0;
+      let sampleL = 0;
+      let sampleR = 0;
       if (layerSoloOn) {
+        // A single isolated voice has no other layer to spread against -
+        // centered, same as the foundation/passthrough below, regardless
+        // of panRange.
         if (selectedSlot != null) sample = this.readLayerSample(this.layers[selectedSlot], this.readPos);
+        if (outL) {
+          sampleL = sample * PAN_CENTER_GAIN;
+          sampleR = sample * PAN_CENTER_GAIN;
+        }
       } else {
-        sample = this.readFoundationSample(this.readPos);
-        for (const slot of this.layerOrder) {
-          const layer = this.layers[slot];
+        const foundationSample = this.readFoundationSample(this.readPos);
+        sample = foundationSample;
+        if (outL) {
+          sampleL = foundationSample * PAN_CENTER_GAIN;
+          sampleR = foundationSample * PAN_CENTER_GAIN;
+        }
+        for (let j = 0; j < activeLayerCount; j++) {
+          const layer = this.layers[this.layerOrder[j]];
           if (layer.muted) continue;
-          sample += this.readLayerSample(layer, this.readPos);
+          const layerSample = this.readLayerSample(layer, this.readPos);
+          sample += layerSample;
+          if (outL) {
+            sampleL += layerSample * this._panGainL[j];
+            sampleR += layerSample * this._panGainR[j];
+          }
         }
       }
-      if (this.passthrough) sample += inSample;
+      if (this.passthrough) {
+        sample += inSample;
+        if (outL) {
+          sampleL += inSample * PAN_CENTER_GAIN;
+          sampleR += inSample * PAN_CENTER_GAIN;
+        }
+      }
       output[i] = sample;
+      if (outL) {
+        outL[i] = sampleL;
+        outR[i] = sampleR;
+      }
 
       // Recording (writing new audio into a staging layer, or riding
       // recordAutomationArm onto an already-playing layer's envelope) is
