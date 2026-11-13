@@ -1,8 +1,8 @@
 {
-    "version": "1.10.103",
+    "version": "1.10.111",
     "file": "GenRuntime.ino.bin",
-    "date": "2026-11-03",
-    "notes": "AudioRecorder: new Voice record format (mono 16-bit 16 kHz), for speech notes and speech-to-text. Files are about 4x smaller, so BLE download is much faster. Pick the mic's input channel in the inspector. WAV headers now match the audio actually written. MIDIOut: new All output (TRS + USB + BLE), BLE MIDI now carries CCs and clock/start/stop, and the channel is 1-16 to match the patcher. AudioRecorder hw_mask (rewired strip cables stop the native pot/button mapping) and GranularSynth PSRAM reserve. Includes all changes since 1.10.98.",
+    "date": "2026-11-13",
+    "notes": "Piezo In: MIDI velocity reworked. It now follows how hard the piezo is hit across the full MIDI range, independent of the audio gain setting, with new velocity_curve, velocity_min and velocity_gain controls. New retrigger_mask stops one tap sending several notes, and the trigger has a 30 ms minimum hold. New broadband_trigger mode (with trigger_hpf) for stick and knock hits. The clip indicator no longer fires falsely at high gain. USB MIDI Out is retired: use MIDI Out with Output set to USB; existing patches are converted automatically. Includes all changes since 1.10.103.",
     "flashAddress": "0x10000",
     "board": "ESP32-S3-WROOM-1-N16R8"
 }
