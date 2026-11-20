@@ -1,8 +1,8 @@
 {
-    "version": "1.10.111",
+    "version": "1.10.114",
     "file": "GenRuntime.ino.bin",
-    "date": "2026-11-13",
-    "notes": "Piezo In: MIDI velocity reworked. It now follows how hard the piezo is hit across the full MIDI range, independent of the audio gain setting, with new velocity_curve, velocity_min and velocity_gain controls. New retrigger_mask stops one tap sending several notes, and the trigger has a 30 ms minimum hold. New broadband_trigger mode (with trigger_hpf) for stick and knock hits. The clip indicator no longer fires falsely at high gain. USB MIDI Out is retired: use MIDI Out with Output set to USB; existing patches are converted automatically. Includes all changes since 1.10.103.",
+    "date": "2026-11-19",
+    "notes": "Filter: the cutoff setting in the patcher is now used (previously every Filter ran at 1000 Hz). A pot bound to cutoff now sweeps the full 60 Hz-16 kHz range, and turning it fully down gives the lowest cutoff instead of jumping back up. Speaker amp auto-idle is now OFF by default (turn it on per unit in the Audio Output inspector), and when on it only switches the amp on for patches that use the Speaker output. Includes all changes since 1.10.111.",
     "flashAddress": "0x10000",
     "board": "ESP32-S3-WROOM-1-N16R8"
 }
